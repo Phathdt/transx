@@ -22,7 +22,9 @@ func main() {
 			},
 		},
 		Commands: []*cli.Command{
+			{Name: "auth", Usage: "Start standalone auth service (ForwardAuth backend)", Action: mycli.RunAuthService},
 			{Name: "wallet", Usage: "Start standalone wallet service", Action: mycli.RunWalletService},
+			{Name: "seed", Usage: "Insert development users (idempotent)", Action: mycli.Seed},
 			{
 				Name:  "openapi-export",
 				Usage: "Generate OpenAPI spec without starting services",

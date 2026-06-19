@@ -2,24 +2,24 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/urfave/cli/v2"
 
 	"transx/internal/platform/config"
+	"transx/internal/platform/httpserver"
 	"transx/internal/platform/logger"
 	"transx/internal/platform/postgres"
-	"transx/internal/shared/lifecycle"
 )
 
-// RunWalletService starts the standalone wallet service. Unlike the quote
-// service it exposes no business HTTP routes and no gRPC server yet; it only
-// serves operational endpoints (/metrics, /healthz, /readyz) so Compose can
-// probe it while the wallet domain is built out.
+// RunWalletService starts the standalone wallet service. It exposes no business
+// HTTP routes yet; the platform httpserver still serves /healthz and /readyz so
+// Compose can probe it while the wallet domain is built out.
 func RunWalletService(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -48,15 +48,31 @@ func runWallet(ctx context.Context, configPath string) error {
 	}
 	defer db.Close()
 
-	// Operational HTTP server: /metrics plus /healthz and /readyz. Runs in an
-	// errgroup-style goroutine; a listen failure is logged because the service
-	// has no other surface to fall back on.
-	reg := prometheus.NewRegistry()
-	go func() {
-		if err := runMetricsServer(ctx, cfg.HTTP.Address, log, true, reg); err != nil {
-			log.Error("wallet metrics server error", logger.Err(err))
-		}
-	}()
+	server := httpserver.New(httpserver.Config{
+		Address:            cfg.HTTP.Address,
+		CORSAllowedOrigins: cfg.HTTP.CORSAllowedOrigins,
+		Logger:             log,
+		Ready: func(ctx context.Context) error {
+			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			return db.Ping(pingCtx)
+		},
+	})
 
-	return lifecycle.Wait(ctx, "wallet")
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.Listen() }()
+
+	log.Info("wallet service started", "address", cfg.HTTP.Address)
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		if errors.Is(err, httpserver.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
 }

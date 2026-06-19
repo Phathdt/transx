@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -13,11 +14,18 @@ type Config struct {
 	HTTP     HTTP     `yaml:"http"      mapstructure:"http"`
 	Postgres Postgres `yaml:"postgres"  mapstructure:"postgres"`
 	Kafka    Kafka    `yaml:"kafka"     mapstructure:"kafka"`
+	Auth     Auth     `yaml:"auth"      mapstructure:"auth"`
 }
 
 type App struct {
 	Environment string `yaml:"environment" mapstructure:"environment"`
 	LogLevel    string `yaml:"log_level"   mapstructure:"log_level"`
+}
+
+// Auth configures the auth service: JWT signing (HS256) and token lifetime.
+type Auth struct {
+	JWTSecret string        `yaml:"jwt_secret" mapstructure:"jwt_secret"`
+	JWTTTL    time.Duration `yaml:"jwt_ttl"    mapstructure:"jwt_ttl"` // e.g. 24h
 }
 
 type HTTP struct {

@@ -4,7 +4,7 @@ BINARY := transx
 COVERPROFILE ?= /tmp/modules.noquery.cover
 COVERAGE_MIN ?= 90.0
 
-.PHONY: help sqlc format vet lint build check openapi migrate run-wallet clean
+.PHONY: help sqlc format vet lint build check openapi migrate seed run-wallet clean
 
 help:
 	@printf "Available targets:\n"
@@ -16,6 +16,7 @@ help:
 	@printf "  check        Run sqlc, fmt, vet, lint\n"
 	@printf "  openapi      Generate openapi.yaml\n"
 	@printf "  migrate      Apply database migrations\n"
+	@printf "  seed         Insert development users\n"
 	@printf "  run-wallet   Run wallet service\n"
 	@printf "  clean        Remove local build artifacts\n"
 
@@ -50,6 +51,9 @@ openapi:
 
 migrate:
 	go run . --config config.yaml migrate up
+
+seed:
+	go run . --config config.yaml seed
 
 run-wallet:
 	go run . --config config.yaml wallet

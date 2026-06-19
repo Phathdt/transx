@@ -14,3 +14,9 @@ postgres:
 kafka:
   brokers:
     - 'localhost:9092'
+
+auth:
+  # HS256 signing secret. Override in non-local envs via AUTH__JWT_SECRET.
+  jwt_secret: 'dev-secret-change-me'
+  jwt_ttl: 24h
+

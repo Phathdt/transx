@@ -34,3 +34,8 @@ func NewBadRequestError(msg string) *AppError {
 func NewUnprocessableError(msg string) *AppError {
 	return &AppError{Status: http.StatusUnprocessableEntity, Message: msg}
 }
+
+func NewUnauthorizedError(msg string) *AppError {
+	return &AppError{Status: http.StatusUnauthorized, Message: msg}
+}
+

@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: transx API
+  description: transx API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+paths:
+  /check:
+    get:
+      tags:
+        - auth
+      summary: 'ForwardAuth check: verify bearer token, echo X-User-Id'
+      description: 'ForwardAuth check: verify bearer token, echo X-User-Id'
+      operationId: check
+      responses:
+        '200':
+          description: OK
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /login:
+    post:
+      tags:
+        - auth
+      summary: Authenticate with email and password, returns a JWT
+      description: Authenticate with email and password, returns a JWT
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtoLoginCommand'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoLoginResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+components:
+  schemas:
+    DtoLoginCommand:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    DtoLoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+        userId:
+          type: string
+    HandlersErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        requestId:
+          type: string
+        traceId:
+          type: string

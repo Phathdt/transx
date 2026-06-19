@@ -1,1 +1,27 @@
+.DS_Store
+
+# Environment and secrets
 .env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Node / frontend
+node_modules/
+dist/
+coverage/
+
+# Go / backend
+bin/
+tmp/
+*.test
+
+# Local editor state
+.idea/
+.vscode/
+
+.claude
+.claude_sessions
+plans
