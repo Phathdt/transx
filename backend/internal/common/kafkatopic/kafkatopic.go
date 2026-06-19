@@ -26,6 +26,16 @@ const (
 
 	// SettlementDLQ is the settlement service's dead-letter queue.
 	SettlementDLQ = "transx.settlement.dlq"
+
+	// Transfer carries the transfer lifecycle events the wallet service emits via
+	// its outbox. The transfer processor consumes TransferRequested; Completed and
+	// Failed are published for downstream consumers (none in this scope).
+	TransferRequested = "transfer.requested"
+	TransferCompleted = "transfer.completed"
+	TransferFailed    = "transfer.failed"
+
+	// WalletDLQ is the wallet service's dead-letter queue.
+	WalletDLQ = "transx.wallet.dlq"
 )
 
 // Delayed-retry topics. A handler that fails on the main topic escalates the
@@ -45,6 +55,10 @@ const (
 	SettlementRetry6s  = "transx.settlement.retry-6s"
 	SettlementRetry30s = "transx.settlement.retry-30s"
 	SettlementRetry5m  = "transx.settlement.retry-5m"
+
+	WalletRetry6s  = "transx.wallet.retry-6s"
+	WalletRetry30s = "transx.wallet.retry-30s"
+	WalletRetry5m  = "transx.wallet.retry-5m"
 )
 
 // Message headers used by the delayed-retry machinery.
@@ -90,6 +104,12 @@ var (
 		{Topic: SettlementRetry30s, Delay: 30 * time.Second},
 		{Topic: SettlementRetry5m, Delay: 5 * time.Minute},
 	}
+
+	walletRetryStages = []RetryStage{
+		{Topic: WalletRetry6s, Delay: 6 * time.Second},
+		{Topic: WalletRetry30s, Delay: 30 * time.Second},
+		{Topic: WalletRetry5m, Delay: 5 * time.Minute},
+	}
 )
 
 // OrderRetryStages returns the order service's retry escalation tiers.
@@ -97,6 +117,9 @@ func OrderRetryStages() []RetryStage { return orderRetryStages }
 
 // SettlementRetryStages returns the settlement service's retry escalation tiers.
 func SettlementRetryStages() []RetryStage { return settlementRetryStages }
+
+// WalletRetryStages returns the wallet service's retry escalation tiers.
+func WalletRetryStages() []RetryStage { return walletRetryStages }
 
 // NextRetryStage returns the retry tier for the given 0-based attempt count and
 // ok=true, or ok=false when the attempts are exhausted and the caller should

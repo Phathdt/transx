@@ -8,6 +8,7 @@ import (
 	"transx/internal/common/apperror"
 	"transx/internal/modules/auth/application/dto"
 	"transx/internal/modules/auth/application/services"
+	"transx/internal/platform/httpserver"
 )
 
 // AuthHandler exposes login and the ForwardAuth check endpoint.
@@ -24,6 +25,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	var cmd dto.LoginCommand
 	if err := c.BodyParser(&cmd); err != nil {
 		return apperror.NewBadRequestError("invalid request body")
+	}
+	if err := httpserver.ValidateStruct(cmd); err != nil {
+		return apperror.NewBadRequestError(err.Error())
 	}
 
 	resp, err := h.svc.Login(c.Context(), cmd)

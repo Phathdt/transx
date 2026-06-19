@@ -17,6 +17,9 @@ func NewOpenAPIRouter(app *fiber.App) fiberopenapi.Generator {
 		option.WithDescription("transx API"),
 		option.WithServer("/api/v1"),
 		option.WithPathParser(apiV1PathParser{}),
+		// Mark request fields whose validate tag contains "required" as required
+		// in the schema, so the spec mirrors the runtime validation.
+		option.WithReflectorConfig(option.RequiredPropByValidateTag()),
 	)
 }
 

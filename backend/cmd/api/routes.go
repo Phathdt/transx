@@ -3,22 +3,33 @@ package api
 import (
 	"transx/cmd/api/handlers"
 	authdto "transx/internal/modules/auth/application/dto"
+	walletdto "transx/internal/modules/wallet/application/dto"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/oaswrap/spec/adapter/fiberopenapi"
 	"github.com/oaswrap/spec/option"
 )
 
-// RegisterRoutes wires the auth handlers onto the Fiber app for the running
+// RegisterRoutes wires the auth handlers onto the Fiber app for the running auth
 // service. The spec router groups under /api/v1 to match the gateway prefix.
 func RegisterRoutes(app *fiber.App, authH *handlers.AuthHandler) {
 	RegisterAuthRoutes(fiberopenapi.NewRouter(app), authH)
 }
 
+// RegisterWalletRoutes wires the wallet handlers onto the Fiber app for the
+// running wallet service. Kept separate from RegisterRoutes so each binary only
+// registers the routes it actually serves (a shared registrar would force a nil
+// handler for the other service and panic at request time).
+func RegisterWalletRoutes(app *fiber.App, walletH *handlers.WalletHandler) {
+	registerWalletRoutes(fiberopenapi.NewRouter(app), walletH)
+}
+
 // RegisterAllRoutesForSpec registers every route with nil handlers so the
-// OpenAPI exporter can emit the full spec without wiring real dependencies.
+// OpenAPI exporter can emit the full spec without wiring real dependencies. Nil
+// handlers are safe here because the exporter never invokes them.
 func RegisterAllRoutesForSpec(r fiberopenapi.Router) {
 	RegisterAuthRoutes(r, nil)
+	registerWalletRoutes(r, nil)
 }
 
 // RegisterAuthRoutes wires the auth-service routes: login + the ForwardAuth
@@ -52,5 +63,64 @@ func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 		option.Summary("ForwardAuth check: verify bearer token, echo X-User-Id"),
 		option.Response(fiber.StatusOK, nil),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+	)
+}
+
+// registerWalletRoutes wires the wallet-service routes onto the spec router.
+// A nil handler registers the route for spec export only.
+func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler) {
+	v1 := r.Group("/api/v1")
+
+	var createAccount, getAccount, createTransfer, getTransfer fiber.Handler
+	if walletH != nil {
+		createAccount = walletH.CreateAccount
+		getAccount = walletH.GetAccount
+		createTransfer = walletH.CreateTransfer
+		getTransfer = walletH.GetTransfer
+	}
+
+	v1.Post("/accounts", createAccount).With(
+		option.Tags("wallet"),
+		option.OperationID("createAccount"),
+		option.Summary("Create a wallet account for the caller"),
+		option.Request(new(walletdto.CreateAccountCommand), option.ContentRequired()),
+		option.Response(fiber.StatusCreated, new(walletdto.AccountResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Get("/accounts/:accountId", getAccount).With(
+		option.Tags("wallet"),
+		option.OperationID("getAccount"),
+		option.Summary("Get a wallet account balance"),
+		option.Response(fiber.StatusOK, new(walletdto.AccountResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Post("/transfers", createTransfer).With(
+		option.Tags("wallet"),
+		option.OperationID("createTransfer"),
+		option.Summary("Create an internal transfer (idempotent via Idempotency-Key)"),
+		option.Request(new(walletdto.CreateTransferCommand), option.ContentRequired()),
+		option.Response(fiber.StatusAccepted, new(walletdto.TransferResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusForbidden, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusConflict, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnprocessableEntity, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Get("/transfers/:transferId", getTransfer).With(
+		option.Tags("wallet"),
+		option.OperationID("getTransfer"),
+		option.Summary("Get a transfer by id"),
+		option.Response(fiber.StatusOK, new(walletdto.TransferResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
 	)
 }

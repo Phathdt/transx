@@ -68,6 +68,48 @@ func Seed(c *cli.Context) error {
 		fmt.Printf("seeded user %s (%s)\n", u.Email, u.Password)
 	}
 
+	if err := seedAccounts(ctx, db); err != nil {
+		return err
+	}
+
 	fmt.Printf("Seeded %d user(s) successfully\n", len(devUsers))
+	return nil
+}
+
+// seedAccount describes a development wallet account. The id is assigned by the
+// database (uuidv7() default); user_id is resolved from the owner's email.
+type seedAccount struct {
+	OwnerEmail string
+	Name       string
+	Currency   string
+	Balance    string
+}
+
+// devAccounts are fixed development wallets used to exercise transfers.
+var devAccounts = []seedAccount{
+	{OwnerEmail: "alice@transx.dev", Name: "alice-main", Currency: "USD", Balance: "1000.0000"},
+	{OwnerEmail: "bob@transx.dev", Name: "bob-main", Currency: "USD", Balance: "500.0000"},
+}
+
+// seedAccounts upserts the development wallet accounts. It is idempotent via
+// ON CONFLICT (user_id, name); the balance/currency are refreshed on re-run.
+func seedAccounts(ctx context.Context, db *postgres.Pool) error {
+	for _, a := range devAccounts {
+		_, err := db.Exec(ctx, `
+			INSERT INTO accounts (user_id, name, currency, available_balance, status)
+			SELECT u.id, $2, $3, $4, 'ACTIVE'
+			FROM users u
+			WHERE u.email = $1
+			ON CONFLICT (user_id, name) DO UPDATE
+			SET currency          = EXCLUDED.currency,
+			    available_balance = EXCLUDED.available_balance,
+			    updated_at        = now()`,
+			a.OwnerEmail, a.Name, a.Currency, a.Balance,
+		)
+		if err != nil {
+			return fmt.Errorf("seed: upsert account %s/%s: %w", a.OwnerEmail, a.Name, err)
+		}
+		fmt.Printf("seeded account %s for %s (%s %s)\n", a.Name, a.OwnerEmail, a.Balance, a.Currency)
+	}
 	return nil
 }
