@@ -1,0 +1,102 @@
+version: '2'
+overrides:
+  go:
+    overrides:
+      - db_type: 'pg_catalog.timestamp'
+        engine: 'postgresql'
+        go_type:
+          import: 'time'
+          type: 'Time'
+          pointer: false
+
+      - db_type: 'pg_catalog.timestamp'
+        engine: 'postgresql'
+        nullable: true
+        go_type:
+          import: github.com/guregu/null/v5
+          package: 'null'
+          type: Time
+
+      - db_type: 'pg_catalog.bool'
+        nullable: true
+        go_type:
+          import: github.com/guregu/null/v5
+          package: 'null'
+          type: Bool
+
+      - db_type: 'pg_catalog.int8'
+        go_type: 'int64'
+
+      - db_type: 'pg_catalog.int8'
+        nullable: true
+        go_type:
+          import: github.com/guregu/null/v5
+          package: 'null'
+          type: Int64
+
+      - db_type: 'pg_catalog.numeric'
+        go_type:
+          import: github.com/shopspring/decimal
+          type: 'Decimal'
+          pointer: false
+
+      - db_type: 'pg_catalog.numeric'
+        nullable: true
+        go_type:
+          import: github.com/shopspring/decimal
+          type: 'NullDecimal'
+          pointer: false
+
+      - db_type: 'pg_catalog.int4'
+        go_type: 'int'
+
+      - db_type: 'pg_catalog.int4'
+        nullable: true
+        go_type:
+          import: github.com/guregu/null/v5
+          package: 'null'
+          type: Int
+
+      - db_type: 'decimal'
+        go_type:
+          import: github.com/shopspring/decimal
+          type: 'Decimal'
+          pointer: false
+
+      - db_type: 'decimal'
+        nullable: true
+        go_type:
+          import: github.com/shopspring/decimal
+          type: 'NullDecimal'
+          pointer: false
+
+sql:
+  - engine: 'postgresql'
+    queries: 'internal/modules/auth/infrastructure/query/*.sql'
+    schema: 'db/migrations'
+    gen:
+      go:
+        package: 'gen'
+        out: 'internal/modules/auth/infrastructure/gen'
+        sql_package: 'pgx/v5'
+        omit_unused_structs: true
+        emit_json_tags: false
+        emit_prepared_queries: true
+        emit_db_tags: true
+        emit_result_struct_pointers: true
+        emit_pointers_for_null_types: true
+
+  - engine: 'postgresql'
+    queries: 'internal/modules/wallet/infrastructure/query/*.sql'
+    schema: 'db/migrations'
+    gen:
+      go:
+        package: 'gen'
+        out: 'internal/modules/wallet/infrastructure/gen'
+        sql_package: 'pgx/v5'
+        omit_unused_structs: true
+        emit_json_tags: false
+        emit_prepared_queries: true
+        emit_db_tags: true
+        emit_result_struct_pointers: true
+        emit_pointers_for_null_types: true

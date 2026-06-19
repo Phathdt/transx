@@ -1,0 +1,115 @@
+x-backend-env: &backend-env
+  POSTGRES__DATABASE_URL: postgres://transx:transx@postgres:5432/transx?sslmode=disable
+  KAFKA__BROKERS: redpanda:29092
+  # Non-local environment switches slog to JSON output so Promtail can parse
+  # level/trace_id fields and ship structured logs to Loki.
+  APP__ENVIRONMENT: "docker"
+
+x-backend: &backend
+  image: transx-backend
+  build:
+    context: ./backend
+  environment:
+    <<: *backend-env
+  volumes:
+    - ./backend/config.yaml:/app/config.yaml:ro
+    - ./backend/.env:/app/.env:ro
+
+services:
+  traefik:
+    image: traefik:v3.7.5
+    container_name: transx-traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      # Host 4000 -> Traefik web entrypoint (80). FE keeps calling :4000 unchanged.
+      - "4000:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: transx-postgres
+    environment:
+      POSTGRES_DB: transx
+      POSTGRES_USER: transx
+      POSTGRES_PASSWORD: transx
+    ports:
+      - "${POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transx -d transx"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
+    container_name: transx-redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
+      - --advertise-kafka-addr=PLAINTEXT://localhost:9092,INTERNAL://redpanda:29092
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --advertise-pandaproxy-addr=localhost:8082
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "8082:8082"
+      - "9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redpanda-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
+    container_name: transx-redpanda-init
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rpk topic create xxx \
+          --brokers redpanda:9092 \
+          --partitions 1 \
+          --replicas 1 || true
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    container_name: transx-redpanda-console
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+    ports:
+      - "18080:8080"
+
+  migrate:
+    <<: *backend
+    container_name: transx-migrate
+    command: ["migrate", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  postgres-data:
+  redpanda-data:

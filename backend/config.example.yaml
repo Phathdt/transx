@@ -1,0 +1,16 @@
+app:
+  environment: local
+  log_level: info
+
+http:
+  address: ':4000'
+  cors_allowed_origins:
+    - 'http://localhost:5173'
+    - 'http://127.0.0.1:5173'
+
+postgres:
+  database_url: 'postgres://transx:transx@localhost:15432/transx?sslmode=disable'
+
+kafka:
+  brokers:
+    - 'localhost:9092'
