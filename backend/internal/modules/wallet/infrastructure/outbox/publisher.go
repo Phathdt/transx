@@ -87,6 +87,8 @@ func mapEventTypeToTopic(eventType string) (string, bool) {
 	switch eventType {
 	case entities.EventTransferRequested:
 		return kafkatopic.TransferRequested, true
+	case entities.EventTransferProviderRequested:
+		return kafkatopic.TransferProviderRequested, true
 	case entities.EventTransferCompleted:
 		return kafkatopic.TransferCompleted, true
 	case entities.EventTransferFailed:

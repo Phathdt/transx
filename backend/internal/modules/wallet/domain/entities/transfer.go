@@ -27,10 +27,12 @@ const (
 	FailureInsufficientFunds = "INSUFFICIENT_FUNDS"
 	FailureAccountNotActive  = "ACCOUNT_NOT_ACTIVE"
 	FailureDestNotActive     = "DEST_NOT_ACTIVE"
+	FailureProviderRejected  = "PROVIDER_REJECTED"
 )
 
-// Transfer is a movement of funds between two accounts. For this scope only
-// INTERNAL transfers are processed end-to-end.
+// Transfer is a movement of funds. INTERNAL transfers move funds between two
+// in-ledger accounts; EXTERNAL transfers send funds out through a provider and
+// carry no in-ledger destination (ToAccountID is uuid.Nil / NULL).
 type Transfer struct {
 	ID                  uuid.UUID
 	FromAccountID       uuid.UUID

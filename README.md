@@ -7,31 +7,39 @@ the full product spec.
 
 ## Table of Contents
 
-- [Tech Stack](#tech-stack)
-- [Repository Structure](#repository-structure)
-- [Quick Start](#quick-start)
-- [Backend CLI](#backend-cli)
-- [Common Commands](#common-commands)
-- [Overview Architecture](#overview-architecture)
-- [Wallet API](#wallet-api)
-- [Internal Transfer Flow](#internal-transfer-flow)
-- [Worker Consumer Flow](#worker-consumer-flow)
-- [Idempotency](#idempotency)
-- [Backend Architecture](#backend-architecture)
-- [Key Docs](#key-docs)
+- [transx](#transx)
+  - [Table of Contents](#table-of-contents)
+  - [Tech Stack](#tech-stack)
+  - [Repository Structure](#repository-structure)
+  - [Quick Start](#quick-start)
+    - [1. Start infrastructure](#1-start-infrastructure)
+    - [2. Apply migrations and seed dev data](#2-apply-migrations-and-seed-dev-data)
+    - [3. Run a service](#3-run-a-service)
+    - [Full stack via Compose](#full-stack-via-compose)
+  - [Backend CLI](#backend-cli)
+  - [Common Commands](#common-commands)
+  - [Overview Architecture](#overview-architecture)
+  - [Wallet API](#wallet-api)
+  - [Internal Transfer Flow](#internal-transfer-flow)
+  - [External Transfer Flow](#external-transfer-flow)
+  - [Worker Consumer Flow](#worker-consumer-flow)
+  - [Idempotency](#idempotency)
+  - [Backend Architecture](#backend-architecture)
+  - [Key Docs](#key-docs)
 
 ## Tech Stack
 
-| Concern        | Choice                                  |
-| -------------- | --------------------------------------- |
-| Language       | Go 1.26                                 |
-| Database       | PostgreSQL 18 (native `uuidv7()`)       |
-| Messaging      | Redpanda (Kafka API compatible)         |
-| Gateway        | Traefik + ForwardAuth                   |
-| HTTP framework | Fiber v2                                |
-| DB access      | pgx v5 + sqlc-generated queries         |
-| Migrations     | goose                                   |
-| Config         | viper + `.env` (env override: `A__B`)   |
+| Concern        | Choice                                |
+| -------------- | ------------------------------------- |
+| Language       | Go 1.26                               |
+| Database       | PostgreSQL 18 (native `uuidv7()`)     |
+| Messaging      | Redpanda (Kafka API compatible)       |
+| Gateway        | Traefik + ForwardAuth                 |
+| HTTP framework | Fiber v2                              |
+| DB access      | pgx v5 + sqlc-generated queries       |
+| Migrations     | goose                                 |
+| Provider       | pluggable `ProviderClient` (stub)     |
+| Config         | viper + `.env` (env override: `A__B`) |
 
 All identifiers use **UUID v7** (time-ordered, index-friendly).
 
@@ -97,6 +105,11 @@ go run . --config config.yaml auth    # auth service (ForwardAuth backend)
 
 The wallet service needs Redpanda up — Kafka is a hard dependency and the
 process fails fast at startup if the brokers or topics are missing.
+
+External transfers go through a pluggable provider; the bundled stub is
+mode-driven via `PROVIDER__MODE` (`always_success` | `always_failure` |
+`always_timeout`, default `always_success`) so the full external lifecycle can
+be exercised without a real provider API.
 
 ### Full stack via Compose
 
@@ -164,9 +177,10 @@ flowchart TD
     FE["Client"]
     TR["Traefik\nGateway :4000"]
     AUTH["Auth Service\nFiber HTTP :4000\nJWT login + ForwardAuth check"]
-    WALLET["Wallet Service\nFiber HTTP :4000\n+ outbox publisher + transfer processor"]
+    WALLET["Wallet Service\nFiber HTTP :4000\n+ outbox publisher + transfer processor + provider consumer"]
     PG[("PostgreSQL")]
-    RP[("Redpanda\ntransfer.requested / completed / failed")]
+    RP[("Redpanda\ntransfer.requested / provider.requested / completed / failed")]
+    PROV["Payment Provider\n(stub)"]
     DLQ[("transx.wallet.dlq")]
 
     FE -->|"REST /api/v1"| TR
@@ -177,7 +191,8 @@ flowchart TD
     AUTH --> PG
     WALLET --> PG
     WALLET -->|"publish outbox events"| RP
-    RP -->|"consume transfer.requested"| WALLET
+    RP -->|"consume transfer.requested / provider.requested"| WALLET
+    WALLET -->|"submit external transfer"| PROV
     WALLET -.->|"poison / exhausted retries"| DLQ
 ```
 
@@ -189,20 +204,23 @@ flowchart TD
   (single consistency boundary for all money movement). Internal P2P transfers
   are processed asynchronously: the HTTP API stages a transfer plus an outbox
   event in one transaction, an outbox publisher relays events to Redpanda, and a
-  transfer processor consumes them to move money atomically. Both workers run as
-  goroutines in the wallet binary.
+  transfer processor consumes them to move money atomically. External transfers
+  add a reserve→submit→settle lifecycle: the processor reserves a hold, a
+  provider consumer submits to the payment provider and settles the outcome
+  (success debits the hold, failure releases it). All workers run as goroutines
+  in the wallet binary.
 
 ## Wallet API
 
 All routes are under `/api/v1` and gated by ForwardAuth (the gateway injects
 `X-User-Id` after verifying the bearer token).
 
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| `POST` | `/accounts` | Create a wallet account for the caller |
-| `GET` | `/accounts/{accountId}` | Get an account balance (owner-scoped) |
-| `POST` | `/transfers` | Create an internal transfer (idempotent) |
-| `GET` | `/transfers/{transferId}` | Get a transfer (owner-scoped) |
+| Method | Path                      | Description                              |
+| ------ | ------------------------- | ---------------------------------------- |
+| `POST` | `/accounts`               | Create a wallet account for the caller   |
+| `GET`  | `/accounts/{accountId}`   | Get an account balance (owner-scoped)    |
+| `POST` | `/transfers`              | Create a transfer (idempotent)           |
+| `GET`  | `/transfers/{transferId}` | Get a transfer (owner-scoped)            |
 
 `POST /transfers` requires an `Idempotency-Key` header — a client-generated UUID
 (uuidv7 recommended). Retrying with the same key replays the original transfer;
@@ -210,12 +228,25 @@ reusing it with a different body returns `409`. The transfer is created
 `PENDING` and settled asynchronously, so poll `GET /transfers/{id}` for the
 final `SUCCEEDED`/`FAILED` status.
 
+`transferType` selects the flow. `INTERNAL` (default) moves funds to another
+in-ledger account and requires `toAccountId`. `EXTERNAL` sends funds out through
+the provider: omit `toAccountId` (there is no in-ledger destination) and the
+`provider` is set from server config — clients never send it.
+
 ```bash
+# Internal P2P transfer
 curl -X POST http://localhost:4000/api/v1/transfers \
   -H "Authorization: Bearer <token>" \
   -H 'Idempotency-Key: 0190bf3e-...' \
   -H 'Content-Type: application/json' \
   -d '{"fromAccountId":"<a>","toAccountId":"<b>","amount":"100","currency":"USD","transferType":"INTERNAL"}'
+
+# External transfer (no toAccountId)
+curl -X POST http://localhost:4000/api/v1/transfers \
+  -H "Authorization: Bearer <token>" \
+  -H 'Idempotency-Key: 0190bf3f-...' \
+  -H 'Content-Type: application/json' \
+  -d '{"fromAccountId":"<a>","amount":"100","currency":"USD","transferType":"EXTERNAL"}'
 ```
 
 Authorization is P2P: the `fromAccountId` must belong to the caller (otherwise
@@ -257,17 +288,56 @@ sequenceDiagram
     API-->>C: status SUCCEEDED / FAILED
 ```
 
+## External Transfer Flow
+
+An external transfer leaves the system through a provider, so it cannot settle
+in one transaction. It splits into reserve (hold funds) and settle (after the
+provider responds), each its own transaction guarded by transfer status.
+
+```mermaid
+sequenceDiagram
+    actor C as Client
+    participant API as Wallet API
+    participant DB as PostgreSQL
+    participant PR as Transfer Processor
+    participant PC as Provider Consumer
+    participant PV as Payment Provider
+
+    C->>API: POST /transfers (EXTERNAL, no toAccountId)
+    API->>DB: INSERT transfer(PENDING) + outbox(transfer.requested)
+    API-->>C: 202 { transferId, status: PENDING }
+
+    PR->>DB: BEGIN — guard PENDING<br/>available → hold, ledger HOLD<br/>status=RESERVED + outbox(provider.requested) — COMMIT
+
+    PC->>PV: Submit(transferId, amount, currency)
+    alt provider SUCCESS
+        PV-->>PC: { SUCCESS, referenceId }
+        PC->>DB: BEGIN — guard RESERVED<br/>debit hold, ledger DEBIT<br/>status=SUCCEEDED + outbox(transfer.completed) — COMMIT
+    else provider FAILURE
+        PV-->>PC: { FAILURE, reason }
+        PC->>DB: BEGIN — guard RESERVED<br/>release hold → available, ledger RELEASE<br/>status=FAILED + outbox(transfer.failed) — COMMIT
+    else provider timeout (transient)
+        PV-->>PC: error
+        Note over PC: escalate retry tiers then DLQ,<br/>transfer stays RESERVED
+    end
+
+    C->>API: GET /transfers/{id} (poll)
+    API-->>C: status SUCCEEDED / FAILED
+```
+
 ## Worker Consumer Flow
 
-Two background workers run as goroutines in the wallet binary, supervised by an
-errgroup so a fatal worker error brings the process down for a clean restart.
+Several background workers run as goroutines in the wallet binary, supervised by
+an errgroup so a fatal worker error brings the process down for a clean restart.
 
 ```mermaid
 flowchart TD
     DB[("PostgreSQL")]
     RPREQ[("transfer.requested")]
+    RPPROV[("transfer.provider.requested")]
     RPDONE[("transfer.completed")]
     RPFAIL[("transfer.failed")]
+    PROV["Payment Provider\n(stub)"]
     RETRY[("transx.wallet.retry-6s / 30s / 5m")]
     DLQ[("transx.wallet.dlq")]
 
@@ -277,52 +347,80 @@ flowchart TD
     end
 
     subgraph Processor["Transfer Processor — group: wallet-processor"]
-        DEDUP{"inbox_events\nalready processed?"}
+        ROUTE{"transfer_type?"}
         EXEC["ExecuteInternalTransfer\nlock accounts (ORDER BY id)\nconditional debit / credit\nledger + status + outbox"]
+        RESV["ReserveExternalTransfer\nhold funds, ledger HOLD\nstatus=RESERVED + outbox"]
         CLASS{"error?"}
     end
 
-    subgraph Retry["Retry-tier consumers"]
-        HOLD["HoldUntil(retryAt)\nrepublish to main topic"]
+    subgraph Provider["Provider Consumer — group: wallet-provider"]
+        SUBMIT["client.Submit"]
+        SETTLE["SettleExternalTransfer\nsuccess: debit hold (DEBIT)\nfailure: release hold (RELEASE)"]
+        PCLASS{"error?"}
     end
 
-    POLL -->|"transfer.requested"| RPREQ
+    subgraph Retry["Retry-tier consumers"]
+        HOLD["HoldUntil(retryAt)\nrepublish to source topic"]
+    end
+
+    POLL -->|"transfer.requested / provider.requested"| RPREQ & RPPROV
     POLL -.-> MARK
     MARK --> DB
 
-    RPREQ --> DEDUP
-    DEDUP -->|processed| RPREQ
-    DEDUP -->|new| EXEC
+    RPREQ --> ROUTE
+    ROUTE -->|INTERNAL| EXEC
+    ROUTE -->|EXTERNAL| RESV
     EXEC --> DB
+    RESV --> DB
+    RESV -->|provider.requested| RPPROV
     EXEC -->|completed / failed| RPDONE & RPFAIL
     EXEC --> CLASS
     CLASS -->|transient| RETRY
     CLASS -->|permanent / poison| DLQ
+
+    RPPROV --> SUBMIT
+    SUBMIT --> PROV
+    SUBMIT --> SETTLE
+    SETTLE --> DB
+    SETTLE -->|completed / failed| RPDONE & RPFAIL
+    SUBMIT --> PCLASS
+    PCLASS -->|timeout / transient| RETRY
+    PCLASS -->|poison| DLQ
     RETRY --> HOLD
-    HOLD --> RPREQ
+    HOLD --> RPREQ & RPPROV
 ```
 
 - **Outbox publisher** drains `outbox_events` in FIFO order and marks each
   `PUBLISHED` only after a successful publish (`WHERE status='PENDING'` guards
   against double-marking). A single publisher owns the table.
-- **Transfer processor** deduplicates via `inbox_events`, then moves money in one
-  transaction: it locks both accounts in a deterministic order (avoids cross
-  deadlock), runs a conditional debit (`available_balance >= amount AND
-  status='ACTIVE'`) and credit, writes the ledger, advances status, and stages
-  the completion event — all atomically.
-- **Retries**: transient failures (serialization, deadlock) escalate through
-  delayed-retry tiers (`6s` → `30s` → `5m`); poison messages and exhausted
-  retries go to `transx.wallet.dlq`, so one bad message never wedges the
-  partition.
+- **Transfer processor** (group `wallet-processor`) deduplicates via
+  `inbox_events`, then routes by `transfer_type` read from the database.
+  `INTERNAL` moves money in one transaction: it locks both accounts in a
+  deterministic order (avoids cross deadlock), runs a conditional debit
+  (`available_balance >= amount AND status='ACTIVE'`) and credit, writes the
+  ledger, advances status, and stages the completion event — all atomically.
+  `EXTERNAL` reserves a hold (`available → hold`, ledger `HOLD`), sets status
+  `RESERVED`, and stages `transfer.provider.requested`.
+- **Provider consumer** (group `wallet-provider`) consumes
+  `transfer.provider.requested`, submits to the payment provider, and settles in
+  one transaction: success debits the hold (ledger `DEBIT`, status `SUCCEEDED`),
+  business failure releases it (ledger `RELEASE`, status `FAILED`). A provider
+  timeout is treated as transient and retried through the tiers. Each settle step
+  is guarded by the `RESERVED` status so a redelivery never double-settles.
+- **Retries**: transient failures (serialization, deadlock, provider timeout)
+  escalate through delayed-retry tiers (`6s` → `30s` → `5m`); poison messages and
+  exhausted retries go to `transx.wallet.dlq`, so one bad message never wedges the
+  partition. A timed-out external transfer stays `RESERVED` until it lands in the
+  DLQ (provider reconciliation is out of scope for now).
 
 ## Idempotency
 
 Two independent layers protect against duplicate money movement:
 
-| Layer | Mechanism | Location |
-|---|---|---|
-| **API** | Unique index `(user_id, idempotency_key)` + `request_hash` — same key & body replays the original transfer, different body returns `409` | `wallet/application/services/transfer_service.go` |
-| **Kafka consumer** | `inbox_events` keyed on `(consumer_group, message_key)` — a redelivered message is skipped; the `status='PENDING'` guard inside the transfer transaction is the final double-credit defense | `wallet/infrastructure/processor`, `wallet/infrastructure/repositories` |
+| Layer              | Mechanism                                                                                                                                                                                   | Location                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **API**            | Unique index `(user_id, idempotency_key)` + `request_hash` — same key & body replays the original transfer, different body returns `409`                                                    | `wallet/application/services/transfer_service.go`                       |
+| **Kafka consumer** | `inbox_events` keyed on `(consumer_group, message_key)` — a redelivered message is skipped; the per-step status guard (`PENDING` for reserve/internal, `RESERVED` for settle) inside each transaction is the final double-spend defense. The two consumer groups (`wallet-processor`, `wallet-provider`) dedup in separate namespaces. | `wallet/infrastructure/processor`, `wallet/infrastructure/repositories` |
 
 ```mermaid
 flowchart LR
@@ -359,7 +457,7 @@ Clean architecture by domain module:
 internal/
 ├── modules/
 │   ├── auth/       POST /login, ForwardAuth /check (JWT)
-│   └── wallet/     accounts, transfers, ledger, outbox + transfer processor
+│   └── wallet/     accounts, transfers, ledger, outbox + transfer processor + provider consumer
 ├── platform/
 │   ├── config/     viper YAML config (env override SECTION__KEY)
 │   ├── postgres/   pgxpool connection + WithTx helper
@@ -397,10 +495,17 @@ Conventions:
 - **Errors** return `*apperror.AppError` (carries HTTP status); `DomainErrorHandler`
   maps them to responses.
 - **Config**: add fields to `internal/platform/config/config.go`; env override
-  format is `SECTION__KEY` (e.g. `AUTH__JWT_SECRET`). Secrets stay in `.env`.
+  format is `SECTION__KEY` (e.g. `AUTH__JWT_SECRET`, `PROVIDER__MODE`). Secrets
+  stay in `.env`.
+- **Money never settles across a network call in one tx** — external transfers
+  reserve a hold first, then settle in a second transaction after the provider
+  responds, so a mid-flight failure leaves funds held rather than lost.
 
 ## Key Docs
 
 - Product requirements: `docs/prd.md`
 - OpenAPI spec: `backend/openapi.yaml`
+
+```
+
 ```

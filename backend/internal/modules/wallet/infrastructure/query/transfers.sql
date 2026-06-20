@@ -1,9 +1,9 @@
 -- name: CreateTransfer :one
 INSERT INTO transfers (
     from_account_id, to_account_id, amount, currency, transfer_type,
-    status, user_id, idempotency_key, request_hash
+    provider, status, user_id, idempotency_key, request_hash
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- name: GetTransferByID :one
@@ -37,4 +37,10 @@ WHERE id = @id;
 -- name: FailTransfer :exec
 UPDATE transfers
 SET status = 'FAILED', failure_reason = @failure_reason, updated_at = now()
+WHERE id = @id;
+
+-- name: SetProviderReference :exec
+-- Stores the reference id returned by the provider on a successful submit.
+UPDATE transfers
+SET provider_reference_id = @provider_reference_id, updated_at = now()
 WHERE id = @id;

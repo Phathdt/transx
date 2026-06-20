@@ -15,6 +15,7 @@ type Config struct {
 	Postgres Postgres `yaml:"postgres" mapstructure:"postgres"`
 	Kafka    Kafka    `yaml:"kafka"    mapstructure:"kafka"`
 	Auth     Auth     `yaml:"auth"     mapstructure:"auth"`
+	Provider Provider `yaml:"provider" mapstructure:"provider"`
 }
 
 type App struct {
@@ -41,6 +42,14 @@ type Kafka struct {
 	Brokers []string `yaml:"brokers" mapstructure:"brokers"`
 }
 
+// Provider configures the external-transfer payment provider. Name is stamped
+// onto every EXTERNAL transfer (clients never send it); Mode drives the fake
+// client (always_success | always_failure | always_timeout).
+type Provider struct {
+	Name string `yaml:"name" mapstructure:"name"`
+	Mode string `yaml:"mode" mapstructure:"mode"`
+}
+
 // Load reads config from configPath YAML file with env var overrides.
 // Env override format: APP__LOG_LEVEL overrides app.log_level
 func Load(configPath string) (Config, error) {
@@ -64,6 +73,15 @@ func Load(configPath string) (Config, error) {
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
+	}
+
+	// EXTERNAL transfers need a provider identity and mode; fall back to the
+	// stub defaults so the wallet service runs without explicit provider config.
+	if cfg.Provider.Name == "" {
+		cfg.Provider.Name = "stub"
+	}
+	if cfg.Provider.Mode == "" {
+		cfg.Provider.Mode = "always_success"
 	}
 
 	return cfg, nil

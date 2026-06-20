@@ -30,23 +30,34 @@ const maxIntegerDigits = 16
 // pgUniqueViolation is the SQLSTATE for a unique constraint violation.
 const pgUniqueViolation = "23505"
 
+// transferTypeInternal and transferTypeExternal are the supported transfer
+// types. INTERNAL moves funds between two in-ledger accounts; EXTERNAL sends
+// funds out through a provider and has no in-ledger destination.
+const (
+	transferTypeInternal = "INTERNAL"
+	transferTypeExternal = "EXTERNAL"
+)
+
 // TransferService creates transfers with authorization and idempotency, and
 // reads them back owner-scoped.
 type TransferService struct {
-	transfers interfaces.TransferRepository
-	accounts  interfaces.AccountRepository
+	transfers    interfaces.TransferRepository
+	accounts     interfaces.AccountRepository
+	providerName string
 }
 
 func NewTransferService(
 	transfers interfaces.TransferRepository,
 	accounts interfaces.AccountRepository,
+	providerName string,
 ) *TransferService {
-	return &TransferService{transfers: transfers, accounts: accounts}
+	return &TransferService{transfers: transfers, accounts: accounts, providerName: providerName}
 }
 
-// CreateTransfer validates, authorizes and idempotently creates an internal
-// transfer in PENDING state. The actual money movement happens asynchronously in
-// the transfer processor.
+// CreateTransfer validates, authorizes and idempotently creates a transfer in
+// PENDING state. INTERNAL transfers require an in-ledger destination; EXTERNAL
+// transfers send funds out through the configured provider and carry no
+// destination. The actual money movement happens asynchronously in the workers.
 func (s *TransferService) CreateTransfer(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -64,7 +75,8 @@ func (s *TransferService) CreateTransfer(
 		return nil, apperror.NewBadRequestError("Idempotency-Key must be a UUID")
 	}
 
-	fromID, toID, amount, err := parseTransferCommand(cmd)
+	tType := transferType(cmd.TransferType)
+	fromID, amount, err := parseTransferCommon(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -73,10 +85,33 @@ func (s *TransferService) CreateTransfer(
 		return nil, apperror.NewBadRequestError("unsupported currency")
 	}
 
-	hash := requestHash(fromID, toID, amount, currency, cmd.TransferType)
+	if tType == transferTypeExternal {
+		return s.createExternal(ctx, userID, key, fromID, amount, currency)
+	}
+	return s.createInternal(ctx, userID, key, fromID, cmd.ToAccountID, amount, currency)
+}
 
-	// Idempotency fast path: a prior transfer with this key is replayed when the
-	// body matches, or rejected as a conflict when it differs.
+// createInternal handles an INTERNAL transfer: it requires a destination account
+// and validates both accounts belong-to/are-active for the caller.
+func (s *TransferService) createInternal(
+	ctx context.Context,
+	userID uuid.UUID,
+	key string,
+	fromID uuid.UUID,
+	toAccountID string,
+	amount decimal.Decimal,
+	currency string,
+) (*dto.TransferResponse, error) {
+	toID, err := uuid.Parse(toAccountID)
+	if err != nil {
+		return nil, apperror.NewBadRequestError("invalid toAccountId")
+	}
+	if fromID == toID {
+		return nil, apperror.NewBadRequestError("from and to accounts must differ")
+	}
+
+	hash := requestHash(fromID, toID.String(), amount, currency, transferTypeInternal, "")
+
 	if existing, err := s.transfers.FindByUserAndKey(ctx, userID, key); err != nil {
 		return nil, err
 	} else if existing != nil {
@@ -107,17 +142,75 @@ func (s *TransferService) CreateTransfer(
 		return nil, apperror.NewUnprocessableError("currency mismatch")
 	}
 
-	created, err := s.transfers.Create(ctx, &entities.Transfer{
+	return s.persist(ctx, &entities.Transfer{
 		FromAccountID:  fromID,
 		ToAccountID:    toID,
 		Amount:         amount,
 		Currency:       currency,
-		TransferType:   transferType(cmd.TransferType),
+		TransferType:   transferTypeInternal,
 		Status:         entities.TransferStatusPending,
 		UserID:         userID,
 		IdempotencyKey: key,
 		RequestHash:    hash,
-	})
+	}, userID, key, hash)
+}
+
+// createExternal handles an EXTERNAL transfer: there is no in-ledger
+// destination, the provider is stamped from config, and the reference id is
+// filled in later at settle time.
+func (s *TransferService) createExternal(
+	ctx context.Context,
+	userID uuid.UUID,
+	key string,
+	fromID uuid.UUID,
+	amount decimal.Decimal,
+	currency string,
+) (*dto.TransferResponse, error) {
+	hash := requestHash(fromID, "", amount, currency, transferTypeExternal, s.providerName)
+
+	if existing, err := s.transfers.FindByUserAndKey(ctx, userID, key); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return idempotentResult(existing, hash)
+	}
+
+	from, err := s.accounts.GetByID(ctx, fromID)
+	if err != nil {
+		return nil, err
+	}
+	if from == nil || from.UserID != userID {
+		return nil, apperror.NewForbiddenError("from account does not belong to caller")
+	}
+	if !from.IsActive() {
+		return nil, apperror.NewUnprocessableError("account not active")
+	}
+	if from.Currency != currency {
+		return nil, apperror.NewUnprocessableError("currency mismatch")
+	}
+
+	return s.persist(ctx, &entities.Transfer{
+		FromAccountID:  fromID,
+		ToAccountID:    uuid.Nil, // no in-ledger destination; stored as NULL.
+		Amount:         amount,
+		Currency:       currency,
+		TransferType:   transferTypeExternal,
+		Provider:       s.providerName,
+		Status:         entities.TransferStatusPending,
+		UserID:         userID,
+		IdempotencyKey: key,
+		RequestHash:    hash,
+	}, userID, key, hash)
+}
+
+// persist creates the transfer, applying the idempotency replay/conflict rule on
+// a unique-violation race.
+func (s *TransferService) persist(
+	ctx context.Context,
+	t *entities.Transfer,
+	userID uuid.UUID,
+	key, hash string,
+) (*dto.TransferResponse, error) {
+	created, err := s.transfers.Create(ctx, t)
 	if err != nil {
 		// Idempotency race: a concurrent request with the same key won the unique
 		// index. Re-read and apply the same replay/conflict rule instead of 500.
@@ -151,51 +244,48 @@ func (s *TransferService) GetTransfer(
 	return transferToResponse(transfer), nil
 }
 
-// parseTransferCommand validates and parses the raw command fields.
-func parseTransferCommand(
+// parseTransferCommon validates and parses the fields shared by both transfer
+// types: the source account id and the amount. Destination handling differs per
+// type and is validated in the type-specific branch.
+func parseTransferCommon(
 	cmd dto.CreateTransferCommand,
-) (fromID, toID uuid.UUID, amount decimal.Decimal, err error) {
+) (fromID uuid.UUID, amount decimal.Decimal, err error) {
 	fromID, perr := uuid.Parse(cmd.FromAccountID)
 	if perr != nil {
-		return uuid.Nil, uuid.Nil, decimal.Zero, apperror.NewBadRequestError("invalid fromAccountId")
-	}
-	toID, perr = uuid.Parse(cmd.ToAccountID)
-	if perr != nil {
-		return uuid.Nil, uuid.Nil, decimal.Zero, apperror.NewBadRequestError("invalid toAccountId")
-	}
-	if fromID == toID {
-		return uuid.Nil, uuid.Nil, decimal.Zero, apperror.NewBadRequestError("from and to accounts must differ")
+		return uuid.Nil, decimal.Zero, apperror.NewBadRequestError("invalid fromAccountId")
 	}
 	amount, perr = decimal.NewFromString(cmd.Amount)
 	if perr != nil {
-		return uuid.Nil, uuid.Nil, decimal.Zero, apperror.NewBadRequestError("invalid amount")
+		return uuid.Nil, decimal.Zero, apperror.NewBadRequestError("invalid amount")
 	}
 	if amount.LessThanOrEqual(decimal.Zero) {
-		return uuid.Nil, uuid.Nil, decimal.Zero, apperror.NewBadRequestError("amount must be positive")
+		return uuid.Nil, decimal.Zero, apperror.NewBadRequestError("amount must be positive")
 	}
 	if amount.Exponent() < -maxAmountScale {
-		return uuid.Nil, uuid.Nil, decimal.Zero, apperror.NewBadRequestError("amount has too many decimal places")
+		return uuid.Nil, decimal.Zero, apperror.NewBadRequestError("amount has too many decimal places")
 	}
 	// Integer digits = total significant digits minus the fractional scale.
 	if amount.NumDigits()+int(amount.Exponent()) > maxIntegerDigits {
-		return uuid.Nil, uuid.Nil, decimal.Zero, apperror.NewBadRequestError("amount too large")
+		return uuid.Nil, decimal.Zero, apperror.NewBadRequestError("amount too large")
 	}
-	return fromID, toID, amount, nil
+	return fromID, amount, nil
 }
 
-// transferType defaults to INTERNAL; this scope only processes internal moves.
+// transferType defaults to INTERNAL when unset.
 func transferType(t string) string {
 	if t == "" {
-		return "INTERNAL"
+		return transferTypeInternal
 	}
 	return t
 }
 
 // requestHash is a canonical hash of the idempotency-relevant fields so reusing
-// a key with a different body can be detected and rejected.
-func requestHash(fromID, toID uuid.UUID, amount decimal.Decimal, currency, tType string) string {
-	canonical := fmt.Sprintf("%s|%s|%s|%s|%s",
-		fromID, toID, amount.String(), currency, transferType(tType))
+// a key with a different body can be detected and rejected. toID is empty for
+// EXTERNAL transfers; provider is empty for INTERNAL — both feed the hash so the
+// same key cannot be replayed across differing transfer shapes.
+func requestHash(fromID uuid.UUID, toID string, amount decimal.Decimal, currency, tType, provider string) string {
+	canonical := fmt.Sprintf("%s|%s|%s|%s|%s|%s",
+		fromID, toID, amount.String(), currency, tType, provider)
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])
 }

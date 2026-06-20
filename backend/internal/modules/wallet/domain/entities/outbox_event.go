@@ -17,9 +17,10 @@ const (
 
 // Event types carried on the outbox / Kafka topics.
 const (
-	EventTransferRequested = "transfer.requested"
-	EventTransferCompleted = "transfer.completed"
-	EventTransferFailed    = "transfer.failed"
+	EventTransferRequested         = "transfer.requested"
+	EventTransferProviderRequested = "transfer.provider.requested"
+	EventTransferCompleted         = "transfer.completed"
+	EventTransferFailed            = "transfer.failed"
 )
 
 // AggregateTypeTransfer is the aggregate that owns transfer.* events.

@@ -97,6 +97,34 @@ func (q *Queries) DebitAvailableIfSufficient(ctx context.Context, arg DebitAvail
 	return available_balance, err
 }
 
+const debitHold = `-- name: DebitHold :one
+UPDATE accounts
+SET hold_balance = hold_balance - $1,
+    updated_at   = now()
+WHERE id = $2
+RETURNING available_balance, hold_balance
+`
+
+type DebitHoldParams struct {
+	Amount decimal.Decimal `db:"amount"`
+	ID     pgtype.UUID     `db:"id"`
+}
+
+type DebitHoldRow struct {
+	AvailableBalance decimal.Decimal `db:"available_balance"`
+	HoldBalance      decimal.Decimal `db:"hold_balance"`
+}
+
+// Settle success: drop the held amount permanently (funds left the system). The
+// account is already locked and the hold was placed in the reserve step, so no
+// conditional guard is needed; the CHECK (hold_balance >= 0) backstops underflow.
+func (q *Queries) DebitHold(ctx context.Context, arg DebitHoldParams) (*DebitHoldRow, error) {
+	row := q.db.QueryRow(ctx, debitHold, arg.Amount, arg.ID)
+	var i DebitHoldRow
+	err := row.Scan(&i.AvailableBalance, &i.HoldBalance)
+	return &i, err
+}
+
 const getAccountByID = `-- name: GetAccountByID :one
 SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at
 FROM accounts
@@ -186,4 +214,62 @@ func (q *Queries) LockAccountsByIDs(ctx context.Context, ids []pgtype.UUID) ([]*
 		return nil, err
 	}
 	return items, nil
+}
+
+const releaseHold = `-- name: ReleaseHold :one
+UPDATE accounts
+SET hold_balance      = hold_balance - $1,
+    available_balance = available_balance + $1,
+    updated_at        = now()
+WHERE id = $2
+RETURNING available_balance, hold_balance
+`
+
+type ReleaseHoldParams struct {
+	Amount decimal.Decimal `db:"amount"`
+	ID     pgtype.UUID     `db:"id"`
+}
+
+type ReleaseHoldRow struct {
+	AvailableBalance decimal.Decimal `db:"available_balance"`
+	HoldBalance      decimal.Decimal `db:"hold_balance"`
+}
+
+// Settle failure: return the held amount to available balance.
+func (q *Queries) ReleaseHold(ctx context.Context, arg ReleaseHoldParams) (*ReleaseHoldRow, error) {
+	row := q.db.QueryRow(ctx, releaseHold, arg.Amount, arg.ID)
+	var i ReleaseHoldRow
+	err := row.Scan(&i.AvailableBalance, &i.HoldBalance)
+	return &i, err
+}
+
+const reserveHoldIfSufficient = `-- name: ReserveHoldIfSufficient :one
+UPDATE accounts
+SET available_balance = available_balance - $1,
+    hold_balance      = hold_balance + $1,
+    updated_at        = now()
+WHERE id = $2
+  AND status = 'ACTIVE'
+  AND available_balance >= $1
+RETURNING available_balance, hold_balance
+`
+
+type ReserveHoldIfSufficientParams struct {
+	Amount decimal.Decimal `db:"amount"`
+	ID     pgtype.UUID     `db:"id"`
+}
+
+type ReserveHoldIfSufficientRow struct {
+	AvailableBalance decimal.Decimal `db:"available_balance"`
+	HoldBalance      decimal.Decimal `db:"hold_balance"`
+}
+
+// Reserve: move funds from available into hold for an external transfer. Only
+// succeeds for an ACTIVE account with enough available funds; no row updated
+// means insufficient funds (status validated as ACTIVE by the caller's lock).
+func (q *Queries) ReserveHoldIfSufficient(ctx context.Context, arg ReserveHoldIfSufficientParams) (*ReserveHoldIfSufficientRow, error) {
+	row := q.db.QueryRow(ctx, reserveHoldIfSufficient, arg.Amount, arg.ID)
+	var i ReserveHoldIfSufficientRow
+	err := row.Scan(&i.AvailableBalance, &i.HoldBalance)
+	return &i, err
 }

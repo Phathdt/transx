@@ -41,3 +41,35 @@ SET available_balance = available_balance + @amount,
 WHERE id = @id
   AND status = 'ACTIVE'
 RETURNING available_balance;
+
+-- name: ReserveHoldIfSufficient :one
+-- Reserve: move funds from available into hold for an external transfer. Only
+-- succeeds for an ACTIVE account with enough available funds; no row updated
+-- means insufficient funds (status validated as ACTIVE by the caller's lock).
+UPDATE accounts
+SET available_balance = available_balance - @amount,
+    hold_balance      = hold_balance + @amount,
+    updated_at        = now()
+WHERE id = @id
+  AND status = 'ACTIVE'
+  AND available_balance >= @amount
+RETURNING available_balance, hold_balance;
+
+-- name: DebitHold :one
+-- Settle success: drop the held amount permanently (funds left the system). The
+-- account is already locked and the hold was placed in the reserve step, so no
+-- conditional guard is needed; the CHECK (hold_balance >= 0) backstops underflow.
+UPDATE accounts
+SET hold_balance = hold_balance - @amount,
+    updated_at   = now()
+WHERE id = @id
+RETURNING available_balance, hold_balance;
+
+-- name: ReleaseHold :one
+-- Settle failure: return the held amount to available balance.
+UPDATE accounts
+SET hold_balance      = hold_balance - @amount,
+    available_balance = available_balance + @amount,
+    updated_at        = now()
+WHERE id = @id
+RETURNING available_balance, hold_balance;

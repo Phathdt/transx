@@ -103,7 +103,7 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 	v1.Post("/transfers", createTransfer).With(
 		option.Tags("wallet"),
 		option.OperationID("createTransfer"),
-		option.Summary("Create an internal transfer (idempotent via Idempotency-Key)"),
+		option.Summary("Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountId; EXTERNAL omits it (provider is set from server config)."),
 		option.Request(new(walletdto.CreateTransferCommand), option.ContentRequired()),
 		option.Response(fiber.StatusAccepted, new(walletdto.TransferResponse)),
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),

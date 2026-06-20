@@ -22,4 +22,12 @@ type TransferRepository interface {
 	// for one transfer atomically in a single transaction. It is idempotent: a
 	// transfer not in PENDING is skipped.
 	ExecuteInternalTransfer(ctx context.Context, transferID uuid.UUID) error
+	// ReserveExternalTransfer moves the amount from available to hold and stages
+	// the provider-request outbox event in one transaction (PENDING → RESERVED).
+	// Idempotent: a transfer not in PENDING is skipped.
+	ReserveExternalTransfer(ctx context.Context, transferID uuid.UUID) error
+	// SettleExternalTransfer applies the provider outcome in one transaction
+	// (RESERVED → SUCCEEDED on success, → FAILED with hold released on failure).
+	// Idempotent: a transfer not in RESERVED is skipped.
+	SettleExternalTransfer(ctx context.Context, transferID uuid.UUID, result entities.ProviderResult) error
 }

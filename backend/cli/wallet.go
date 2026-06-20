@@ -19,6 +19,7 @@ import (
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
 	"transx/internal/modules/wallet/infrastructure/outbox"
 	"transx/internal/modules/wallet/infrastructure/processor"
+	"transx/internal/modules/wallet/infrastructure/provider"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
 	"transx/internal/platform/httpserver"
@@ -65,8 +66,10 @@ func runWallet(ctx context.Context, configPath string) error {
 	inboxRepo := walletrepos.NewPostgresInboxRepository(q)
 
 	accountSvc := walletservices.NewAccountService(accountRepo)
-	transferSvc := walletservices.NewTransferService(transferRepo, accountRepo)
+	transferSvc := walletservices.NewTransferService(transferRepo, accountRepo, cfg.Provider.Name)
 	walletH := handlers.NewWalletHandler(accountSvc, transferSvc)
+
+	providerClient := provider.NewFakeProviderClient(cfg.Provider.Mode)
 
 	// Kafka is a hard dependency. NewProducer/NewConsumer panic on construction
 	// failure, so build them here on the main goroutine (before g.Go) to fail
@@ -75,6 +78,10 @@ func runWallet(ctx context.Context, configPath string) error {
 	mainConsumer := kafka.NewConsumer(cfg.Kafka, kafka.ConsumerOptions{
 		Topic: kafkatopic.TransferRequested,
 		Group: "wallet-processor",
+	})
+	providerRequestConsumer := kafka.NewConsumer(cfg.Kafka, kafka.ConsumerOptions{
+		Topic: kafkatopic.TransferProviderRequested,
+		Group: "wallet-provider",
 	})
 	retryStages := kafkatopic.WalletRetryStages()
 	retryConsumers := make([]*kafka.Consumer, 0, len(retryStages))
@@ -87,6 +94,9 @@ func runWallet(ctx context.Context, configPath string) error {
 
 	publisher := outbox.NewPublisher(outboxRepo, producer, log)
 	transferProcessor := processor.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, log)
+	providerConsumer := processor.NewProviderConsumer(
+		providerRequestConsumer, producer, providerClient, transferRepo, inboxRepo, log,
+	)
 
 	server := httpserver.New(httpserver.Config{
 		Address:            cfg.HTTP.Address,
@@ -115,6 +125,7 @@ func runWallet(ctx context.Context, configPath string) error {
 	})
 	g.Go(func() error { return publisher.Run(gctx) })
 	g.Go(func() error { return transferProcessor.Run(gctx) })
+	g.Go(func() error { return providerConsumer.Run(gctx) })
 	for i := range retryStages {
 		rc := processor.NewRetryConsumer(retryConsumers[i], producer, log)
 		g.Go(func() error { return rc.Run(gctx) })
@@ -128,6 +139,7 @@ func runWallet(ctx context.Context, configPath string) error {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 		_ = mainConsumer.Close()
+		_ = providerRequestConsumer.Close()
 		for _, rc := range retryConsumers {
 			_ = rc.Close()
 		}

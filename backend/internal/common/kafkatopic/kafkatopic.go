@@ -34,6 +34,11 @@ const (
 	TransferCompleted = "transfer.completed"
 	TransferFailed    = "transfer.failed"
 
+	// TransferProviderRequested drives the external-transfer provider worker: it
+	// is staged when a transfer is RESERVED and consumed by the provider consumer,
+	// which submits to the provider and settles the outcome.
+	TransferProviderRequested = "transfer.provider.requested"
+
 	// WalletDLQ is the wallet service's dead-letter queue.
 	WalletDLQ = "transx.wallet.dlq"
 )

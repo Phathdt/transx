@@ -15,6 +15,15 @@ func pgUUID(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
 
+// pgUUIDOrNull maps the zero UUID to a NULL pgtype.UUID, used for the optional
+// to_account_id on EXTERNAL transfers (no in-ledger destination).
+func pgUUIDOrNull(id uuid.UUID) pgtype.UUID {
+	if id == uuid.Nil {
+		return pgtype.UUID{Valid: false}
+	}
+	return pgtype.UUID{Bytes: id, Valid: true}
+}
+
 // timePtr returns a pointer to the timestamp's time, or nil when not valid.
 func timePtr(ts pgtype.Timestamptz) *time.Time {
 	if !ts.Valid {

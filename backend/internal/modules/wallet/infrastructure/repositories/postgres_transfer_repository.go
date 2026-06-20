@@ -45,10 +45,11 @@ func (r *PostgresTransferRepository) Create(
 		q := r.q.WithTx(tx)
 		row, err := q.CreateTransfer(ctx, gen.CreateTransferParams{
 			FromAccountID:  pgUUID(t.FromAccountID),
-			ToAccountID:    pgUUID(t.ToAccountID),
+			ToAccountID:    pgUUIDOrNull(t.ToAccountID),
 			Amount:         t.Amount,
 			Currency:       t.Currency,
 			TransferType:   t.TransferType,
+			Provider:       t.Provider,
 			Status:         string(t.Status),
 			UserID:         pgUUID(t.UserID),
 			IdempotencyKey: t.IdempotencyKey,

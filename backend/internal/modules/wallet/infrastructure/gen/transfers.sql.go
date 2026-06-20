@@ -15,9 +15,9 @@ import (
 const createTransfer = `-- name: CreateTransfer :one
 INSERT INTO transfers (
     from_account_id, to_account_id, amount, currency, transfer_type,
-    status, user_id, idempotency_key, request_hash
+    provider, status, user_id, idempotency_key, request_hash
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at
 `
 
@@ -27,6 +27,7 @@ type CreateTransferParams struct {
 	Amount         decimal.Decimal `db:"amount"`
 	Currency       string          `db:"currency"`
 	TransferType   string          `db:"transfer_type"`
+	Provider       string          `db:"provider"`
 	Status         string          `db:"status"`
 	UserID         pgtype.UUID     `db:"user_id"`
 	IdempotencyKey string          `db:"idempotency_key"`
@@ -40,6 +41,7 @@ func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) 
 		arg.Amount,
 		arg.Currency,
 		arg.TransferType,
+		arg.Provider,
 		arg.Status,
 		arg.UserID,
 		arg.IdempotencyKey,
@@ -209,6 +211,23 @@ func (q *Queries) LockTransferByID(ctx context.Context, id pgtype.UUID) (*Transf
 		&i.UpdatedAt,
 	)
 	return &i, err
+}
+
+const setProviderReference = `-- name: SetProviderReference :exec
+UPDATE transfers
+SET provider_reference_id = $1, updated_at = now()
+WHERE id = $2
+`
+
+type SetProviderReferenceParams struct {
+	ProviderReferenceID string      `db:"provider_reference_id"`
+	ID                  pgtype.UUID `db:"id"`
+}
+
+// Stores the reference id returned by the provider on a successful submit.
+func (q *Queries) SetProviderReference(ctx context.Context, arg SetProviderReferenceParams) error {
+	_, err := q.db.Exec(ctx, setProviderReference, arg.ProviderReferenceID, arg.ID)
+	return err
 }
 
 const updateTransferStatus = `-- name: UpdateTransferStatus :exec
