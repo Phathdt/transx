@@ -53,7 +53,26 @@ func fieldErrMessage(fe validator.FieldError) string {
 		return fmt.Sprintf("%s must be one of: %s", field, strings.ReplaceAll(fe.Param(), " ", ", "))
 	case "eth_addr":
 		return fmt.Sprintf("%s must be a valid Ethereum address", field)
+	case "email":
+		return fmt.Sprintf("%s must be a valid email address", field)
+	case "uuid":
+		return fmt.Sprintf("%s must be a valid UUID", field)
+	case "number":
+		return fmt.Sprintf("%s must be a number", field)
+	case "iso4217":
+		return fmt.Sprintf("%s must be a valid ISO-4217 currency code", field)
+	case "nefield":
+		return fmt.Sprintf("%s must differ from %s", field, lowerFirst(fe.Param()))
 	default:
 		return fmt.Sprintf("%s failed validation (%s)", field, fe.Tag())
 	}
+}
+
+// lowerFirst lowercases the first letter to match the camelCase field naming
+// used in error output.
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }

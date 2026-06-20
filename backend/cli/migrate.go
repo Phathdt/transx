@@ -17,7 +17,7 @@ func MigrateUp(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := goose.Up(db, filepath.Join("db", "migrations")); err != nil {
 		return fmt.Errorf("migrate up: %w", err)
 	}
@@ -30,7 +30,7 @@ func MigrateDown(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := goose.Down(db, filepath.Join("db", "migrations")); err != nil {
 		return fmt.Errorf("migrate down: %w", err)
 	}
@@ -43,7 +43,7 @@ func MigrateStatus(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	return goose.Status(db, filepath.Join("db", "migrations"))
 }
 

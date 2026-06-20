@@ -85,10 +85,15 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        rpk topic create xxx \
-          --brokers redpanda:9092 \
-          --partitions 1 \
-          --replicas 1 || true
+        for topic in \
+          transfer.requested transfer.completed transfer.failed \
+          transx.wallet.retry-6s transx.wallet.retry-30s transx.wallet.retry-5m \
+          transx.wallet.dlq; do
+          rpk topic create "$$topic" \
+            --brokers redpanda:29092 \
+            --partitions 1 \
+            --replicas 1 || true
+        done
 
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:v2.7.2
@@ -140,6 +145,10 @@ services:
       postgres:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
         condition: service_completed_successfully
     restart: unless-stopped
     labels:

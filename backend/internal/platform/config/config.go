@@ -10,11 +10,11 @@ import (
 )
 
 type Config struct {
-	App      App      `yaml:"app"       mapstructure:"app"`
-	HTTP     HTTP     `yaml:"http"      mapstructure:"http"`
-	Postgres Postgres `yaml:"postgres"  mapstructure:"postgres"`
-	Kafka    Kafka    `yaml:"kafka"     mapstructure:"kafka"`
-	Auth     Auth     `yaml:"auth"      mapstructure:"auth"`
+	App      App      `yaml:"app"      mapstructure:"app"`
+	HTTP     HTTP     `yaml:"http"     mapstructure:"http"`
+	Postgres Postgres `yaml:"postgres" mapstructure:"postgres"`
+	Kafka    Kafka    `yaml:"kafka"    mapstructure:"kafka"`
+	Auth     Auth     `yaml:"auth"     mapstructure:"auth"`
 }
 
 type App struct {

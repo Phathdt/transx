@@ -2,8 +2,8 @@ package dto
 
 // LoginCommand is the POST /login request body.
 type LoginCommand struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email    string `json:"email"    validate:"required,email"`
+	Password string `json:"password" validate:"required"`
 }
 
 // LoginResponse carries the issued JWT and basic user info.

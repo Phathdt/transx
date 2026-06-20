@@ -6,6 +6,82 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /accounts:
+    post:
+      tags:
+        - wallet
+      summary: Create a wallet account for the caller
+      description: Create a wallet account for the caller
+      operationId: createAccount
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtoCreateAccountCommand'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoAccountResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /accounts/{accountId}:
+    get:
+      tags:
+        - wallet
+      summary: Get a wallet account balance
+      description: Get a wallet account balance
+      operationId: getAccount
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoAccountResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
   /check:
     get:
       tags:
@@ -60,10 +136,151 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HandlersErrorResponse'
+  /transfers:
+    post:
+      tags:
+        - wallet
+      summary: Create an internal transfer (idempotent via Idempotency-Key)
+      description: Create an internal transfer (idempotent via Idempotency-Key)
+      operationId: createTransfer
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fromAccountId
+                - toAccountId
+                - amount
+                - currency
+              properties:
+                amount:
+                  type: string
+                currency:
+                  type: string
+                fromAccountId:
+                  type: string
+                toAccountId:
+                  type: string
+                transferType:
+                  type: string
+        required: true
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoTransferResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '422':
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /transfers/{transferId}:
+    get:
+      tags:
+        - wallet
+      summary: Get a transfer by id
+      description: Get a transfer by id
+      operationId: getTransfer
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoTransferResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
 components:
   schemas:
+    DtoAccountResponse:
+      type: object
+      properties:
+        accountId:
+          type: string
+        availableBalance:
+          type: string
+        currency:
+          type: string
+        holdBalance:
+          type: string
+        status:
+          type: string
+    DtoCreateAccountCommand:
+      type: object
+      required:
+        - currency
+      properties:
+        currency:
+          type: string
+        name:
+          type: string
     DtoLoginCommand:
       type: object
+      required:
+        - email
+        - password
       properties:
         email:
           type: string
@@ -77,6 +294,19 @@ components:
         tokenType:
           type: string
         userId:
+          type: string
+    DtoTransferResponse:
+      type: object
+      properties:
+        amount:
+          type: string
+        currency:
+          type: string
+        failureReason:
+          type: string
+        status:
+          type: string
+        transferId:
           type: string
     HandlersErrorResponse:
       type: object

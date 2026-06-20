@@ -1,0 +1,35 @@
+package entities
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+)
+
+// AccountStatus enumerates the lifecycle states of a wallet account. Only an
+// ACTIVE account can be debited or credited.
+type AccountStatus string
+
+const (
+	AccountStatusActive AccountStatus = "ACTIVE"
+	AccountStatusFrozen AccountStatus = "FROZEN"
+	AccountStatusClosed AccountStatus = "CLOSED"
+)
+
+// Account is a user's wallet holding a balance in a single currency.
+// AvailableBalance is spendable; HoldBalance is reserved for in-flight holds.
+type Account struct {
+	ID               uuid.UUID
+	UserID           uuid.UUID
+	Name             string
+	Currency         string
+	AvailableBalance decimal.Decimal
+	HoldBalance      decimal.Decimal
+	Status           AccountStatus
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// IsActive reports whether the account can take part in a transfer.
+func (a *Account) IsActive() bool { return a.Status == AccountStatusActive }
