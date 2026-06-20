@@ -39,3 +39,10 @@ type TransferResponse struct {
 	Currency      string `json:"currency"`
 	FailureReason string `json:"failureReason,omitempty"`
 }
+
+// TransferEventPayload is the canonical message body for transfer.* events
+// (the outbox producer and the Kafka consumer share this contract). Only the
+// transfer id travels on the wire; consumers reload state from the database.
+type TransferEventPayload struct {
+	TransferID string `json:"transferId"`
+}

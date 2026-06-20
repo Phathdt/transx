@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"transx/internal/common/kafkatopic"
+	"transx/internal/modules/wallet/application/dto"
 	"transx/internal/modules/wallet/domain/interfaces"
 	"transx/internal/platform/kafka"
 	"transx/internal/platform/logger"
@@ -25,12 +26,6 @@ const (
 	sqlStateSerializationFailure = "40001"
 	sqlStateDeadlockDetected     = "40P01"
 )
-
-// transferEventPayload is the transfer.requested message body. Only the transfer
-// id travels on the wire; the processor reloads state from the database.
-type transferEventPayload struct {
-	TransferID string `json:"transferId"`
-}
 
 // Processor consumes transfer.requested and executes each transfer in a single
 // transaction. It is idempotent via the inbox table plus the status='PENDING'
@@ -164,7 +159,7 @@ func (p *Processor) commit(ctx context.Context, msg kafka.Message) {
 
 // parseTransferID extracts and validates the transfer id from the message value.
 func parseTransferID(value []byte) (string, error) {
-	var payload transferEventPayload
+	var payload dto.TransferEventPayload
 	if err := json.Unmarshal(value, &payload); err != nil {
 		return "", err
 	}

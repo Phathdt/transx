@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"transx/internal/modules/wallet/application/dto"
 	"transx/internal/modules/wallet/domain/entities"
 	"transx/internal/modules/wallet/domain/interfaces"
 	"transx/internal/modules/wallet/infrastructure/gen"
@@ -112,12 +113,6 @@ func (r *PostgresTransferRepository) FindByUserAndKey(
 		return nil, err
 	}
 	return transferToEntity(row), nil
-}
-
-// transferEventPayload is the canonical message body for transfer.* events. Only
-// the transfer id travels on the wire; consumers reload state from the DB.
-type transferEventPayload struct {
-	TransferID string `json:"transferId"`
 }
 
 // ExecuteInternalTransfer moves funds for one transfer atomically: it locks the
@@ -261,7 +256,7 @@ func insertTransferOutbox(
 	transferID uuid.UUID,
 	eventType string,
 ) error {
-	payload, err := json.Marshal(transferEventPayload{TransferID: transferID.String()})
+	payload, err := json.Marshal(dto.TransferEventPayload{TransferID: transferID.String()})
 	if err != nil {
 		return fmt.Errorf("marshal %s payload: %w", eventType, err)
 	}

@@ -23,9 +23,13 @@ kafka:
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
-	f.WriteString(content)
-	f.Close()
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg, err := Load(f.Name())
 	if err != nil {
@@ -66,7 +70,11 @@ kafka:
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
-	f.WriteString(content)
-	f.Close()
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
