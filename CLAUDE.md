@@ -18,18 +18,29 @@ make check          # sqlc + format + vet + lint — run before considering work
 make sqlc           # regenerate query code after editing internal/modules/*/infrastructure/query/*.sql
 make migrate        # apply goose migrations
 make seed           # insert dev users (idempotent)
-go run . --config config.yaml auth     # run auth service
-go run . --config config.yaml wallet   # run wallet service
+go run . --config config.yaml auth            # auth service (ForwardAuth backend)
+go run . --config config.yaml wallet          # wallet HTTP API (API only)
+go run . --config config.yaml outbox-replayer # drain outbox to Kafka (single instance)
+go run . --config config.yaml consumer        # transfer processor + provider + retries
+go run . --config config.yaml stub-provider   # stub payment provider (POST /submit)
 ```
+
+The wallet workload is split across independent commands on the one `transx`
+binary so each scales/deploys separately: `wallet` serves only HTTP, the
+background work lives in `outbox-replayer` (drains the outbox to Kafka) and
+`consumer` (processes the transfer lifecycle + retries), and `consumer` reaches
+the payment provider over HTTP via `stub-provider`. `outbox-replayer` must stay
+single-instance (the publisher holds no row lock).
 
 There is no unit-test suite yet; verify by building and exercising endpoints
 with `curl` against a running service (Postgres must be up via `docker compose`).
 
 ## Architecture conventions
 
-- **Service runners** live in `cli/` (`runAuth`, `runWallet`). Pattern: load
+- **Service runners** live in `cli/` (`runAuth`, `runWallet`, `runConsumer`,
+  `runOutboxReplayer`, `runStubProvider`). Each runner is self-contained: load
   config → init logger → connect Postgres eagerly → build module wiring → start
-  `httpserver` → block on signal/errgroup. Mirror an existing runner.
+  `httpserver` and/or workers → block on signal/errgroup. Mirror an existing runner.
 - **DDD modules** under `internal/modules/<domain>/`:
   - `domain/entities`, `domain/interfaces` — no infra imports.
   - `application/services`, `application/dto` — use cases.

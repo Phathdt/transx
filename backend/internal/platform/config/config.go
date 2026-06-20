@@ -44,10 +44,14 @@ type Kafka struct {
 
 // Provider configures the external-transfer payment provider. Name is stamped
 // onto every EXTERNAL transfer (clients never send it); Mode drives the fake
-// client (always_success | always_failure | always_timeout).
+// client (always_success | always_failure | always_timeout). BaseURL is where
+// the consumer reaches the provider over HTTP; ListenAddress is where the
+// stub-provider service serves POST /submit.
 type Provider struct {
-	Name string `yaml:"name" mapstructure:"name"`
-	Mode string `yaml:"mode" mapstructure:"mode"`
+	Name          string `yaml:"name"           mapstructure:"name"`
+	Mode          string `yaml:"mode"           mapstructure:"mode"`
+	BaseURL       string `yaml:"base_url"       mapstructure:"base_url"`
+	ListenAddress string `yaml:"listen_address" mapstructure:"listen_address"`
 }
 
 // Load reads config from configPath YAML file with env var overrides.
@@ -82,6 +86,14 @@ func Load(configPath string) (Config, error) {
 	}
 	if cfg.Provider.Mode == "" {
 		cfg.Provider.Mode = "always_success"
+	}
+	// HTTP provider transport defaults for local single-host runs; compose and
+	// non-local envs override via PROVIDER__BASE_URL / PROVIDER__LISTEN_ADDRESS.
+	if cfg.Provider.BaseURL == "" {
+		cfg.Provider.BaseURL = "http://localhost:4100"
+	}
+	if cfg.Provider.ListenAddress == "" {
+		cfg.Provider.ListenAddress = ":4100"
 	}
 
 	return cfg, nil

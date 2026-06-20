@@ -23,7 +23,22 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			{Name: "auth", Usage: "Start standalone auth service (ForwardAuth backend)", Action: mycli.RunAuthService},
-			{Name: "wallet", Usage: "Start standalone wallet service", Action: mycli.RunWalletService},
+			{
+				Name:   "wallet",
+				Usage:  "Start the wallet HTTP API (API only; workers run separately)",
+				Action: mycli.RunWalletService,
+			},
+			{
+				Name:   "outbox-replayer",
+				Usage:  "Drain the wallet outbox table to Kafka (single instance)",
+				Action: mycli.RunOutboxReplayer,
+			},
+			{Name: "consumer", Usage: "Process transfer lifecycle events + retries", Action: mycli.RunConsumer},
+			{
+				Name:   "stub-provider",
+				Usage:  "Run the stub payment provider HTTP service (POST /submit)",
+				Action: mycli.RunStubProvider,
+			},
 			{Name: "seed", Usage: "Insert development users (idempotent)", Action: mycli.Seed},
 			{
 				Name:  "openapi-export",
