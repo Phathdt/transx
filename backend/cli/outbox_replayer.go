@@ -12,8 +12,8 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 
+	"transx/cmd/replayer"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
-	"transx/internal/modules/wallet/infrastructure/outbox"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
 	"transx/internal/platform/httpserver"
@@ -53,7 +53,7 @@ func runOutboxReplayer(ctx context.Context, configPath string) error {
 
 	producer := kafka.NewProducer(cfg.Kafka)
 	outboxRepo := walletrepos.NewPostgresOutboxRepository(walletgen.New(db))
-	publisher := outbox.NewPublisher(outboxRepo, producer, log)
+	publisher := replayer.NewPublisher(outboxRepo, producer, log)
 
 	// Health-only HTTP server so Compose/k8s can probe /healthz + /readyz; no
 	// business routes are registered.

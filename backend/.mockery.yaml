@@ -1,0 +1,45 @@
+with-expecter: true
+issue-845-fix: true
+disable-version-string: true
+resolve-type-alias: false
+packages:
+  transx/internal/modules/auth/domain/interfaces:
+    interfaces:
+      UserRepository:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: user_repository.go
+          mockname: UserRepository
+  transx/internal/modules/wallet/domain/interfaces:
+    interfaces:
+      AccountRepository:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: account_repository.go
+          mockname: AccountRepository
+      TransferRepository:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: transfer_repository.go
+          mockname: TransferRepository
+      OutboxRepository:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: outbox_repository.go
+          mockname: OutboxRepository
+      InboxRepository:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: inbox_repository.go
+          mockname: InboxRepository
+      ProviderClient:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: provider_client.go
+          mockname: ProviderClient

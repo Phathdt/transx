@@ -1,4 +1,4 @@
-package processor
+package consumer
 
 import (
 	"context"
@@ -14,14 +14,14 @@ import (
 // topic recorded in HeaderRetryFrom. The attempt counter set by the main
 // processor rides along so the next failure escalates to the following tier.
 type RetryConsumer struct {
-	consumer *kafka.Consumer
-	producer *kafka.Producer
+	consumer kafka.MessageConsumer
+	producer kafka.MessageProducer
 	log      logger.Logger
 }
 
 func NewRetryConsumer(
-	consumer *kafka.Consumer,
-	producer *kafka.Producer,
+	consumer kafka.MessageConsumer,
+	producer kafka.MessageProducer,
 	log logger.Logger,
 ) *RetryConsumer {
 	return &RetryConsumer{consumer: consumer, producer: producer, log: log}

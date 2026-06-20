@@ -1,4 +1,4 @@
-package processor
+package consumer
 
 import (
 	"context"
@@ -25,7 +25,7 @@ const providerConsumerGroup = "wallet-provider"
 // tiers without marking the message processed, so it is retried; a definitive
 // provider result (SUCCESS/FAILURE) is settled and the message is marked done.
 type ProviderConsumer struct {
-	consumer  *kafka.Consumer
+	consumer  kafka.MessageConsumer
 	client    interfaces.ProviderClient
 	transfers interfaces.TransferRepository
 	inbox     interfaces.InboxRepository
@@ -34,8 +34,8 @@ type ProviderConsumer struct {
 }
 
 func NewProviderConsumer(
-	consumer *kafka.Consumer,
-	producer *kafka.Producer,
+	consumer kafka.MessageConsumer,
+	producer kafka.MessageProducer,
 	client interfaces.ProviderClient,
 	transfers interfaces.TransferRepository,
 	inbox interfaces.InboxRepository,
@@ -68,7 +68,7 @@ func (c *ProviderConsumer) Run(ctx context.Context) error {
 
 // handle processes one message: parse → dedup → submit+settle → commit/escalate.
 func (c *ProviderConsumer) handle(ctx context.Context, msg kafka.Message) {
-	key, err := parseTransferID(msg.Value)
+	key, err := ParseTransferID(msg.Value)
 	if err != nil {
 		c.retry.toDLQ(ctx, msg, err)
 		c.commit(ctx, msg)
@@ -86,7 +86,7 @@ func (c *ProviderConsumer) handle(ctx context.Context, msg kafka.Message) {
 		return
 	}
 
-	transferID, _ := uuid.Parse(key) // already validated by parseTransferID.
+	transferID, _ := uuid.Parse(key) // already validated by ParseTransferID.
 	if err := c.submitAndSettle(ctx, transferID); err != nil {
 		// Both a transient provider error and a transient DB error (serialization
 		// failure/deadlock) are retried; the message is not marked processed so a

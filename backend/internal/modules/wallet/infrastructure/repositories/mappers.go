@@ -10,27 +10,42 @@ import (
 	"transx/internal/modules/wallet/infrastructure/gen"
 )
 
-// pgUUID wraps a uuid.UUID as a pgtype.UUID for query parameters.
-func pgUUID(id uuid.UUID) pgtype.UUID {
+// PgUUID wraps a uuid.UUID as a pgtype.UUID for query parameters.
+func PgUUID(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
 
-// pgUUIDOrNull maps the zero UUID to a NULL pgtype.UUID, used for the optional
+// pgUUID is the internal alias for backward compatibility.
+func pgUUID(id uuid.UUID) pgtype.UUID {
+	return PgUUID(id)
+}
+
+// PgUUIDOrNull maps the zero UUID to a NULL pgtype.UUID, used for the optional
 // to_account_id on EXTERNAL transfers (no in-ledger destination).
-func pgUUIDOrNull(id uuid.UUID) pgtype.UUID {
+func PgUUIDOrNull(id uuid.UUID) pgtype.UUID {
 	if id == uuid.Nil {
 		return pgtype.UUID{Valid: false}
 	}
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
 
-// timePtr returns a pointer to the timestamp's time, or nil when not valid.
-func timePtr(ts pgtype.Timestamptz) *time.Time {
+// pgUUIDOrNull is the internal alias for backward compatibility.
+func pgUUIDOrNull(id uuid.UUID) pgtype.UUID {
+	return PgUUIDOrNull(id)
+}
+
+// TimePtr returns a pointer to the timestamp's time, or nil when not valid.
+func TimePtr(ts pgtype.Timestamptz) *time.Time {
 	if !ts.Valid {
 		return nil
 	}
 	t := ts.Time
 	return &t
+}
+
+// timePtr is the internal alias for backward compatibility.
+func timePtr(ts pgtype.Timestamptz) *time.Time {
+	return TimePtr(ts)
 }
 
 func accountToEntity(row *gen.Account) *entities.Account {

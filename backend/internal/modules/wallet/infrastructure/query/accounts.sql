@@ -13,6 +13,11 @@ SELECT *
 FROM accounts
 WHERE id = $1 AND user_id = $2;
 
+-- name: UpdateAccountStatus :exec
+UPDATE accounts
+SET status = $1, updated_at = now()
+WHERE id = $2;
+
 -- name: LockAccountsByIDs :many
 -- Locks the given accounts in a deterministic order (ORDER BY id) so two
 -- crossing transfers (A->B and B->A) cannot deadlock on lock acquisition.
