@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"context"
+
 	ckafka "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"go.opentelemetry.io/otel/propagation"
 )
@@ -86,4 +88,25 @@ func fromCKafkaHeaders(headers []ckafka.Header) []Header {
 		out[i] = Header{Key: h.Key, Value: h.Value}
 	}
 	return out
+}
+
+// MessageConsumer is the interface for consuming Kafka messages. Narrowed so
+// tests can mock message consumption without a live broker.
+// *Consumer satisfies it.
+type MessageConsumer interface {
+	Fetch(ctx context.Context) (Message, context.Context, error)
+	Commit(ctx context.Context, messages ...Message) error
+	HoldUntil(ctx context.Context, msg Message, untilUnixMillis int64) error
+	Topic() string
+	Close() error
+}
+
+// MessageProducer is the interface for producing Kafka messages. Narrowed so
+// tests can mock message production and assert retry/DLQ routing without a live
+// broker. *Producer satisfies it.
+type MessageProducer interface {
+	Publish(ctx context.Context, topic string, key, value []byte) error
+	PublishWithHeaders(ctx context.Context, topic string, key, value []byte, headers []Header) error
+	PublishDLQ(ctx context.Context, dlqTopic string, key, value []byte) error
+	Close() error
 }

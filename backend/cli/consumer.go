@@ -12,9 +12,9 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 
+	"transx/cmd/consumer"
 	"transx/internal/common/kafkatopic"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
-	"transx/internal/modules/wallet/infrastructure/processor"
 	"transx/internal/modules/wallet/infrastructure/provider"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
@@ -82,8 +82,8 @@ func runConsumer(ctx context.Context, configPath string) error {
 		}))
 	}
 
-	transferProcessor := processor.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, log)
-	providerConsumer := processor.NewProviderConsumer(
+	transferProcessor := consumer.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, log)
+	providerConsumer := consumer.NewProviderConsumer(
 		providerRequestConsumer, producer, providerClient, transferRepo, inboxRepo, log,
 	)
 
@@ -109,7 +109,7 @@ func runConsumer(ctx context.Context, configPath string) error {
 	g.Go(func() error { return transferProcessor.Run(gctx) })
 	g.Go(func() error { return providerConsumer.Run(gctx) })
 	for i := range retryStages {
-		rc := processor.NewRetryConsumer(retryConsumers[i], producer, log)
+		rc := consumer.NewRetryConsumer(retryConsumers[i], producer, log)
 		g.Go(func() error { return rc.Run(gctx) })
 	}
 

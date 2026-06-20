@@ -1,4 +1,4 @@
-package processor
+package consumer
 
 import (
 	"context"
@@ -23,7 +23,7 @@ const transferTypeExternal = "EXTERNAL"
 // provider-request event. It is idempotent via the inbox table plus the
 // status-guard inside each repository step, so a redelivery never double-acts.
 type Processor struct {
-	consumer  *kafka.Consumer
+	consumer  kafka.MessageConsumer
 	transfers interfaces.TransferRepository
 	inbox     interfaces.InboxRepository
 	retry     retryHelper
@@ -31,8 +31,8 @@ type Processor struct {
 }
 
 func NewProcessor(
-	consumer *kafka.Consumer,
-	producer *kafka.Producer,
+	consumer kafka.MessageConsumer,
+	producer kafka.MessageProducer,
 	transfers interfaces.TransferRepository,
 	inbox interfaces.InboxRepository,
 	log logger.Logger,
@@ -59,13 +59,14 @@ func (p *Processor) Run(ctx context.Context) error {
 			p.log.Error("processor: fetch failed", "error", err)
 			continue
 		}
-		p.handle(mctx, msg)
+		p.Handle(mctx, msg)
 	}
 }
 
-// handle processes one message: parse → dedup → execute → commit/escalate.
-func (p *Processor) handle(ctx context.Context, msg kafka.Message) {
-	key, err := parseTransferID(msg.Value)
+// Handle processes one message: parse → dedup → execute → commit/escalate.
+// Exported for testing.
+func (p *Processor) Handle(ctx context.Context, msg kafka.Message) {
+	key, err := ParseTransferID(msg.Value)
 	if err != nil {
 		// Poison message: cannot ever succeed. Park in the DLQ and commit so it
 		// does not wedge the partition.
@@ -87,9 +88,9 @@ func (p *Processor) handle(ctx context.Context, msg kafka.Message) {
 		return
 	}
 
-	transferID, _ := uuid.Parse(key) // key already validated by parseTransferID.
+	transferID, _ := uuid.Parse(key) // key already validated by ParseTransferID.
 	if err := p.execute(ctx, transferID); err != nil {
-		if isTransient(err) {
+		if IsTransient(err) {
 			p.retry.escalateOrDLQ(ctx, msg, err)
 			p.commit(ctx, msg)
 			return

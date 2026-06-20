@@ -25,3 +25,6 @@ tmp/
 .claude
 .claude_sessions
 plans
+
+**/*.cover.out
+**/coverage.out

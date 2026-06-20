@@ -46,6 +46,14 @@ with `curl` against a running service (Postgres must be up via `docker compose`)
   - `application/services`, `application/dto` — use cases.
   - `infrastructure/repositories` — implement domain interfaces using sqlc
     `gen/` code; `infrastructure/query/*.sql` is the sqlc source.
+  - `infrastructure/provider` — the external payment-provider HTTP client (a
+    domain-port adapter) plus the shared wire contract and the stub server's
+    handler. Client and server share `http_contract.go` so they cannot drift.
+- **Worker logic** lives under `cmd/<worker>/` (`cmd/consumer` — transfer
+  processor, provider consumer, retry tiers; `cmd/replayer` — outbox publisher).
+  These are Kafka consume/drain orchestration loops, not domain adapters, so
+  they sit beside `cmd/api` rather than inside a module. They import a module's
+  `domain/interfaces` and are wired up by the matching `cli/` runner.
 - **Platform** (`internal/platform/`) is shared infra: `config`, `postgres`,
   `kafka`, `httpserver` (Fiber, serves `/healthz` + `/readyz`), `logger`,
   `middleware`. Reuse it; do not hand-roll HTTP servers.

@@ -1,4 +1,4 @@
-package processor
+package consumer
 
 import (
 	"context"
@@ -27,7 +27,7 @@ const (
 // delay elapses (set in HeaderRetryFrom), so each consumer escalates back to its
 // own source topic.
 type retryHelper struct {
-	producer  *kafka.Producer
+	producer  kafka.MessageProducer
 	log       logger.Logger
 	mainTopic string
 }
@@ -36,7 +36,7 @@ type retryHelper struct {
 // the tiers are exhausted. The caller commits the main offset so a retried
 // message never wedges the main partition.
 func (h retryHelper) escalateOrDLQ(ctx context.Context, msg kafka.Message, cause error) {
-	attempt := retryAttempt(msg)
+	attempt := RetryAttempt(msg)
 	stage, ok := kafkatopic.NextRetryStage(kafkatopic.WalletRetryStages(), attempt)
 	if !ok {
 		h.toDLQ(ctx, msg, cause)
@@ -53,6 +53,11 @@ func (h retryHelper) escalateOrDLQ(ctx context.Context, msg kafka.Message, cause
 	}
 }
 
+// EscalateOrDLQ is exported for testing.
+func (h retryHelper) EscalateOrDLQ(ctx context.Context, msg kafka.Message, cause error) {
+	h.escalateOrDLQ(ctx, msg, cause)
+}
+
 func (h retryHelper) toDLQ(ctx context.Context, msg kafka.Message, cause error) {
 	if err := h.producer.PublishWithHeaders(ctx, kafkatopic.WalletDLQ, msg.Key, msg.Value, []kafka.Header{
 		{Key: kafkatopic.HeaderError, Value: []byte(cause.Error())},
@@ -61,8 +66,19 @@ func (h retryHelper) toDLQ(ctx context.Context, msg kafka.Message, cause error) 
 	}
 }
 
-// parseTransferID extracts and validates the transfer id from the message value.
-func parseTransferID(value []byte) (string, error) {
+// ToDLQ is exported for testing.
+func (h retryHelper) ToDLQ(ctx context.Context, msg kafka.Message, cause error) {
+	h.toDLQ(ctx, msg, cause)
+}
+
+// NewRetryHelper creates a retry helper. Exported for testing.
+func NewRetryHelper(producer kafka.MessageProducer, log logger.Logger, mainTopic string) retryHelper {
+	return retryHelper{producer: producer, log: log, mainTopic: mainTopic}
+}
+
+// ParseTransferID extracts and validates the transfer id from the message value.
+// Exported for testing.
+func ParseTransferID(value []byte) (string, error) {
 	var payload dto.TransferEventPayload
 	if err := json.Unmarshal(value, &payload); err != nil {
 		return "", err
@@ -74,7 +90,8 @@ func parseTransferID(value []byte) (string, error) {
 }
 
 // retryAttempt reads the 0-based attempt counter off the message header.
-func retryAttempt(msg kafka.Message) int {
+// Exported for testing.
+func RetryAttempt(msg kafka.Message) int {
 	n, err := strconv.Atoi(msg.GetHeader(kafkatopic.HeaderRetryAttempt))
 	if err != nil || n < 0 {
 		return 0
@@ -90,7 +107,8 @@ func retryAtMillis(delay time.Duration) int64 {
 
 // isTransient reports whether an error is worth a delayed retry (serialization
 // failure or deadlock) rather than a permanent failure.
-func isTransient(err error) bool {
+// Exported for testing.
+func IsTransient(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {

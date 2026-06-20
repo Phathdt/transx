@@ -1,4 +1,4 @@
-package outbox
+package replayer
 
 import (
 	"context"
@@ -18,18 +18,18 @@ const pollInterval = 500 * time.Millisecond
 const batchSize = 100
 
 // Publisher drains the outbox table to Kafka. A single Publisher instance owns
-// the table (see plan RT#7): with one publisher, ordering is preserved by
-// created_at and the status='PENDING' guard on MarkPublished prevents
-// double-marking, so no row lock is needed.
+// the table: with one publisher, ordering is preserved by created_at and the
+// status='PENDING' guard on MarkPublished prevents double-marking, so no row
+// lock is needed.
 type Publisher struct {
 	outbox   interfaces.OutboxRepository
-	producer *kafka.Producer
+	producer kafka.MessageProducer
 	log      logger.Logger
 }
 
 func NewPublisher(
 	outbox interfaces.OutboxRepository,
-	producer *kafka.Producer,
+	producer kafka.MessageProducer,
 	log logger.Logger,
 ) *Publisher {
 	return &Publisher{outbox: outbox, producer: producer, log: log}
@@ -52,7 +52,7 @@ func (p *Publisher) Run(ctx context.Context) error {
 
 // publishBatch publishes one batch of pending events. It stops at the first
 // publish or mark failure so a later poll resumes from the unmarked event,
-// preserving per-aggregate ordering within the partition (plan RT#12).
+// preserving per-aggregate ordering within the partition.
 func (p *Publisher) publishBatch(ctx context.Context) {
 	events, err := p.outbox.ListPending(ctx, batchSize)
 	if err != nil {
@@ -96,4 +96,14 @@ func mapEventTypeToTopic(eventType string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// MapEventTypeToTopic is exported for testing.
+func MapEventTypeToTopic(eventType string) (string, bool) {
+	return mapEventTypeToTopic(eventType)
+}
+
+// PublishBatch is exported for testing.
+func (p *Publisher) PublishBatch(ctx context.Context) {
+	p.publishBatch(ctx)
 }

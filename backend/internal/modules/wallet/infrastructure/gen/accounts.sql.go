@@ -273,3 +273,19 @@ func (q *Queries) ReserveHoldIfSufficient(ctx context.Context, arg ReserveHoldIf
 	err := row.Scan(&i.AvailableBalance, &i.HoldBalance)
 	return &i, err
 }
+
+const updateAccountStatus = `-- name: UpdateAccountStatus :exec
+UPDATE accounts
+SET status = $1, updated_at = now()
+WHERE id = $2
+`
+
+type UpdateAccountStatusParams struct {
+	Status string      `db:"status"`
+	ID     pgtype.UUID `db:"id"`
+}
+
+func (q *Queries) UpdateAccountStatus(ctx context.Context, arg UpdateAccountStatusParams) error {
+	_, err := q.db.Exec(ctx, updateAccountStatus, arg.Status, arg.ID)
+	return err
+}
