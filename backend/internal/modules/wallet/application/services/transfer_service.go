@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/oklog/ulid/v2"
 	"github.com/shopspring/decimal"
 
 	"transx/internal/common/apperror"
@@ -37,6 +39,26 @@ const (
 	transferTypeInternal = "INTERNAL"
 	transferTypeExternal = "EXTERNAL"
 )
+
+// refPrefix maps a transfer type to its business-reference prefix so the
+// reference itself signals whether a transfer is external or internal.
+func refPrefix(transferType string) string {
+	if transferType == transferTypeExternal {
+		return "ETN-"
+	}
+	return "ITN-"
+}
+
+// NewTransferReference builds a business reference: prefix + ULID. The ULID is
+// generated at the application layer (time + entropy), independent of the
+// DB-assigned UUID primary key.
+func NewTransferReference(transferType string) string {
+	return refPrefix(transferType) + ulid.Make().String()
+}
+
+// transferReferencePattern matches a business reference: an ETN-/ITN- prefix
+// followed by a 26-char Crockford base32 ULID (the alphabet excludes I, L, O, U).
+var transferReferencePattern = regexp.MustCompile(`^(ETN|ITN)-[0-9A-HJKMNP-TV-Z]{26}$`)
 
 // TransferService creates transfers with authorization and idempotency, and
 // reads them back owner-scoped.
@@ -148,6 +170,7 @@ func (s *TransferService) createInternal(
 		Amount:         amount,
 		Currency:       currency,
 		TransferType:   transferTypeInternal,
+		Reference:      NewTransferReference(transferTypeInternal),
 		Status:         entities.TransferStatusPending,
 		UserID:         userID,
 		IdempotencyKey: key,
@@ -194,6 +217,7 @@ func (s *TransferService) createExternal(
 		Amount:         amount,
 		Currency:       currency,
 		TransferType:   transferTypeExternal,
+		Reference:      NewTransferReference(transferTypeExternal),
 		Provider:       s.providerName,
 		Status:         entities.TransferStatusPending,
 		UserID:         userID,
@@ -214,6 +238,9 @@ func (s *TransferService) persist(
 	if err != nil {
 		// Idempotency race: a concurrent request with the same key won the unique
 		// index. Re-read and apply the same replay/conflict rule instead of 500.
+		// This assumes the violated index is the (user_id, idempotency_key) one; a
+		// reference collision is ~80-bit-entropy improbable and would fall through
+		// to a 500, which is acceptable for that practically-impossible case.
 		if isUniqueViolation(err) {
 			existing, ferr := s.transfers.FindByUserAndKey(ctx, userID, key)
 			if ferr != nil {
@@ -228,13 +255,19 @@ func (s *TransferService) persist(
 	return transferToResponse(created), nil
 }
 
-// GetTransfer returns the caller's transfer; one belonging to another user is
-// reported as not found.
+// GetTransfer returns the caller's transfer by its business reference
+// (ETN-/ITN- + ULID); one belonging to another user is reported as not found.
+// A malformed reference is a 400 so a junk id is distinguishable from a
+// well-formed id that simply does not exist (404).
 func (s *TransferService) GetTransfer(
 	ctx context.Context,
-	id, userID uuid.UUID,
+	reference string,
+	userID uuid.UUID,
 ) (*dto.TransferResponse, error) {
-	transfer, err := s.transfers.GetByIDForUser(ctx, id, userID)
+	if !transferReferencePattern.MatchString(reference) {
+		return nil, apperror.NewBadRequestError("invalid transferId")
+	}
+	transfer, err := s.transfers.GetByReferenceForUser(ctx, reference, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +339,7 @@ func isUniqueViolation(err error) bool {
 
 func transferToResponse(t *entities.Transfer) *dto.TransferResponse {
 	return &dto.TransferResponse{
-		TransferID:    t.ID.String(),
+		TransferID:    t.Reference,
 		Status:        string(t.Status),
 		Amount:        t.Amount.String(),
 		Currency:      t.Currency,

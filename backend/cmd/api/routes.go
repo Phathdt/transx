@@ -117,8 +117,9 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 	v1.Get("/transfers/:transferId", getTransfer).With(
 		option.Tags("wallet"),
 		option.OperationID("getTransfer"),
-		option.Summary("Get a transfer by id"),
+		option.Summary("Get a transfer by its business reference (ETN- for EXTERNAL, ITN- for INTERNAL, followed by a ULID)"),
 		option.Response(fiber.StatusOK, new(walletdto.TransferResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),

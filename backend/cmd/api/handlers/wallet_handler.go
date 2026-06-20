@@ -84,17 +84,14 @@ func (h *WalletHandler) CreateTransfer(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(resp)
 }
 
-// GetTransfer handles GET /transfers/:transferId.
+// GetTransfer handles GET /transfers/:transferId, where transferId is the
+// business reference (ETN-/ITN- + ULID), not the internal UUID.
 func (h *WalletHandler) GetTransfer(c *fiber.Ctx) error {
 	userID, ok := middleware.UserIDFrom(c)
 	if !ok {
 		return apperror.NewUnauthorizedError("missing X-User-Id")
 	}
-	id, err := uuid.Parse(c.Params("transferId"))
-	if err != nil {
-		return apperror.NewBadRequestError("invalid transferId")
-	}
-	resp, err := h.transfers.GetTransfer(c.Context(), id, userID)
+	resp, err := h.transfers.GetTransfer(c.Context(), c.Params("transferId"), userID)
 	if err != nil {
 		return err
 	}

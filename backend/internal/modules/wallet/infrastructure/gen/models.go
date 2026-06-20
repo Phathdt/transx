@@ -58,4 +58,5 @@ type Transfer struct {
 	RequestHash         string             `db:"request_hash"`
 	CreatedAt           pgtype.Timestamptz `db:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `db:"updated_at"`
+	Reference           string             `db:"reference"`
 }

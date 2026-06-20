@@ -35,6 +35,7 @@ const (
 // carry no in-ledger destination (ToAccountID is uuid.Nil / NULL).
 type Transfer struct {
 	ID                  uuid.UUID
+	Reference           string
 	FromAccountID       uuid.UUID
 	ToAccountID         uuid.UUID
 	Amount              decimal.Decimal

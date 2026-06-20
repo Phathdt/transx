@@ -36,6 +36,8 @@ type CreateTransferCommand struct {
 
 // TransferResponse is the transfer view returned to clients.
 type TransferResponse struct {
+	// TransferID is the business reference (ETN- for EXTERNAL, ITN- for INTERNAL,
+	// followed by a ULID), not the internal UUID primary key.
 	TransferID    string `json:"transferId"`
 	Status        string `json:"status"`
 	Amount        string `json:"amount"`

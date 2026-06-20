@@ -13,8 +13,9 @@ import (
 type TransferRepository interface {
 	Create(ctx context.Context, t *entities.Transfer) (*entities.Transfer, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Transfer, error)
-	// GetByIDForUser returns the transfer only when it belongs to the caller.
-	GetByIDForUser(ctx context.Context, id, userID uuid.UUID) (*entities.Transfer, error)
+	// GetByReferenceForUser returns the transfer by its business reference
+	// (ETN-/ITN- + ULID), scoped to the owner. Returns (nil, nil) when none.
+	GetByReferenceForUser(ctx context.Context, reference string, userID uuid.UUID) (*entities.Transfer, error)
 	// FindByUserAndKey looks up a transfer by its idempotency key, scoped to the
 	// owner. Returns (nil, nil) when none exists.
 	FindByUserAndKey(ctx context.Context, userID uuid.UUID, key string) (*entities.Transfer, error)

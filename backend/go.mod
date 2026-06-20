@@ -13,6 +13,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/oaswrap/spec v0.5.1
 	github.com/oaswrap/spec/adapter/fiberopenapi v0.5.1
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/viper v1.21.0

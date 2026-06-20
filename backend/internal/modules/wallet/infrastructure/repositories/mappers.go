@@ -50,6 +50,7 @@ func accountToEntity(row *gen.Account) *entities.Account {
 func transferToEntity(row *gen.Transfer) *entities.Transfer {
 	return &entities.Transfer{
 		ID:                  row.ID.Bytes,
+		Reference:           row.Reference,
 		FromAccountID:       row.FromAccountID.Bytes,
 		ToAccountID:         row.ToAccountID.Bytes,
 		Amount:              row.Amount,

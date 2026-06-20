@@ -1,9 +1,9 @@
 -- name: CreateTransfer :one
 INSERT INTO transfers (
     from_account_id, to_account_id, amount, currency, transfer_type,
-    provider, status, user_id, idempotency_key, request_hash
+    provider, status, user_id, idempotency_key, request_hash, reference
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING *;
 
 -- name: GetTransferByID :one
@@ -11,10 +11,10 @@ SELECT *
 FROM transfers
 WHERE id = $1;
 
--- name: GetTransferByIDForUser :one
+-- name: GetTransferByReferenceForUser :one
 SELECT *
 FROM transfers
-WHERE id = $1 AND user_id = $2;
+WHERE reference = $1 AND user_id = $2;
 
 -- name: GetTransferByUserAndKey :one
 SELECT *

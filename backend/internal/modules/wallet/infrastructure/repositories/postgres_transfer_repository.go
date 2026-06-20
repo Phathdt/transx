@@ -54,6 +54,7 @@ func (r *PostgresTransferRepository) Create(
 			UserID:         pgUUID(t.UserID),
 			IdempotencyKey: t.IdempotencyKey,
 			RequestHash:    t.RequestHash,
+			Reference:      t.Reference,
 		})
 		if err != nil {
 			return err
@@ -81,13 +82,14 @@ func (r *PostgresTransferRepository) GetByID(
 	return transferToEntity(row), nil
 }
 
-func (r *PostgresTransferRepository) GetByIDForUser(
+func (r *PostgresTransferRepository) GetByReferenceForUser(
 	ctx context.Context,
-	id, userID uuid.UUID,
+	reference string,
+	userID uuid.UUID,
 ) (*entities.Transfer, error) {
-	row, err := r.q.GetTransferByIDForUser(ctx, gen.GetTransferByIDForUserParams{
-		ID:     pgUUID(id),
-		UserID: pgUUID(userID),
+	row, err := r.q.GetTransferByReferenceForUser(ctx, gen.GetTransferByReferenceForUserParams{
+		Reference: reference,
+		UserID:    pgUUID(userID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

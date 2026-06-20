@@ -15,10 +15,10 @@ import (
 const createTransfer = `-- name: CreateTransfer :one
 INSERT INTO transfers (
     from_account_id, to_account_id, amount, currency, transfer_type,
-    provider, status, user_id, idempotency_key, request_hash
+    provider, status, user_id, idempotency_key, request_hash, reference
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference
 `
 
 type CreateTransferParams struct {
@@ -32,6 +32,7 @@ type CreateTransferParams struct {
 	UserID         pgtype.UUID     `db:"user_id"`
 	IdempotencyKey string          `db:"idempotency_key"`
 	RequestHash    string          `db:"request_hash"`
+	Reference      string          `db:"reference"`
 }
 
 func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) (*Transfer, error) {
@@ -46,6 +47,7 @@ func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) 
 		arg.UserID,
 		arg.IdempotencyKey,
 		arg.RequestHash,
+		arg.Reference,
 	)
 	var i Transfer
 	err := row.Scan(
@@ -64,6 +66,7 @@ func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) 
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reference,
 	)
 	return &i, err
 }
@@ -85,7 +88,7 @@ func (q *Queries) FailTransfer(ctx context.Context, arg FailTransferParams) erro
 }
 
 const getTransferByID = `-- name: GetTransferByID :one
-SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at
+SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference
 FROM transfers
 WHERE id = $1
 `
@@ -109,23 +112,24 @@ func (q *Queries) GetTransferByID(ctx context.Context, id pgtype.UUID) (*Transfe
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reference,
 	)
 	return &i, err
 }
 
-const getTransferByIDForUser = `-- name: GetTransferByIDForUser :one
-SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at
+const getTransferByReferenceForUser = `-- name: GetTransferByReferenceForUser :one
+SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference
 FROM transfers
-WHERE id = $1 AND user_id = $2
+WHERE reference = $1 AND user_id = $2
 `
 
-type GetTransferByIDForUserParams struct {
-	ID     pgtype.UUID `db:"id"`
-	UserID pgtype.UUID `db:"user_id"`
+type GetTransferByReferenceForUserParams struct {
+	Reference string      `db:"reference"`
+	UserID    pgtype.UUID `db:"user_id"`
 }
 
-func (q *Queries) GetTransferByIDForUser(ctx context.Context, arg GetTransferByIDForUserParams) (*Transfer, error) {
-	row := q.db.QueryRow(ctx, getTransferByIDForUser, arg.ID, arg.UserID)
+func (q *Queries) GetTransferByReferenceForUser(ctx context.Context, arg GetTransferByReferenceForUserParams) (*Transfer, error) {
+	row := q.db.QueryRow(ctx, getTransferByReferenceForUser, arg.Reference, arg.UserID)
 	var i Transfer
 	err := row.Scan(
 		&i.ID,
@@ -143,12 +147,13 @@ func (q *Queries) GetTransferByIDForUser(ctx context.Context, arg GetTransferByI
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reference,
 	)
 	return &i, err
 }
 
 const getTransferByUserAndKey = `-- name: GetTransferByUserAndKey :one
-SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at
+SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference
 FROM transfers
 WHERE user_id = $1 AND idempotency_key = $2
 `
@@ -177,12 +182,13 @@ func (q *Queries) GetTransferByUserAndKey(ctx context.Context, arg GetTransferBy
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reference,
 	)
 	return &i, err
 }
 
 const lockTransferByID = `-- name: LockTransferByID :one
-SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at
+SELECT id, from_account_id, to_account_id, amount, currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference
 FROM transfers
 WHERE id = $1
 FOR UPDATE
@@ -209,6 +215,7 @@ func (q *Queries) LockTransferByID(ctx context.Context, id pgtype.UUID) (*Transf
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Reference,
 	)
 	return &i, err
 }
