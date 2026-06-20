@@ -38,7 +38,7 @@ the full product spec.
 | HTTP framework | Fiber v2                              |
 | DB access      | pgx v5 + sqlc-generated queries       |
 | Migrations     | goose                                 |
-| Provider       | pluggable `ProviderClient` (stub)     |
+| Provider       | pluggable `ProviderClient` (HTTP stub) |
 | Config         | viper + `.env` (env override: `A__B`) |
 
 All identifiers use **UUID v7** (time-ordered, index-friendly).
@@ -48,7 +48,8 @@ All identifiers use **UUID v7** (time-ordered, index-friendly).
 ```
 backend/
 ├── main.go                 # urfave/cli entrypoint; one subcommand per service
-├── cli/                    # service runners (auth, wallet), migrate, seed
+├── cli/                    # service runners (auth, wallet, outbox-replayer,
+│                           #   consumer, stub-provider), migrate, seed
 ├── cmd/
 │   ├── api/                # HTTP handlers + OpenAPI route registration
 │   └── shared/             # OpenAPI router factory
@@ -98,23 +99,33 @@ make seed          # alice/bob/carol/dave/eve @transx.dev (password: password123
 
 ### 3. Run a service
 
+The wallet workload is split across independent commands on the one `transx`
+binary so each scales and deploys separately:
+
 ```bash
-make run-wallet                       # wallet: HTTP API + outbox publisher + transfer processor
-go run . --config config.yaml auth    # auth service (ForwardAuth backend)
+make run-wallet         # wallet: HTTP API only
+make run-replayer       # outbox-replayer: drain outbox table to Kafka
+make run-consumer       # consumer: transfer processor + provider + retries
+make run-stub-provider  # stub-provider: fake payment provider (POST /submit)
+go run . --config config.yaml auth   # auth service (ForwardAuth backend)
 ```
 
-The wallet service needs Redpanda up — Kafka is a hard dependency and the
-process fails fast at startup if the brokers or topics are missing.
+`consumer` and `outbox-replayer` need Redpanda up — Kafka is a hard dependency
+and the process fails fast at startup if the brokers or topics are missing.
+`wallet` (API only) and `auth` do not touch Kafka. `outbox-replayer` must stay
+single-instance: the publisher holds no row lock, so ordering relies on exactly
+one replayer running.
 
-External transfers go through a pluggable provider; the bundled stub is
-mode-driven via `PROVIDER__MODE` (`always_success` | `always_failure` |
-`always_timeout`, default `always_success`) so the full external lifecycle can
-be exercised without a real provider API.
+External transfers go through a pluggable provider reached over HTTP. The
+bundled `stub-provider` is mode-driven via `PROVIDER__MODE` (`always_success` |
+`always_failure` | `always_timeout`, default `always_success`) so the full
+external lifecycle can be exercised without a real provider API; the `consumer`
+reaches it at `PROVIDER__BASE_URL`.
 
 ### Full stack via Compose
 
 ```bash
-docker compose up -d        # traefik + auth + wallet + postgres + redpanda
+docker compose up -d        # traefik + auth + wallet + outbox-replayer + consumer + stub-provider + postgres + redpanda
 ```
 
 A Traefik gateway fronts the backend on `http://localhost:4000`. Login is
@@ -137,7 +148,12 @@ curl http://localhost:4000/api/v1/accounts/<id> -H "Authorization: Bearer <token
 transx [--config|-c config.yaml] <subcommand>
 
   auth      Start the auth service (POST /login + ForwardAuth /check)
-  wallet    Start the wallet service (HTTP API + outbox publisher + transfer processor)
+  wallet    Start the wallet HTTP API (API only; workers run separately)
+  outbox-replayer
+            Drain the wallet outbox table to Kafka (single instance)
+  consumer  Process the transfer lifecycle (processor + provider + retries)
+  stub-provider
+            Run the stub payment provider HTTP service (POST /submit)
   seed      Insert development users and wallet accounts (idempotent)
   openapi-export
             Generate the merged OpenAPI spec without starting services
@@ -158,7 +174,10 @@ docker compose down                       # stop everything
 # Run from backend/
 make migrate        # apply goose migrations
 make seed           # insert dev users + accounts
-make run-wallet     # run the wallet service
+make run-wallet         # wallet HTTP API
+make run-replayer       # outbox-replayer
+make run-consumer       # transfer consumer
+make run-stub-provider  # stub payment provider
 
 # Code generation / quality
 make sqlc           # regenerate sqlc query code after editing query/*.sql
@@ -177,10 +196,12 @@ flowchart TD
     FE["Client"]
     TR["Traefik\nGateway :4000"]
     AUTH["Auth Service\nFiber HTTP :4000\nJWT login + ForwardAuth check"]
-    WALLET["Wallet Service\nFiber HTTP :4000\n+ outbox publisher + transfer processor + provider consumer"]
+    WALLET["Wallet API\nFiber HTTP :4000\n(API only)"]
+    REPLAYER["Outbox Replayer\ndrain outbox → Kafka\n(single instance)"]
+    CONSUMER["Consumer\ntransfer processor + provider consumer + retries"]
     PG[("PostgreSQL")]
     RP[("Redpanda\ntransfer.requested / provider.requested / completed / failed")]
-    PROV["Payment Provider\n(stub)"]
+    PROV["Stub Provider\nFiber HTTP :4100\nPOST /submit"]
     DLQ[("transx.wallet.dlq")]
 
     FE -->|"REST /api/v1"| TR
@@ -189,26 +210,31 @@ flowchart TD
     TR -->|"all other routes + X-User-Id"| WALLET
 
     AUTH --> PG
-    WALLET --> PG
-    WALLET -->|"publish outbox events"| RP
-    RP -->|"consume transfer.requested / provider.requested"| WALLET
-    WALLET -->|"submit external transfer"| PROV
-    WALLET -.->|"poison / exhausted retries"| DLQ
+    WALLET -->|"stage transfer + outbox event"| PG
+    REPLAYER -->|"poll outbox"| PG
+    REPLAYER -->|"publish events"| RP
+    RP -->|"consume transfer.requested / provider.requested"| CONSUMER
+    CONSUMER --> PG
+    CONSUMER -->|"submit external transfer (HTTP)"| PROV
+    CONSUMER -.->|"poison / exhausted retries"| DLQ
 ```
 
 - **Gateway**: Traefik terminates routing and delegates authentication to the
   auth service via ForwardAuth.
 - **Auth service**: issues JWTs (`POST /api/v1/login`) and verifies them for the
   gateway (`GET /api/v1/check`), echoing `X-User-Id` to upstream services.
-- **Wallet service**: owns accounts, transfers, ledger entries, and the outbox
-  (single consistency boundary for all money movement). Internal P2P transfers
-  are processed asynchronously: the HTTP API stages a transfer plus an outbox
-  event in one transaction, an outbox publisher relays events to Redpanda, and a
-  transfer processor consumes them to move money atomically. External transfers
-  add a reserve→submit→settle lifecycle: the processor reserves a hold, a
-  provider consumer submits to the payment provider and settles the outcome
-  (success debits the hold, failure releases it). All workers run as goroutines
-  in the wallet binary.
+- **Wallet workload** owns accounts, transfers, ledger entries, and the outbox
+  (single consistency boundary for all money movement), split across independent
+  commands on one binary so each scales/deploys on its own:
+  - **`wallet`** (HTTP API only) stages a transfer plus an outbox event in one
+    transaction and serves reads. It touches no Kafka.
+  - **`outbox-replayer`** relays outbox events to Redpanda in FIFO order. It is
+    single-instance (no row lock, so one publisher preserves ordering).
+  - **`consumer`** processes the transfer lifecycle: internal P2P transfers move
+    money in one transaction; external transfers add a reserve→submit→settle
+    lifecycle where the provider consumer submits to the payment provider over
+    HTTP and settles the outcome (success debits the hold, failure releases it).
+  - **`stub-provider`** is the fake payment provider reached over HTTP.
 
 ## Wallet API
 
@@ -327,8 +353,10 @@ sequenceDiagram
 
 ## Worker Consumer Flow
 
-Several background workers run as goroutines in the wallet binary, supervised by
-an errgroup so a fatal worker error brings the process down for a clean restart.
+Several background workers process transfers, split across the `outbox-replayer`
+(the publisher) and `consumer` (processor, provider consumer, retry tiers)
+commands. Within each command they run as goroutines supervised by an errgroup
+so a fatal worker error brings the process down for a clean restart.
 
 ```mermaid
 flowchart TD
@@ -473,7 +501,7 @@ cmd/
 ├── api/handlers/   HTTP handlers (transport layer)
 ├── api/routes.go   RegisterRoutes (auth) / RegisterWalletRoutes / RegisterAllRoutesForSpec
 └── shared/         OpenAPI-aware route generator
-cli/                CLI entry points (auth | wallet | seed | migrate | openapi-export)
+cli/                CLI entry points (auth | wallet | outbox-replayer | consumer | stub-provider | seed | migrate | openapi-export)
 ```
 
 Modules use `application/dto` for transport-facing commands and responses,

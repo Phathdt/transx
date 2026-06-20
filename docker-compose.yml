@@ -137,6 +137,8 @@ services:
       - traefik.http.middlewares.forward-auth.forwardauth.address=http://auth:4000/api/v1/check
       - traefik.http.middlewares.forward-auth.forwardauth.authResponseHeaders=X-User-Id
 
+  # API-only: serves wallet HTTP routes. Background work runs in the
+  # outbox-replayer and consumer services, so this needs no Kafka.
   wallet:
     <<: *backend
     container_name: transx-wallet
@@ -145,10 +147,6 @@ services:
       postgres:
         condition: service_healthy
       migrate:
-        condition: service_completed_successfully
-      redpanda:
-        condition: service_healthy
-      redpanda-init:
         condition: service_completed_successfully
     restart: unless-stopped
     labels:
@@ -159,6 +157,60 @@ services:
       - traefik.http.routers.wallet.middlewares=forward-auth
       - traefik.http.services.wallet-svc.loadbalancer.server.port=4000
       - traefik.http.routers.wallet.service=wallet-svc
+
+  # Drains the outbox table to Kafka. Single instance by design: the publisher
+  # holds no row lock, so ordering relies on exactly one replayer running.
+  outbox-replayer:
+    <<: *backend
+    container_name: transx-outbox-replayer
+    command: ["outbox-replayer"]
+    environment:
+      <<: *backend-env
+      HTTP__ADDRESS: ":4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Processes transfer lifecycle events + retries; reaches the provider over HTTP.
+  consumer:
+    <<: *backend
+    container_name: transx-consumer
+    command: ["consumer"]
+    environment:
+      <<: *backend-env
+      HTTP__ADDRESS: ":4002"
+      PROVIDER__BASE_URL: "http://stub-provider:4100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+      stub-provider:
+        condition: service_started
+    restart: unless-stopped
+
+  # Stub payment provider: serves POST /submit. Internal service, no auth, no DB.
+  stub-provider:
+    <<: *backend
+    container_name: transx-stub-provider
+    command: ["stub-provider"]
+    environment:
+      <<: *backend-env
+      PROVIDER__LISTEN_ADDRESS: ":4100"
+      PROVIDER__MODE: "always_success"
+    restart: unless-stopped
+
 
 volumes:
   postgres-data:
