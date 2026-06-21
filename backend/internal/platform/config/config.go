@@ -55,10 +55,13 @@ type Provider struct {
 	ListenAddress string `yaml:"listen_address" mapstructure:"listen_address"`
 }
 
-// FX configures static exchange-rate corridors for the local MVP adapter. Keys
-// use FROM_TO, for example VND_USD means one VND converted to USD.
+// FX configures static exchange-rate corridors and cross-currency fees for the
+// local MVP adapter. Rate keys use FROM_TO (VND_USD = one VND converted to USD).
+// Fee keys are a source currency code; the flat fee is charged in that currency
+// when a transfer converts out of it.
 type FX struct {
 	Rates map[string]string `yaml:"rates" mapstructure:"rates"`
+	Fees  map[string]string `yaml:"fees"  mapstructure:"fees"`
 }
 
 // Load reads config from configPath YAML file with env var overrides.

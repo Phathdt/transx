@@ -15,8 +15,10 @@ const quoteSourceConfig = "config"
 
 // ConfigService quotes FX from static config rates. Same-currency corridors are
 // always available at rate 1; cross-currency corridors require a FROM_TO key.
+// Cross-currency transfers also carry a flat fee keyed by the source currency.
 type ConfigService struct {
 	rates map[string]decimal.Decimal
+	fees  map[string]decimal.Decimal
 }
 
 var _ interfaces.FXService = (*ConfigService)(nil)
@@ -33,7 +35,17 @@ func NewConfigService(cfg config.FX) *ConfigService {
 		}
 		rates[normalizeRateKey(k)] = rate
 	}
-	return &ConfigService{rates: rates}
+	// Flat fee per source currency. A missing or non-positive entry means no
+	// fee for that currency.
+	fees := make(map[string]decimal.Decimal, len(cfg.Fees))
+	for k, v := range cfg.Fees {
+		fee, err := decimal.NewFromString(strings.TrimSpace(v))
+		if err != nil || fee.LessThanOrEqual(decimal.Zero) {
+			continue
+		}
+		fees[normalizeCurrency(k)] = fee
+	}
+	return &ConfigService{rates: rates, fees: fees}
 }
 
 func (s *ConfigService) Quote(
@@ -66,6 +78,25 @@ func (s *ConfigService) Quote(
 		Rate:     rate,
 		Source:   quoteSourceConfig,
 	}, nil
+}
+
+func (s *ConfigService) QuoteFee(
+	_ context.Context,
+	transactionCurrency, sourceCurrency string,
+) interfaces.FeeQuote {
+	src := normalizeCurrency(sourceCurrency)
+	// No conversion happened on the source side → no FX fee.
+	if normalizeCurrency(transactionCurrency) == src {
+		return interfaces.FeeQuote{Amount: decimal.Zero, Currency: src}
+	}
+	fee, ok := s.fees[src]
+	if !ok {
+		return interfaces.FeeQuote{Amount: decimal.Zero, Currency: src}
+	}
+	return interfaces.FeeQuote{
+		Amount:   roundByCurrency(fee, src),
+		Currency: src,
+	}
 }
 
 func normalizeCurrency(code string) string {

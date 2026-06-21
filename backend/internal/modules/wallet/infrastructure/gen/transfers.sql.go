@@ -312,9 +312,11 @@ SET
     destination_currency = $4,
     source_fx_rate = $5,
     destination_fx_rate = $6,
+    fee_amount = $7,
+    fee_currency = $8,
     updated_at = now()
 WHERE
-    id = $7
+    id = $9
 `
 
 type SetTransferSettlementSnapshotParams struct {
@@ -324,6 +326,8 @@ type SetTransferSettlementSnapshotParams struct {
 	DestinationCurrency string              `db:"destination_currency"`
 	SourceFxRate        decimal.NullDecimal `db:"source_fx_rate"`
 	DestinationFxRate   decimal.NullDecimal `db:"destination_fx_rate"`
+	FeeAmount           decimal.Decimal     `db:"fee_amount"`
+	FeeCurrency         string              `db:"fee_currency"`
 	ID                  pgtype.UUID         `db:"id"`
 }
 
@@ -335,6 +339,8 @@ func (q *Queries) SetTransferSettlementSnapshot(ctx context.Context, arg SetTran
 		arg.DestinationCurrency,
 		arg.SourceFxRate,
 		arg.DestinationFxRate,
+		arg.FeeAmount,
+		arg.FeeCurrency,
 		arg.ID,
 	)
 	return err

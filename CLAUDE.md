@@ -66,6 +66,10 @@ with `curl` against a running service (Postgres must be up via `docker compose`)
 
 - **IDs are UUID v7.** DB columns default to `uuidv7()` (Postgres 18); let the
   DB assign them. Don't hardcode IDs in seeds.
+- **FX fees** are a flat amount per source currency in config (`fx.fees`, keyed
+  by source currency code), charged on internal transfers that convert out of the
+  source currency as a third `FEE` ledger entry. A missing/non-positive entry =
+  no fee. Not a percentage; don't reintroduce a rate-based fee.
 - **Config**: add fields to `internal/platform/config/config.go`. Env override
   format is `SECTION__KEY` (e.g. `AUTH__JWT_SECRET`). Secrets stay in `.env` /
   env vars, never committed.

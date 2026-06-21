@@ -380,6 +380,12 @@ local adapter parses them once at startup. A same-currency corridor always quote
 at rate `1`; a missing cross-currency corridor fails the transfer with
 `FX_RATE_UNAVAILABLE` (a business failure, not a retried error).
 
+A flat **FX conversion fee** (`fx.fees`, keyed by the source currency code) is
+charged when an internal transfer converts out of the source account's currency.
+The fee is a fixed amount in the source currency — not a percentage — so each
+currency sets its own toll. A missing or non-positive entry means no fee for that
+currency.
+
 ```yaml
 fx:
   rates:
@@ -387,6 +393,9 @@ fx:
     USD_VND: '25484.20'
     USD_EUR: '0.92'
     EUR_USD: '1.0870'
+  fees:
+    USD: '1'      # flat fee when a transfer converts out of USD
+    VND: '10000'  # flat fee when a transfer converts out of VND
 ```
 
 Settlement snapshot columns on `transfers`: `source_amount` / `source_currency`
@@ -399,15 +408,20 @@ Each `ledger_entries` row also carries its own `currency`.
 The processor takes two FX quotes from the transaction intent: source
 (`transaction_currency` → source account currency) and destination
 (`transaction_currency` → destination account currency). It debits the source in
-its currency and credits the destination in its currency — always **two ledger
-entries**, regardless of currency.
+its currency and credits the destination in its currency. When the source
+account converts (the transaction currency differs from the source currency), a
+flat FX fee is also debited from the source as a third `FEE` ledger entry. The
+fee and principal are debited as one block, so a transfer that cannot cover
+`principal + fee` fails `INSUFFICIENT_FUNDS` without posting anything.
 
 | Case | Example | Ledger entries (on success) |
 | ---- | ------- | --------------------------- |
 | Same currency | 100 USD, both accounts USD | `DEBIT 100 USD` + `CREDIT 100 USD` (both rates `1`) |
-| Different currency | 100 USD → VND account @ `25484.20` | `DEBIT 100 USD` + `CREDIT 2548420 VND` |
+| Destination converts | 100 USD source → VND account @ `25484.20` | `DEBIT 100 USD` + `CREDIT 2548420 VND` (source currency == transaction currency → no fee) |
+| Source converts | 10 USD → USD account, VND source @ `25484.20`, fee `10000 VND` | `DEBIT 254842 VND` + `FEE 10000 VND` + `CREDIT 10 USD` |
 
-A cross-currency posting is balanced **per currency**, not by absolute value
+The settlement snapshot also records `fee_amount` / `fee_currency`. A
+cross-currency posting is balanced **per currency**, not by absolute value
 (`DEBIT 100 USD` and `CREDIT 2548420 VND` are not numerically equal). Any FX
 spread is absorbed implicitly — there is no separate FX gain/loss account — so
 reconciliation must group by currency rather than summing `amount` across rows.

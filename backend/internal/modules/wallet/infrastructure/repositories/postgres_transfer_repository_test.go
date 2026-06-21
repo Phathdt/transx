@@ -307,8 +307,10 @@ func TestPostgresTransferRepository(t *testing.T) {
 		updated, err := repo.GetByID(ctx, created.ID)
 		require.NoError(t, err)
 		assert.Equal(t, entities.TransferStatusSucceeded, updated.Status)
+		// Same-currency transfer charges no FX fee: snapshot stays zero.
+		assert.Equal(t, "0", updated.FeeAmount.String())
 
-		// Verify ledger entries exist
+		// Verify ledger entries exist (no FEE entry for same-currency)
 		var ledgerCount int
 		err = pool.QueryRow(ctx, `
 			SELECT COUNT(*) FROM ledger_entries WHERE transfer_id = $1
@@ -373,6 +375,104 @@ func TestPostgresTransferRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "VND", debitCurrency)
 		assert.Equal(t, "USD", creditCurrency)
+	})
+
+	t.Run("ExecuteInternalTransfer charges FX fee on cross-currency source conversion", func(t *testing.T) {
+		fromAcct := createTestAccount(ctx, t, accountRepo, userID, "VND", decimal.NewFromInt(1000000))
+		toAcct := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.Zero)
+		fxRates := walletfx.NewConfigService(config.FX{
+			Rates: map[string]string{"USD_VND": "25484.20"},
+			Fees:  map[string]string{"VND": "10000"},
+		})
+
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAcct.Ref,
+			ToAccountRef:        toAcct.Ref,
+			TransactionAmount:   decimal.NewFromInt(10),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "fx-fee-" + uuid.New().String(),
+			RequestHash:         "hash-fx-fee",
+			Reference:           "REF-" + uuid.New().String()[:8],
+		}
+		created, err := transferRepo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		require.NoError(t, transferRepo.ExecuteInternalTransfer(ctx, created.ID, fxRates))
+
+		updated, err := transferRepo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusSucceeded, updated.Status)
+		// principal 10 USD → 254842 VND, flat fee → 10000 VND.
+		assert.Equal(t, 0, updated.FeeAmount.Cmp(decimal.NewFromInt(10000)))
+		assert.Equal(t, "VND", updated.FeeCurrency)
+
+		// Source debited principal+fee (264842); destination credited principal only.
+		fromAfter, err := accountRepo.GetByRef(ctx, fromAcct.Ref)
+		require.NoError(t, err)
+		assert.Equal(t, 0, fromAfter.AvailableBalance.Cmp(decimal.NewFromInt(735158)))
+		toAfter, err := accountRepo.GetByRef(ctx, toAcct.Ref)
+		require.NoError(t, err)
+		assert.Equal(t, 0, toAfter.AvailableBalance.Cmp(decimal.NewFromInt(10)))
+
+		// Three ledger entries: DEBIT + FEE on source, CREDIT on destination.
+		var total, feeCount int
+		err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE transfer_id = $1`, created.ID).Scan(&total)
+		require.NoError(t, err)
+		assert.Equal(t, 3, total)
+		err = pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM ledger_entries WHERE transfer_id = $1 AND account_id = $2 AND direction = $3
+		`, created.ID, fromAcct.ID, string(entities.LedgerFee)).Scan(&feeCount)
+		require.NoError(t, err)
+		assert.Equal(t, 1, feeCount)
+	})
+
+	t.Run("ExecuteInternalTransfer fails when funds cover principal but not fee", func(t *testing.T) {
+		// 260000 VND covers the 254842 principal but not principal+fee (264842).
+		fromAcct := createTestAccount(ctx, t, accountRepo, userID, "VND", decimal.NewFromInt(260000))
+		toAcct := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.Zero)
+		fxRates := walletfx.NewConfigService(config.FX{
+			Rates: map[string]string{"USD_VND": "25484.20"},
+			Fees:  map[string]string{"VND": "10000"},
+		})
+
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAcct.Ref,
+			ToAccountRef:        toAcct.Ref,
+			TransactionAmount:   decimal.NewFromInt(10),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "fx-fee-insufficient-" + uuid.New().String(),
+			RequestHash:         "hash-fx-fee-insufficient",
+			Reference:           "REF-" + uuid.New().String()[:8],
+		}
+		created, err := transferRepo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		require.NoError(t, transferRepo.ExecuteInternalTransfer(ctx, created.ID, fxRates))
+
+		updated, err := transferRepo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusFailed, updated.Status)
+		assert.Equal(t, entities.FailureInsufficientFunds, updated.FailureReason)
+
+		// Balance untouched, no ledger entries written.
+		fromAfter, err := accountRepo.GetByRef(ctx, fromAcct.Ref)
+		require.NoError(t, err)
+		assert.Equal(t, 0, fromAfter.AvailableBalance.Cmp(decimal.NewFromInt(260000)))
+		var ledgerCount int
+		err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE transfer_id = $1`, created.ID).
+			Scan(&ledgerCount)
+		require.NoError(t, err)
+		assert.Equal(t, 0, ledgerCount)
 	})
 
 	t.Run("ExecuteInternalTransfer fails when FX rate is unavailable", func(t *testing.T) {

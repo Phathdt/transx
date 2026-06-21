@@ -77,3 +77,40 @@ func TestConfigServiceQuote(t *testing.T) {
 		assert.True(t, errors.Is(err, interfaces.ErrFXRateUnavailable))
 	})
 }
+
+func TestConfigServiceQuoteFee(t *testing.T) {
+	ctx := context.Background()
+	service := NewConfigService(config.FX{Fees: map[string]string{
+		"USD":  "1",
+		" vnd": "10000",
+		"EUR":  "0",
+		"GBP":  "bad",
+	}})
+
+	t.Run("same source currency charges no fee", func(t *testing.T) {
+		fee := service.QuoteFee(ctx, " vnd ", "VND")
+
+		assert.Equal(t, "0", fee.Amount.String())
+		assert.Equal(t, "VND", fee.Currency)
+	})
+
+	t.Run("cross-currency charges configured flat fee in source currency", func(t *testing.T) {
+		fee := service.QuoteFee(ctx, "VND", "USD")
+
+		assert.Equal(t, "1", fee.Amount.String())
+		assert.Equal(t, "USD", fee.Currency)
+
+		fee = service.QuoteFee(ctx, "usd", "VND")
+
+		assert.Equal(t, "10000", fee.Amount.String())
+		assert.Equal(t, "VND", fee.Currency)
+	})
+
+	t.Run("missing or invalid fee entry charges no fee", func(t *testing.T) {
+		fee := service.QuoteFee(ctx, "USD", "EUR")
+		assert.Equal(t, "0", fee.Amount.String())
+
+		fee = service.QuoteFee(ctx, "USD", "GBP")
+		assert.Equal(t, "0", fee.Amount.String())
+	})
+}
