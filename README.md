@@ -22,6 +22,7 @@ the full product spec.
   - [Wallet API](#wallet-api)
   - [Internal Transfer Flow](#internal-transfer-flow)
   - [External Transfer Flow](#external-transfer-flow)
+  - [Multi-Currency & FX Settlement](#multi-currency--fx-settlement)
   - [Worker Consumer Flow](#worker-consumer-flow)
   - [Idempotency](#idempotency)
   - [Backend Architecture](#backend-architecture)
@@ -259,6 +260,16 @@ in-ledger account and requires `toAccountId`. `EXTERNAL` sends funds out through
 the provider: omit `toAccountId` (there is no in-ledger destination) and the
 `provider` is set from server config — clients never send it.
 
+`amount`/`currency` are the **transaction intent** — what the client asked to
+move. The amounts actually posted to each account (the **settlement**) are
+computed server-side from configured FX rates and returned as a snapshot once
+the transfer settles (`sourceAmount`/`sourceCurrency`,
+`destinationAmount`/`destinationCurrency`, `sourceFxRate`/`destinationFxRate`).
+`INTERNAL` supports cross-currency (the destination account may hold a different
+currency); `EXTERNAL` is single-currency — the request `currency` must match the
+source account's currency or the transfer fails `FX_RATE_UNAVAILABLE`. See
+[Multi-Currency & FX Settlement](#multi-currency--fx-settlement).
+
 ```bash
 # Internal P2P transfer
 curl -X POST http://localhost:4000/api/v1/transfers \
@@ -306,8 +317,8 @@ sequenceDiagram
 
     PR->>RP: consume transfer.requested
     Note over PR: dedup via inbox_events
-    PR->>DB: BEGIN — lock accounts (ordered)<br/>debit from / credit to (if ACTIVE & funded)<br/>write ledger, status=SUCCEEDED<br/>+ outbox(transfer.completed) — COMMIT
-    Note over PR,DB: insufficient funds / not active →<br/>status=FAILED + outbox(transfer.failed)
+    PR->>DB: BEGIN — lock accounts (ordered)<br/>FX-quote source & destination postings<br/>debit from / credit to (if ACTIVE & funded)<br/>write ledger (per-account currency), status=SUCCEEDED<br/>+ outbox(transfer.completed) — COMMIT
+    Note over PR,DB: insufficient funds / not active / no FX rate →<br/>status=FAILED + outbox(transfer.failed)
     PR->>RP: commit offset
 
     C->>API: GET /transfers/{id} (poll)
@@ -333,7 +344,7 @@ sequenceDiagram
     API->>DB: INSERT transfer(PENDING) + outbox(transfer.requested)
     API-->>C: 202 { transferId, status: PENDING }
 
-    PR->>DB: BEGIN — guard PENDING<br/>available → hold, ledger HOLD<br/>status=RESERVED + outbox(provider.requested) — COMMIT
+    PR->>DB: BEGIN — guard PENDING<br/>require source currency == transaction currency<br/>available → hold, ledger HOLD (source currency)<br/>status=RESERVED + outbox(provider.requested) — COMMIT
 
     PC->>PV: Submit(transferId, amount, currency)
     alt provider SUCCESS
@@ -350,6 +361,64 @@ sequenceDiagram
     C->>API: GET /transfers/{id} (poll)
     API-->>C: status SUCCEEDED / FAILED
 ```
+
+## Multi-Currency & FX Settlement
+
+A transfer separates the **transaction intent** (what the client asked to move,
+`transaction_amount` / `transaction_currency`) from the **settlement** (what
+actually posts to each account, in that account's own currency). The settlement
+is computed server-side by the consumer from configured FX rates and recorded as
+a snapshot on the transfer, so the client never supplies exchange rates.
+
+Rates come from static config (`fx.rates`, keyed `FROM_TO`, e.g. `USD_VND`); the
+local adapter parses them once at startup. A same-currency corridor always quotes
+at rate `1`; a missing cross-currency corridor fails the transfer with
+`FX_RATE_UNAVAILABLE` (a business failure, not a retried error).
+
+```yaml
+fx:
+  rates:
+    VND_USD: '0.00003924'
+    USD_VND: '25484.20'
+    USD_EUR: '0.92'
+    EUR_USD: '1.0870'
+```
+
+Settlement snapshot columns on `transfers`: `source_amount` / `source_currency`
+/ `source_fx_rate` and `destination_amount` / `destination_currency` /
+`destination_fx_rate` (rates are `NUMERIC(20,12)`; amounts `NUMERIC(20,4)`).
+Each `ledger_entries` row also carries its own `currency`.
+
+### Internal transfers (cross-currency capable)
+
+The processor takes two FX quotes from the transaction intent: source
+(`transaction_currency` → source account currency) and destination
+(`transaction_currency` → destination account currency). It debits the source in
+its currency and credits the destination in its currency — always **two ledger
+entries**, regardless of currency.
+
+| Case | Example | Ledger entries (on success) |
+| ---- | ------- | --------------------------- |
+| Same currency | 100 USD, both accounts USD | `DEBIT 100 USD` + `CREDIT 100 USD` (both rates `1`) |
+| Different currency | 100 USD → VND account @ `25484.20` | `DEBIT 100 USD` + `CREDIT 2548420 VND` |
+
+A cross-currency posting is balanced **per currency**, not by absolute value
+(`DEBIT 100 USD` and `CREDIT 2548420 VND` are not numerically equal). Any FX
+spread is absorbed implicitly — there is no separate FX gain/loss account — so
+reconciliation must group by currency rather than summing `amount` across rows.
+
+### External transfers (single-currency only)
+
+External transfers do **not** convert. The reserve step requires the source
+account currency to equal the transaction currency, records `source_fx_rate = 1`,
+and leaves the destination settlement empty. A mismatch fails the transfer with
+`FX_RATE_UNAVAILABLE` before any hold is placed. Ledger entries per outcome:
+
+| Step / outcome | Ledger entry |
+| -------------- | ------------ |
+| Reserve | `HOLD` (source currency) |
+| Settle success | `DEBIT` (drops the hold) |
+| Settle failure | `RELEASE` (returns the hold to available) |
 
 ## Worker Consumer Flow
 
@@ -519,7 +588,12 @@ Conventions:
 
 - **IDs are UUID v7** — DB columns default to `uuidv7()` (Postgres 18); let the
   DB assign them.
-- **Money is `decimal.Decimal`** mapped to `NUMERIC(20,4)`; never floats.
+- **Money is `decimal.Decimal`** mapped to `NUMERIC(20,4)`; never floats. FX
+  rates use `NUMERIC(20,12)`.
+- **Transaction intent vs settlement** — `transaction_amount`/`currency` is the
+  client request; the per-account postings are computed server-side from FX
+  rates and stored as a settlement snapshot. Clients never send rates or
+  settlement amounts.
 - **Errors** return `*apperror.AppError` (carries HTTP status); `DomainErrorHandler`
   maps them to responses.
 - **Config**: add fields to `internal/platform/config/config.go`; env override
