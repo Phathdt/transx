@@ -1,10 +1,22 @@
 -- name: CreateTransfer :one
 INSERT INTO transfers (
-    from_account_id, to_account_id, amount, currency, transfer_type,
-    provider, status, user_id, idempotency_key, request_hash, reference
+    from_account_id, to_account_id, transaction_amount, transaction_currency,
+    transfer_type, provider, status, user_id, idempotency_key, request_hash,
+    reference, fee_amount, fee_currency
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING *;
+
+-- name: SetTransferSettlementSnapshot :exec
+UPDATE transfers
+SET source_amount = @source_amount,
+    source_currency = @source_currency,
+    destination_amount = @destination_amount,
+    destination_currency = @destination_currency,
+    source_fx_rate = @source_fx_rate,
+    destination_fx_rate = @destination_fx_rate,
+    updated_at = now()
+WHERE id = @id;
 
 -- name: GetTransferByID :one
 SELECT *

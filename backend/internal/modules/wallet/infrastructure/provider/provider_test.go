@@ -119,7 +119,11 @@ func TestStubHandlerSubmit(t *testing.T) {
 		app := fiber.New()
 		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysSuccess).Submit)
 
-		req := httptest.NewRequest(http.MethodPost, SubmitPath(), strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 
@@ -135,7 +139,11 @@ func TestStubHandlerSubmit(t *testing.T) {
 		app := fiber.New()
 		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysFailure).Submit)
 
-		req := httptest.NewRequest(http.MethodPost, SubmitPath(), strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 
@@ -151,7 +159,11 @@ func TestStubHandlerSubmit(t *testing.T) {
 		app := fiber.New()
 		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysTimeout).Submit)
 
-		req := httptest.NewRequest(http.MethodPost, SubmitPath(), strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 
@@ -163,7 +175,11 @@ func TestStubHandlerSubmit(t *testing.T) {
 		app := fiber.New()
 		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysSuccess).Submit)
 
-		req := httptest.NewRequest(http.MethodPost, SubmitPath(), strings.NewReader(`{"transfer_id":"bad","amount":"12.34","currency":"USD"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"bad","amount":"12.34","currency":"USD"}`),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 
@@ -175,7 +191,11 @@ func TestStubHandlerSubmit(t *testing.T) {
 		app := fiber.New()
 		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysSuccess).Submit)
 
-		req := httptest.NewRequest(http.MethodPost, SubmitPath(), strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"bad","currency":"USD"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"bad","currency":"USD"}`),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 

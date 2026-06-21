@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 
 	"transx/internal/modules/wallet/application/dto"
 	"transx/internal/modules/wallet/domain/entities"
@@ -44,17 +45,19 @@ func (r *PostgresTransferRepository) Create(
 	err := postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
 		row, err := q.CreateTransfer(ctx, gen.CreateTransferParams{
-			FromAccountID:  pgUUID(t.FromAccountID),
-			ToAccountID:    pgUUIDOrNull(t.ToAccountID),
-			Amount:         t.Amount,
-			Currency:       t.Currency,
-			TransferType:   t.TransferType,
-			Provider:       t.Provider,
-			Status:         string(t.Status),
-			UserID:         pgUUID(t.UserID),
-			IdempotencyKey: t.IdempotencyKey,
-			RequestHash:    t.RequestHash,
-			Reference:      t.Reference,
+			FromAccountID:       pgUUID(t.FromAccountID),
+			ToAccountID:         pgUUIDOrNull(t.ToAccountID),
+			TransactionAmount:   t.TransactionAmount,
+			TransactionCurrency: t.TransactionCurrency,
+			TransferType:        t.TransferType,
+			Provider:            t.Provider,
+			Status:              string(t.Status),
+			UserID:              pgUUID(t.UserID),
+			IdempotencyKey:      t.IdempotencyKey,
+			RequestHash:         t.RequestHash,
+			Reference:           t.Reference,
+			FeeAmount:           t.FeeAmount,
+			FeeCurrency:         t.FeeCurrency,
 		})
 		if err != nil {
 			return err
@@ -128,6 +131,7 @@ func (r *PostgresTransferRepository) FindByUserAndKey(
 func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 	ctx context.Context,
 	transferID uuid.UUID,
+	fx interfaces.FXService,
 ) error {
 	return postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
@@ -172,6 +176,36 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		if to.Status != string(entities.AccountStatusActive) {
 			return r.failTx(ctx, q, transferID, entities.FailureDestNotActive)
 		}
+		if fx == nil {
+			return r.failTx(ctx, q, transferID, entities.FailureFXRateUnavailable)
+		}
+
+		sourceQuote, err := fx.Quote(ctx, t.TransactionAmount, t.TransactionCurrency, from.Currency)
+		if err != nil {
+			if errors.Is(err, interfaces.ErrFXRateUnavailable) {
+				return r.failTx(ctx, q, transferID, entities.FailureFXRateUnavailable)
+			}
+			return err
+		}
+		destinationQuote, err := fx.Quote(ctx, t.TransactionAmount, t.TransactionCurrency, to.Currency)
+		if err != nil {
+			if errors.Is(err, interfaces.ErrFXRateUnavailable) {
+				return r.failTx(ctx, q, transferID, entities.FailureFXRateUnavailable)
+			}
+			return err
+		}
+
+		if err := q.SetTransferSettlementSnapshot(ctx, gen.SetTransferSettlementSnapshotParams{
+			SourceAmount:        decimal.NewNullDecimal(sourceQuote.Amount),
+			SourceCurrency:      sourceQuote.Currency,
+			DestinationAmount:   decimal.NewNullDecimal(destinationQuote.Amount),
+			DestinationCurrency: destinationQuote.Currency,
+			SourceFxRate:        decimal.NewNullDecimal(sourceQuote.Rate),
+			DestinationFxRate:   decimal.NewNullDecimal(destinationQuote.Rate),
+			ID:                  pgUUID(transferID),
+		}); err != nil {
+			return err
+		}
 
 		if err := q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
 			Status: string(entities.TransferStatusProcessing),
@@ -180,10 +214,10 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			return err
 		}
 
-		// Conditional debit: ACTIVE + sufficient funds. No row → insufficient funds
-		// (status was already validated as ACTIVE above).
+		// Conditional debit: ACTIVE + sufficient funds in the source account's base
+		// currency. No row → insufficient funds (status already validated ACTIVE).
 		fromBalance, err := q.DebitAvailableIfSufficient(ctx, gen.DebitAvailableIfSufficientParams{
-			Amount: t.Amount,
+			Amount: sourceQuote.Amount,
 			ID:     pgUUID(fromID),
 		})
 		if err != nil {
@@ -194,14 +228,13 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		}
 
 		toBalance, err := q.CreditAvailable(ctx, gen.CreditAvailableParams{
-			Amount: t.Amount,
+			Amount: destinationQuote.Amount,
 			ID:     pgUUID(toID),
 		})
 		if err != nil {
 			// The destination was validated ACTIVE and locked FOR UPDATE before the
-			// debit, so this should not happen. If it ever does, the debit has
-			// already been applied — return an error to roll the whole tx back
-			// rather than committing a FAILED state with unbalanced money.
+			// debit, so this should not happen. If it ever does, return an error to
+			// roll the whole tx back rather than committing unbalanced money.
 			return fmt.Errorf("credit after debit failed for transfer %s: %w", transferID, err)
 		}
 
@@ -209,7 +242,8 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			TransferID:   pgUUID(transferID),
 			AccountID:    pgUUID(fromID),
 			Direction:    string(entities.LedgerDebit),
-			Amount:       t.Amount,
+			Amount:       sourceQuote.Amount,
+			Currency:     sourceQuote.Currency,
 			BalanceAfter: fromBalance,
 		}); err != nil {
 			return err
@@ -218,7 +252,8 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			TransferID:   pgUUID(transferID),
 			AccountID:    pgUUID(toID),
 			Direction:    string(entities.LedgerCredit),
-			Amount:       t.Amount,
+			Amount:       destinationQuote.Amount,
+			Currency:     destinationQuote.Currency,
 			BalanceAfter: toBalance,
 		}); err != nil {
 			return err

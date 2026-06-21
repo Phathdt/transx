@@ -134,17 +134,19 @@ func TestProviderConsumerHandle(t *testing.T) {
 		transferID := uuid.New()
 		consumer := &internalConsumer{}
 		producer := &internalProducer{}
-		client := &internalProviderClient{result: entities.ProviderResult{Outcome: entities.ProviderSuccess, ReferenceID: "ref"}}
+		client := &internalProviderClient{
+			result: entities.ProviderResult{Outcome: entities.ProviderSuccess, ReferenceID: "ref"},
+		}
 		transfers := testmocks.NewTransferRepository(t)
 		inbox := testmocks.NewInboxRepository(t)
 		pc := NewProviderConsumer(consumer, producer, client, transfers, inbox, log)
 
 		inbox.EXPECT().IsProcessed(ctx, providerConsumerGroup, transferID.String()).Return(false, nil)
 		transfers.EXPECT().GetByID(ctx, transferID).Return(&entities.Transfer{
-			ID:       transferID,
-			Status:   entities.TransferStatusReserved,
-			Amount:   decimal.NewFromInt(25),
-			Currency: "USD",
+			ID:                  transferID,
+			Status:              entities.TransferStatusReserved,
+			TransactionAmount:   decimal.NewFromInt(25),
+			TransactionCurrency: "USD",
 		}, nil)
 		transfers.EXPECT().SettleExternalTransfer(ctx, transferID, client.result).Return(nil)
 		inbox.EXPECT().MarkProcessed(ctx, providerConsumerGroup, transferID.String()).Return(nil)
@@ -205,7 +207,9 @@ func TestProviderConsumerHandle(t *testing.T) {
 			inbox,
 			log,
 		)
-		inbox.EXPECT().IsProcessed(ctx, providerConsumerGroup, transferID.String()).Return(false, errors.New("db error"))
+		inbox.EXPECT().
+			IsProcessed(ctx, providerConsumerGroup, transferID.String()).
+			Return(false, errors.New("db error"))
 
 		pc.handle(ctx, internalTransferMessage(transferID))
 
@@ -224,7 +228,9 @@ func TestProviderConsumerHandle(t *testing.T) {
 		pc := NewProviderConsumer(consumer, producer, client, transfers, inbox, log)
 
 		inbox.EXPECT().IsProcessed(ctx, providerConsumerGroup, transferID.String()).Return(false, nil)
-		transfers.EXPECT().GetByID(ctx, transferID).Return(&entities.Transfer{ID: transferID, Status: entities.TransferStatusSucceeded}, nil)
+		transfers.EXPECT().
+			GetByID(ctx, transferID).
+			Return(&entities.Transfer{ID: transferID, Status: entities.TransferStatusSucceeded}, nil)
 		inbox.EXPECT().MarkProcessed(ctx, providerConsumerGroup, transferID.String()).Return(nil)
 
 		pc.handle(ctx, internalTransferMessage(transferID))
@@ -244,10 +250,10 @@ func TestProviderConsumerHandle(t *testing.T) {
 
 		inbox.EXPECT().IsProcessed(ctx, providerConsumerGroup, transferID.String()).Return(false, nil)
 		transfers.EXPECT().GetByID(ctx, transferID).Return(&entities.Transfer{
-			ID:       transferID,
-			Status:   entities.TransferStatusReserved,
-			Amount:   decimal.NewFromInt(25),
-			Currency: "USD",
+			ID:                  transferID,
+			Status:              entities.TransferStatusReserved,
+			TransactionAmount:   decimal.NewFromInt(25),
+			TransactionCurrency: "USD",
 		}, nil)
 
 		pc.handle(ctx, internalTransferMessage(transferID))
@@ -395,6 +401,7 @@ func TestProcessorRunReturnsCanceledContextInternal(t *testing.T) {
 		&internalProducer{},
 		testmocks.NewTransferRepository(t),
 		testmocks.NewInboxRepository(t),
+		nil,
 		logger.New("plain", "error"),
 	)
 
@@ -410,7 +417,7 @@ func TestProcessorCommitAndMarkProcessedErrorsAreNonFatal(t *testing.T) {
 	producer := &internalProducer{}
 	transfers := testmocks.NewTransferRepository(t)
 	inbox := testmocks.NewInboxRepository(t)
-	p := NewProcessor(consumerClient, producer, transfers, inbox, logger.New("plain", "error"))
+	p := NewProcessor(consumerClient, producer, transfers, inbox, nil, logger.New("plain", "error"))
 
 	inbox.EXPECT().IsProcessed(ctx, consumerGroup, transferID.String()).Return(false, nil)
 	transfers.EXPECT().GetByID(ctx, transferID).Return(nil, nil)

@@ -29,6 +29,7 @@ type LedgerEntry struct {
 	Amount       decimal.Decimal    `db:"amount"`
 	BalanceAfter decimal.Decimal    `db:"balance_after"`
 	CreatedAt    pgtype.Timestamptz `db:"created_at"`
+	Currency     string             `db:"currency"`
 }
 
 type OutboxEvent struct {
@@ -43,20 +44,28 @@ type OutboxEvent struct {
 }
 
 type Transfer struct {
-	ID                  pgtype.UUID        `db:"id"`
-	FromAccountID       pgtype.UUID        `db:"from_account_id"`
-	ToAccountID         pgtype.UUID        `db:"to_account_id"`
-	Amount              decimal.Decimal    `db:"amount"`
-	Currency            string             `db:"currency"`
-	TransferType        string             `db:"transfer_type"`
-	Provider            string             `db:"provider"`
-	ProviderReferenceID string             `db:"provider_reference_id"`
-	Status              string             `db:"status"`
-	FailureReason       string             `db:"failure_reason"`
-	UserID              pgtype.UUID        `db:"user_id"`
-	IdempotencyKey      string             `db:"idempotency_key"`
-	RequestHash         string             `db:"request_hash"`
-	CreatedAt           pgtype.Timestamptz `db:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `db:"updated_at"`
-	Reference           string             `db:"reference"`
+	ID                  pgtype.UUID         `db:"id"`
+	FromAccountID       pgtype.UUID         `db:"from_account_id"`
+	ToAccountID         pgtype.UUID         `db:"to_account_id"`
+	TransactionAmount   decimal.Decimal     `db:"transaction_amount"`
+	TransactionCurrency string              `db:"transaction_currency"`
+	TransferType        string              `db:"transfer_type"`
+	Provider            string              `db:"provider"`
+	ProviderReferenceID string              `db:"provider_reference_id"`
+	Status              string              `db:"status"`
+	FailureReason       string              `db:"failure_reason"`
+	UserID              pgtype.UUID         `db:"user_id"`
+	IdempotencyKey      string              `db:"idempotency_key"`
+	RequestHash         string              `db:"request_hash"`
+	CreatedAt           pgtype.Timestamptz  `db:"created_at"`
+	UpdatedAt           pgtype.Timestamptz  `db:"updated_at"`
+	Reference           string              `db:"reference"`
+	SourceAmount        decimal.NullDecimal `db:"source_amount"`
+	SourceCurrency      string              `db:"source_currency"`
+	DestinationAmount   decimal.NullDecimal `db:"destination_amount"`
+	DestinationCurrency string              `db:"destination_currency"`
+	SourceFxRate        decimal.NullDecimal `db:"source_fx_rate"`
+	DestinationFxRate   decimal.NullDecimal `db:"destination_fx_rate"`
+	FeeAmount           decimal.Decimal     `db:"fee_amount"`
+	FeeCurrency         string              `db:"fee_currency"`
 }

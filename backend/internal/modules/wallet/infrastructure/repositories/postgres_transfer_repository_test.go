@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"transx/internal/modules/wallet/domain/entities"
+	walletfx "transx/internal/modules/wallet/infrastructure/fx"
 	walletquery "transx/internal/modules/wallet/infrastructure/gen"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
+	"transx/internal/platform/config"
 	"transx/internal/testsupport"
 )
 
@@ -52,6 +54,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 	transferRepo := walletrepos.NewPostgresTransferRepository(transferQueries, pool)
 	accountQueries := walletquery.New(pool)
 	accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
+	fxService := walletfx.NewConfigService(config.FX{})
 
 	userID := createTestUser(ctx, t, pool, "transfer-test-"+uuid.New().String()+"@example.com")
 	fromAccountID := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.NewFromInt(1000))
@@ -61,17 +64,19 @@ func TestPostgresTransferRepository(t *testing.T) {
 		repo := transferRepo
 
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    toAccountID,
-			Amount:         decimal.NewFromInt(100),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Provider:       "",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "test-key-" + uuid.New().String(),
-			RequestHash:    "hash123",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAccountID,
+			ToAccountID:         toAccountID,
+			TransactionAmount:   decimal.NewFromInt(100),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Provider:            "",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "test-key-" + uuid.New().String(),
+			RequestHash:         "hash123",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
@@ -94,16 +99,18 @@ func TestPostgresTransferRepository(t *testing.T) {
 		repo := transferRepo
 
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    toAccountID,
-			Amount:         decimal.NewFromInt(50),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "get-test-" + uuid.New().String(),
-			RequestHash:    "hash456",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAccountID,
+			ToAccountID:         toAccountID,
+			TransactionAmount:   decimal.NewFromInt(50),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "get-test-" + uuid.New().String(),
+			RequestHash:         "hash456",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
@@ -113,7 +120,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, found)
 		assert.Equal(t, created.ID, found.ID)
-		assert.Equal(t, 0, found.Amount.Cmp(decimal.NewFromInt(50)))
+		assert.Equal(t, 0, found.TransactionAmount.Cmp(decimal.NewFromInt(50)))
 	})
 
 	t.Run("GetByID returns nil for non-existent transfer", func(t *testing.T) {
@@ -127,16 +134,18 @@ func TestPostgresTransferRepository(t *testing.T) {
 
 		reference := "REF-" + uuid.New().String()[:12]
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    toAccountID,
-			Amount:         decimal.NewFromInt(75),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "ref-test-" + uuid.New().String(),
-			RequestHash:    "hash789",
-			Reference:      reference,
+			FromAccountID:       fromAccountID,
+			ToAccountID:         toAccountID,
+			TransactionAmount:   decimal.NewFromInt(75),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "ref-test-" + uuid.New().String(),
+			RequestHash:         "hash789",
+			Reference:           reference,
 		}
 
 		created, err := repo.Create(ctx, transfer)
@@ -160,16 +169,18 @@ func TestPostgresTransferRepository(t *testing.T) {
 
 		reference := "REF-" + uuid.New().String()[:12]
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    toAccountID,
-			Amount:         decimal.NewFromInt(25),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "user-filter-" + uuid.New().String(),
-			RequestHash:    "hash000",
-			Reference:      reference,
+			FromAccountID:       fromAccountID,
+			ToAccountID:         toAccountID,
+			TransactionAmount:   decimal.NewFromInt(25),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "user-filter-" + uuid.New().String(),
+			RequestHash:         "hash000",
+			Reference:           reference,
 		}
 
 		created, err := repo.Create(ctx, transfer)
@@ -193,16 +204,18 @@ func TestPostgresTransferRepository(t *testing.T) {
 
 		idempotencyKey := "key-" + uuid.New().String()
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    toAccountID,
-			Amount:         decimal.NewFromInt(200),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: idempotencyKey,
-			RequestHash:    "hashABC",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAccountID,
+			ToAccountID:         toAccountID,
+			TransactionAmount:   decimal.NewFromInt(200),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      idempotencyKey,
+			RequestHash:         "hashABC",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
@@ -226,16 +239,18 @@ func TestPostgresTransferRepository(t *testing.T) {
 
 		idempotencyKey := "key-user-filter-" + uuid.New().String()
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    toAccountID,
-			Amount:         decimal.NewFromInt(150),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: idempotencyKey,
-			RequestHash:    "hashDEF",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAccountID,
+			ToAccountID:         toAccountID,
+			TransactionAmount:   decimal.NewFromInt(150),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      idempotencyKey,
+			RequestHash:         "hashDEF",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
@@ -262,23 +277,25 @@ func TestPostgresTransferRepository(t *testing.T) {
 		repo := transferRepo
 
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAcctID,
-			ToAccountID:    toAcctID,
-			Amount:         decimal.NewFromInt(100),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "exec-test-" + uuid.New().String(),
-			RequestHash:    "hashGHI",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAcctID,
+			ToAccountID:         toAcctID,
+			TransactionAmount:   decimal.NewFromInt(100),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "exec-test-" + uuid.New().String(),
+			RequestHash:         "hashGHI",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
 		require.NoError(t, err)
 
 		// Execute the transfer
-		err = repo.ExecuteInternalTransfer(ctx, created.ID)
+		err = repo.ExecuteInternalTransfer(ctx, created.ID, fxService)
 		require.NoError(t, err)
 
 		// Verify transfer status changed to SUCCEEDED
@@ -304,6 +321,86 @@ func TestPostgresTransferRepository(t *testing.T) {
 		assert.Equal(t, 1, outboxCount)
 	})
 
+	t.Run("ExecuteInternalTransfer settles cross-currency snapshot and ledger", func(t *testing.T) {
+		fromAcctID := createTestAccount(ctx, t, accountRepo, userID, "VND", decimal.NewFromInt(5000000))
+		toAcctID := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.Zero)
+		fxRates := walletfx.NewConfigService(config.FX{Rates: map[string]string{"VND_USD": "0.00003924"}})
+
+		transfer := &entities.Transfer{
+			FromAccountID:       fromAcctID,
+			ToAccountID:         toAcctID,
+			TransactionAmount:   decimal.NewFromInt(500000),
+			TransactionCurrency: "VND",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "VND",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "cross-currency-" + uuid.New().String(),
+			RequestHash:         "hash-cross",
+			Reference:           "REF-" + uuid.New().String()[:8],
+		}
+		created, err := transferRepo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		require.NoError(t, transferRepo.ExecuteInternalTransfer(ctx, created.ID, fxRates))
+
+		updated, err := transferRepo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusSucceeded, updated.Status)
+		require.True(t, updated.SourceAmount.Valid)
+		require.True(t, updated.DestinationAmount.Valid)
+		assert.Equal(t, "500000", updated.SourceAmount.Decimal.String())
+		assert.Equal(t, "VND", updated.SourceCurrency)
+		assert.Equal(t, "19.62", updated.DestinationAmount.Decimal.String())
+		assert.Equal(t, "USD", updated.DestinationCurrency)
+
+		var debitCurrency, creditCurrency string
+		err = pool.QueryRow(ctx, `
+				SELECT currency FROM ledger_entries
+				WHERE transfer_id = $1 AND account_id = $2 AND direction = $3
+			`, created.ID, fromAcctID, string(entities.LedgerDebit)).Scan(&debitCurrency)
+		require.NoError(t, err)
+		err = pool.QueryRow(ctx, `
+				SELECT currency FROM ledger_entries
+				WHERE transfer_id = $1 AND account_id = $2 AND direction = $3
+			`, created.ID, toAcctID, string(entities.LedgerCredit)).Scan(&creditCurrency)
+		require.NoError(t, err)
+		assert.Equal(t, "VND", debitCurrency)
+		assert.Equal(t, "USD", creditCurrency)
+	})
+
+	t.Run("ExecuteInternalTransfer fails when FX rate is unavailable", func(t *testing.T) {
+		fromAcctID := createTestAccount(ctx, t, accountRepo, userID, "VND", decimal.NewFromInt(5000000))
+		toAcctID := createTestAccount(ctx, t, accountRepo, userID, "EUR", decimal.Zero)
+		transfer := &entities.Transfer{
+			FromAccountID:       fromAcctID,
+			ToAccountID:         toAcctID,
+			TransactionAmount:   decimal.NewFromInt(500000),
+			TransactionCurrency: "VND",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "VND",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "missing-fx-" + uuid.New().String(),
+			RequestHash:         "hash-missing-fx",
+			Reference:           "REF-" + uuid.New().String()[:8],
+		}
+		created, err := transferRepo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		require.NoError(
+			t,
+			transferRepo.ExecuteInternalTransfer(ctx, created.ID, walletfx.NewConfigService(config.FX{})),
+		)
+
+		updated, err := transferRepo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusFailed, updated.Status)
+		assert.Equal(t, entities.FailureFXRateUnavailable, updated.FailureReason)
+	})
+
 	t.Run("ExecuteInternalTransfer fails with insufficient funds", func(t *testing.T) {
 		// Create account with insufficient balance
 		fromAcctID := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.NewFromInt(50))
@@ -312,23 +409,25 @@ func TestPostgresTransferRepository(t *testing.T) {
 		repo := transferRepo
 
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAcctID,
-			ToAccountID:    toAcctID,
-			Amount:         decimal.NewFromInt(100), // More than available
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "insufficient-" + uuid.New().String(),
-			RequestHash:    "hashJKL",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAcctID,
+			ToAccountID:         toAcctID,
+			TransactionAmount:   decimal.NewFromInt(100), // More than available
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "insufficient-" + uuid.New().String(),
+			RequestHash:         "hashJKL",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
 		require.NoError(t, err)
 
 		// Execute should fail with insufficient funds
-		err = repo.ExecuteInternalTransfer(ctx, created.ID)
+		err = repo.ExecuteInternalTransfer(ctx, created.ID, fxService)
 		require.NoError(t, err) // No error on execute, but status should be FAILED
 
 		// Verify transfer status is FAILED
@@ -361,23 +460,25 @@ func TestPostgresTransferRepository(t *testing.T) {
 		repo := transferRepo
 
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAcctID,
-			ToAccountID:    toAcctID,
-			Amount:         decimal.NewFromInt(100),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "inactive-from-" + uuid.New().String(),
-			RequestHash:    "hashMNO",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAcctID,
+			ToAccountID:         toAcctID,
+			TransactionAmount:   decimal.NewFromInt(100),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "inactive-from-" + uuid.New().String(),
+			RequestHash:         "hashMNO",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
 		require.NoError(t, err)
 
 		// Execute should mark transfer as FAILED
-		err = repo.ExecuteInternalTransfer(ctx, created.ID)
+		err = repo.ExecuteInternalTransfer(ctx, created.ID, fxService)
 		require.NoError(t, err)
 
 		// Verify transfer status is FAILED
@@ -394,23 +495,25 @@ func TestPostgresTransferRepository(t *testing.T) {
 		repo := transferRepo
 
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAcctID,
-			ToAccountID:    toAcctID,
-			Amount:         decimal.NewFromInt(100),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "idempotent-" + uuid.New().String(),
-			RequestHash:    "hashPQR",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAcctID,
+			ToAccountID:         toAcctID,
+			TransactionAmount:   decimal.NewFromInt(100),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "idempotent-" + uuid.New().String(),
+			RequestHash:         "hashPQR",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
 		require.NoError(t, err)
 
 		// First execution
-		err = repo.ExecuteInternalTransfer(ctx, created.ID)
+		err = repo.ExecuteInternalTransfer(ctx, created.ID, fxService)
 		require.NoError(t, err)
 
 		first, err := repo.GetByID(ctx, created.ID)
@@ -418,7 +521,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 		assert.Equal(t, entities.TransferStatusSucceeded, first.Status)
 
 		// Second execution (redelivery) should be no-op
-		err = repo.ExecuteInternalTransfer(ctx, created.ID)
+		err = repo.ExecuteInternalTransfer(ctx, created.ID, fxService)
 		require.NoError(t, err)
 
 		second, err := repo.GetByID(ctx, created.ID)
@@ -432,7 +535,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 
 		// Try to execute a non-existent transfer
 		unknownID := uuid.New()
-		err := repo.ExecuteInternalTransfer(ctx, unknownID)
+		err := repo.ExecuteInternalTransfer(ctx, unknownID, fxService)
 		require.NoError(t, err) // Should not error, just be a no-op
 	})
 
@@ -440,17 +543,19 @@ func TestPostgresTransferRepository(t *testing.T) {
 		repo := transferRepo
 
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    toAccountID,
-			Amount:         decimal.NewFromInt(111),
-			Currency:       "USD",
-			TransferType:   "INTERNAL",
-			Provider:       "test_provider",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "mapper-test-" + uuid.New().String(),
-			RequestHash:    "hashSTU",
-			Reference:      "REF-" + uuid.New().String()[:8],
+			FromAccountID:       fromAccountID,
+			ToAccountID:         toAccountID,
+			TransactionAmount:   decimal.NewFromInt(111),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Provider:            "test_provider",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "mapper-test-" + uuid.New().String(),
+			RequestHash:         "hashSTU",
+			Reference:           "REF-" + uuid.New().String()[:8],
 		}
 
 		created, err := repo.Create(ctx, transfer)
@@ -460,8 +565,8 @@ func TestPostgresTransferRepository(t *testing.T) {
 		found, err := repo.GetByID(ctx, created.ID)
 		require.NoError(t, err)
 		assert.NotNil(t, found)
-		assert.Equal(t, 0, transfer.Amount.Cmp(found.Amount))
-		assert.Equal(t, transfer.Currency, found.Currency)
+		assert.Equal(t, 0, transfer.TransactionAmount.Cmp(found.TransactionAmount))
+		assert.Equal(t, transfer.TransactionCurrency, found.TransactionCurrency)
 		assert.Equal(t, transfer.Provider, found.Provider)
 		assert.Equal(t, transfer.Reference, found.Reference)
 		assert.Equal(t, transfer.IdempotencyKey, found.IdempotencyKey)

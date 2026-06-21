@@ -14,6 +14,7 @@ import (
 
 	"transx/cmd/consumer"
 	"transx/internal/common/kafkatopic"
+	walletfx "transx/internal/modules/wallet/infrastructure/fx"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
 	"transx/internal/modules/wallet/infrastructure/provider"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
@@ -82,7 +83,8 @@ func runConsumer(ctx context.Context, configPath string) error {
 		}))
 	}
 
-	transferProcessor := consumer.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, log)
+	fxService := walletfx.NewConfigService(cfg.FX)
+	transferProcessor := consumer.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, fxService, log)
 	providerConsumer := consumer.NewProviderConsumer(
 		providerRequestConsumer, producer, providerClient, transferRepo, inboxRepo, log,
 	)

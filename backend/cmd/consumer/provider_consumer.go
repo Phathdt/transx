@@ -113,7 +113,7 @@ func (c *ProviderConsumer) submitAndSettle(ctx context.Context, transferID uuid.
 		return nil
 	}
 
-	result, err := c.client.Submit(ctx, transferID, t.Amount, t.Currency)
+	result, err := c.client.Submit(ctx, transferID, t.TransactionAmount, t.TransactionCurrency)
 	if err != nil {
 		// Transient provider failure (timeout/network): retry via the tiers.
 		return err

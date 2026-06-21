@@ -105,7 +105,10 @@ func TestTokenServiceVerify(t *testing.T) {
 
 func TestTokenServiceVerifyRejectsUnexpectedSigningMethod(t *testing.T) {
 	tokenSvc := NewTokenService("test-secret-key-12345", time.Hour)
-	claims := jwt.RegisteredClaims{Subject: uuid.New().String(), ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}
+	claims := jwt.RegisteredClaims{
+		Subject:   uuid.New().String(),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodNone, claims).SignedString(jwt.UnsafeAllowNoneSignatureType)
 	require.NoError(t, err)
 

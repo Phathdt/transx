@@ -140,8 +140,8 @@ paths:
     post:
       tags:
         - wallet
-      summary: Create an internal transfer (idempotent via Idempotency-Key)
-      description: Create an internal transfer (idempotent via Idempotency-Key)
+      summary: Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountId; EXTERNAL omits it (provider is set from server config).
+      description: Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountId; EXTERNAL omits it (provider is set from server config).
       operationId: createTransfer
       parameters:
         - name: Idempotency-Key
@@ -156,7 +156,6 @@ paths:
               type: object
               required:
                 - fromAccountId
-                - toAccountId
                 - amount
                 - currency
               properties:
@@ -218,8 +217,8 @@ paths:
     get:
       tags:
         - wallet
-      summary: Get a transfer by id
-      description: Get a transfer by id
+      summary: 'Get a transfer by its business reference (ETN- for EXTERNAL, ITN- for INTERNAL, followed by a ULID)'
+      description: 'Get a transfer by its business reference (ETN- for EXTERNAL, ITN- for INTERNAL, followed by a ULID)'
       operationId: getTransfer
       parameters:
         - name: transferId
@@ -234,6 +233,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DtoTransferResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
         '401':
           description: Unauthorized
           content:
@@ -298,13 +303,29 @@ components:
     DtoTransferResponse:
       type: object
       properties:
-        amount:
+        destinationAmount:
           type: string
-        currency:
+        destinationCurrency:
+          type: string
+        destinationFxRate:
           type: string
         failureReason:
           type: string
+        feeAmount:
+          type: string
+        feeCurrency:
+          type: string
+        sourceAmount:
+          type: string
+        sourceCurrency:
+          type: string
+        sourceFxRate:
+          type: string
         status:
+          type: string
+        transactionAmount:
+          type: string
+        transactionCurrency:
           type: string
         transferId:
           type: string

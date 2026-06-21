@@ -99,7 +99,7 @@ func newTestProcessor(
 	producer := &fakeProducer{}
 	mockConsumer := &fakeConsumer{}
 	log := logger.New("plain", "error")
-	p := consumer.NewProcessor(mockConsumer, producer, transferRepo, inboxRepo, log)
+	p := consumer.NewProcessor(mockConsumer, producer, transferRepo, inboxRepo, nil, log)
 	return p, transferRepo, inboxRepo, mockConsumer, producer
 }
 
@@ -134,7 +134,7 @@ func TestProcessorHandleNewTransferInternal(t *testing.T) {
 
 	// Expect ExecuteInternalTransfer succeeds
 	transferRepo.EXPECT().
-		ExecuteInternalTransfer(mock.Anything, transferID).
+		ExecuteInternalTransfer(mock.Anything, transferID, mock.Anything).
 		Return(nil)
 
 	// Expect mark processed
@@ -243,11 +243,11 @@ func TestProcessorHandleTransientErrorRetries(t *testing.T) {
 
 	// Simulate serialization failure (transient: SQLSTATE 40001)
 	pgErr := &pgconn.PgError{
-		Code: "40001", // Serialization failure
+		Code:    "40001", // Serialization failure
 		Message: "serialization failure",
 	}
 	transferRepo.EXPECT().
-		ExecuteInternalTransfer(mock.Anything, transferID).
+		ExecuteInternalTransfer(mock.Anything, transferID, mock.Anything).
 		Return(pgErr)
 
 	// No MarkProcessed on transient error
@@ -278,7 +278,7 @@ func TestProcessorHandlePermanentErrorRecords(t *testing.T) {
 
 	// Permanent error (not transient)
 	transferRepo.EXPECT().
-		ExecuteInternalTransfer(mock.Anything, transferID).
+		ExecuteInternalTransfer(mock.Anything, transferID, mock.Anything).
 		Return(errors.New("invalid account"))
 
 	// MarkProcessed called even on permanent error

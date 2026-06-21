@@ -16,6 +16,7 @@ type Config struct {
 	Kafka    Kafka    `yaml:"kafka"    mapstructure:"kafka"`
 	Auth     Auth     `yaml:"auth"     mapstructure:"auth"`
 	Provider Provider `yaml:"provider" mapstructure:"provider"`
+	FX       FX       `yaml:"fx"       mapstructure:"fx"`
 }
 
 type App struct {
@@ -52,6 +53,12 @@ type Provider struct {
 	Mode          string `yaml:"mode"           mapstructure:"mode"`
 	BaseURL       string `yaml:"base_url"       mapstructure:"base_url"`
 	ListenAddress string `yaml:"listen_address" mapstructure:"listen_address"`
+}
+
+// FX configures static exchange-rate corridors for the local MVP adapter. Keys
+// use FROM_TO, for example VND_USD means one VND converted to USD.
+type FX struct {
+	Rates map[string]string `yaml:"rates" mapstructure:"rates"`
 }
 
 // Load reads config from configPath YAML file with env var overrides.
