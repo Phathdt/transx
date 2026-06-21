@@ -19,8 +19,11 @@ const (
 
 // Account is a user's wallet holding a balance in a single currency.
 // AvailableBalance is spendable; HoldBalance is reserved for in-flight holds.
+// ID is the internal UUID primary key; Ref is the external business id
+// (ACC- + ULID) exposed to clients so the UUID never leaves the system.
 type Account struct {
 	ID               uuid.UUID
+	Ref              string
 	UserID           uuid.UUID
 	Name             string
 	Currency         string

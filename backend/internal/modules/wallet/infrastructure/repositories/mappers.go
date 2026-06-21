@@ -20,18 +20,21 @@ func pgUUID(id uuid.UUID) pgtype.UUID {
 	return PgUUID(id)
 }
 
-// PgUUIDOrNull maps the zero UUID to a NULL pgtype.UUID, used for the optional
-// to_account_id on EXTERNAL transfers (no in-ledger destination).
-func PgUUIDOrNull(id uuid.UUID) pgtype.UUID {
-	if id == uuid.Nil {
-		return pgtype.UUID{Valid: false}
+// textOrNull maps an empty string to a NULL text column pointer, used for the
+// optional to_account_ref (EXTERNAL transfers may carry no destination).
+func textOrNull(s string) *string {
+	if s == "" {
+		return nil
 	}
-	return pgtype.UUID{Bytes: id, Valid: true}
+	return &s
 }
 
-// pgUUIDOrNull is the internal alias for backward compatibility.
-func pgUUIDOrNull(id uuid.UUID) pgtype.UUID {
-	return PgUUIDOrNull(id)
+// textValue dereferences a nullable text column to a string, mapping NULL to "".
+func textValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // TimePtr returns a pointer to the timestamp's time, or nil when not valid.
@@ -51,6 +54,7 @@ func timePtr(ts pgtype.Timestamptz) *time.Time {
 func accountToEntity(row *gen.Account) *entities.Account {
 	return &entities.Account{
 		ID:               row.ID.Bytes,
+		Ref:              row.AccountRef,
 		UserID:           row.UserID.Bytes,
 		Name:             row.Name,
 		Currency:         row.Currency,
@@ -66,8 +70,8 @@ func transferToEntity(row *gen.Transfer) *entities.Transfer {
 	return &entities.Transfer{
 		ID:                  row.ID.Bytes,
 		Reference:           row.Reference,
-		FromAccountID:       row.FromAccountID.Bytes,
-		ToAccountID:         row.ToAccountID.Bytes,
+		FromAccountRef:      row.FromAccountRef,
+		ToAccountRef:        textValue(row.ToAccountRef),
 		TransactionAmount:   row.TransactionAmount,
 		TransactionCurrency: row.TransactionCurrency,
 		SourceAmount:        row.SourceAmount,

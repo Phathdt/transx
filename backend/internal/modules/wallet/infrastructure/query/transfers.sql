@@ -1,6 +1,6 @@
 -- name: CreateTransfer :one
 INSERT INTO transfers (
-    from_account_id, to_account_id, transaction_amount, transaction_currency,
+    from_account_ref, to_account_ref, transaction_amount, transaction_currency,
     transfer_type, provider, status, user_id, idempotency_key, request_hash,
     reference, fee_amount, fee_currency
 )

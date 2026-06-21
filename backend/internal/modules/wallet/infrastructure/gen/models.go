@@ -19,6 +19,7 @@ type Account struct {
 	Status           string             `db:"status"`
 	CreatedAt        pgtype.Timestamptz `db:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `db:"updated_at"`
+	AccountRef       string             `db:"account_ref"`
 }
 
 type LedgerEntry struct {
@@ -45,8 +46,6 @@ type OutboxEvent struct {
 
 type Transfer struct {
 	ID                  pgtype.UUID         `db:"id"`
-	FromAccountID       pgtype.UUID         `db:"from_account_id"`
-	ToAccountID         pgtype.UUID         `db:"to_account_id"`
 	TransactionAmount   decimal.Decimal     `db:"transaction_amount"`
 	TransactionCurrency string              `db:"transaction_currency"`
 	TransferType        string              `db:"transfer_type"`
@@ -68,4 +67,6 @@ type Transfer struct {
 	DestinationFxRate   decimal.NullDecimal `db:"destination_fx_rate"`
 	FeeAmount           decimal.Decimal     `db:"fee_amount"`
 	FeeCurrency         string              `db:"fee_currency"`
+	FromAccountRef      string              `db:"from_account_ref"`
+	ToAccountRef        *string             `db:"to_account_ref"`
 }

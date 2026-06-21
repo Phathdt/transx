@@ -35,6 +35,7 @@ func (r *PostgresAccountRepository) Create(
 		AvailableBalance: a.AvailableBalance,
 		HoldBalance:      a.HoldBalance,
 		Status:           string(a.Status),
+		AccountRef:       a.Ref,
 	})
 	if err != nil {
 		return nil, err
@@ -56,13 +57,28 @@ func (r *PostgresAccountRepository) GetByID(
 	return accountToEntity(row), nil
 }
 
-func (r *PostgresAccountRepository) GetByIDForUser(
+func (r *PostgresAccountRepository) GetByRef(
 	ctx context.Context,
-	id, userID uuid.UUID,
+	ref string,
 ) (*entities.Account, error) {
-	row, err := r.q.GetAccountByIDForUser(ctx, gen.GetAccountByIDForUserParams{
-		ID:     pgUUID(id),
-		UserID: pgUUID(userID),
+	row, err := r.q.GetAccountByRef(ctx, ref)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return accountToEntity(row), nil
+}
+
+func (r *PostgresAccountRepository) GetByRefForUser(
+	ctx context.Context,
+	ref string,
+	userID uuid.UUID,
+) (*entities.Account, error) {
+	row, err := r.q.GetAccountByRefForUser(ctx, gen.GetAccountByRefForUserParams{
+		AccountRef: ref,
+		UserID:     pgUUID(userID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

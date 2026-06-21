@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/crypto/bcrypt"
 
@@ -93,19 +94,21 @@ var devAccounts = []seedAccount{
 }
 
 // seedAccounts upserts the development wallet accounts. It is idempotent via
-// ON CONFLICT (user_id, name); the balance/currency are refreshed on re-run.
+// ON CONFLICT (user_id, name); the balance/currency are refreshed on re-run, but
+// account_ref is set only on insert so an account's external ref stays stable.
 func seedAccounts(ctx context.Context, db *postgres.Pool) error {
 	for _, a := range devAccounts {
+		accountRef := "ACC-" + ulid.Make().String()
 		_, err := db.Exec(ctx, `
-			INSERT INTO accounts (user_id, name, currency, available_balance, status)
-			SELECT u.id, $2, $3, $4, 'ACTIVE'
+			INSERT INTO accounts (user_id, name, currency, available_balance, status, account_ref)
+			SELECT u.id, $2, $3, $4, 'ACTIVE', $5
 			FROM users u
 			WHERE u.email = $1
 			ON CONFLICT (user_id, name) DO UPDATE
 			SET currency          = EXCLUDED.currency,
 			    available_balance = EXCLUDED.available_balance,
 			    updated_at        = now()`,
-			a.OwnerEmail, a.Name, a.Currency, a.Balance,
+			a.OwnerEmail, a.Name, a.Currency, a.Balance, accountRef,
 		)
 		if err != nil {
 			return fmt.Errorf("seed: upsert account %s/%s: %w", a.OwnerEmail, a.Name, err)

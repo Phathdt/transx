@@ -21,8 +21,8 @@ import (
 func TestTransferServiceCreateTransfer(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
-	fromAccountID := uuid.New()
-	toAccountID := uuid.New()
+	fromRef := NewAccountReference()
+	toRef := NewAccountReference()
 	idempotencyKey := uuid.New().String()
 
 	t.Run("missing idempotency key returns error", func(t *testing.T) {
@@ -31,11 +31,11 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, "", dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -51,11 +51,11 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, "not-a-uuid", dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -71,11 +71,11 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100",
-			Currency:      "XYZ",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "100",
+			Currency:       "XYZ",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -85,17 +85,37 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		assert.Equal(t, 400, appErr.Status)
 	})
 
-	t.Run("invalid from account id returns error", func(t *testing.T) {
+	t.Run("invalid from account ref returns error", func(t *testing.T) {
 		transferRepo := testmocks.NewTransferRepository(t)
 		accountRepo := testmocks.NewAccountRepository(t)
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: "not-a-uuid",
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: "not-a-ref",
+			ToAccountRef:   toRef,
+			Amount:         "100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+		})
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+
+	t.Run("invalid to account ref returns error", func(t *testing.T) {
+		transferRepo := testmocks.NewTransferRepository(t)
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
+
+		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   "not-a-ref",
+			Amount:         "100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -111,11 +131,11 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100.12345",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "100.12345",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -131,11 +151,11 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "0",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "0",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -151,11 +171,11 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "-100",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "-100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -166,17 +186,17 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 	})
 
 	t.Run("from and to same account returns error", func(t *testing.T) {
-		sameID := uuid.New()
+		sameRef := NewAccountReference()
 		transferRepo := testmocks.NewTransferRepository(t)
 		accountRepo := testmocks.NewAccountRepository(t)
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: sameID.String(),
-			ToAccountID:   sameID.String(),
-			Amount:        "100",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: sameRef,
+			ToAccountRef:   sameRef,
+			Amount:         "100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -195,9 +215,9 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 			Return(nil, nil)
 
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
+			GetByRef(ctx, fromRef).
 			Return(&entities.Account{
-				ID:     fromAccountID,
+				Ref:    fromRef,
 				UserID: uuid.New(), // Different user
 				Status: entities.AccountStatusActive,
 			}, nil)
@@ -205,11 +225,11 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -228,26 +248,26 @@ func TestTransferServiceCreateTransfer(t *testing.T) {
 			Return(nil, nil)
 
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
+			GetByRef(ctx, fromRef).
 			Return(&entities.Account{
-				ID:       fromAccountID,
+				Ref:      fromRef,
 				UserID:   userID,
 				Currency: "USD",
 				Status:   entities.AccountStatusActive,
 			}, nil)
 
 		accountRepo.EXPECT().
-			GetByID(ctx, toAccountID).
+			GetByRef(ctx, toRef).
 			Return(nil, nil)
 
 		service := NewTransferService(transferRepo, accountRepo, "stub-provider")
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "100",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -283,11 +303,28 @@ func TestTransferReferencePattern(t *testing.T) {
 	})
 }
 
+func TestAccountReferencePattern(t *testing.T) {
+	t.Run("generated account reference has ACC prefix and matches pattern", func(t *testing.T) {
+		ref := NewAccountReference()
+		assert.True(t, accountReferencePattern.MatchString(ref))
+		assert.Equal(t, "ACC-", ref[:4])
+	})
+
+	t.Run("generated account references are unique", func(t *testing.T) {
+		refs := make(map[string]bool)
+		for i := 0; i < 100; i++ {
+			ref := NewAccountReference()
+			assert.False(t, refs[ref], "reference should be unique")
+			refs[ref] = true
+		}
+	})
+}
+
 func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
-	fromAccountID := uuid.New()
-	toAccountID := uuid.New()
+	fromRef := NewAccountReference()
+	toRef := NewAccountReference()
 	idempotencyKey := uuid.New().String()
 
 	newService := func(t *testing.T) (*testmocks.TransferRepository, *testmocks.AccountRepository, *TransferService) {
@@ -303,15 +340,15 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			FindByUserAndKey(ctx, userID, idempotencyKey).
 			Return(nil, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
-			Return(&entities.Account{ID: fromAccountID, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, toAccountID).
-			Return(&entities.Account{ID: toAccountID, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, toRef).
+			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		transferRepo.EXPECT().
 			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
-				return tr.FromAccountID == fromAccountID &&
-					tr.ToAccountID == toAccountID &&
+				return tr.FromAccountRef == fromRef &&
+					tr.ToAccountRef == toRef &&
 					tr.TransferType == transferTypeInternal &&
 					tr.Provider == "" &&
 					tr.Reference[:4] == "ITN-"
@@ -322,10 +359,10 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			})
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "100.25",
-			Currency:      " usd ",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "100.25",
+			Currency:       " usd ",
 		})
 
 		require.NoError(t, err)
@@ -342,12 +379,12 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			FindByUserAndKey(ctx, userID, idempotencyKey).
 			Return(nil, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
-			Return(&entities.Account{ID: fromAccountID, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		transferRepo.EXPECT().
 			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
-				return tr.FromAccountID == fromAccountID &&
-					tr.ToAccountID == uuid.Nil &&
+				return tr.FromAccountRef == fromRef &&
+					tr.ToAccountRef == "" &&
 					tr.TransferType == transferTypeExternal &&
 					tr.Provider == "stub-provider" &&
 					tr.Reference[:4] == "ETN-"
@@ -358,10 +395,10 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			})
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			Amount:        "55",
-			Currency:      "USD",
-			TransferType:  "EXTERNAL",
+			FromAccountRef: fromRef,
+			Amount:         "55",
+			Currency:       "USD",
+			TransferType:   "EXTERNAL",
 		})
 
 		require.NoError(t, err)
@@ -370,10 +407,42 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 		assert.Equal(t, "55", result.TransactionAmount)
 	})
 
+	t.Run("creates external transfer with free-text beneficiary", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		transferRepo.EXPECT().
+			FindByUserAndKey(ctx, userID, idempotencyKey).
+			Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
+		transferRepo.EXPECT().
+			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
+				return tr.FromAccountRef == fromRef &&
+					tr.ToAccountRef == "VN-9988776655" &&
+					tr.TransferType == transferTypeExternal
+			})).
+			RunAndReturn(func(_ context.Context, tr *entities.Transfer) (*entities.Transfer, error) {
+				tr.ID = uuid.New()
+				return tr, nil
+			})
+
+		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   "VN-9988776655", // free-text external beneficiary, not an ACC- ref
+			Amount:         "55",
+			Currency:       "USD",
+			TransferType:   "EXTERNAL",
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Contains(t, result.TransferID, "ETN-")
+	})
+
 	t.Run("replays existing idempotent transfer", func(t *testing.T) {
 		transferRepo, _, service := newService(t)
 		amount := decimal.NewFromInt(10)
-		hash := requestHash(fromAccountID, toAccountID.String(), amount, "USD", transferTypeInternal, "")
+		hash := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "")
 		existing := &entities.Transfer{
 			Reference:           "ITN-01K00000000000000000000000",
 			Status:              entities.TransferStatusPending,
@@ -383,8 +452,8 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			FeeCurrency:         "USD",
 			RequestHash:         hash,
 			IdempotencyKey:      idempotencyKey,
-			FromAccountID:       fromAccountID,
-			ToAccountID:         toAccountID,
+			FromAccountRef:      fromRef,
+			ToAccountRef:        toRef,
 			UserID:              userID,
 			TransferType:        transferTypeInternal,
 		}
@@ -393,11 +462,11 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			Return(existing, nil)
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.NoError(t, err)
@@ -412,11 +481,11 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			Return(existing, nil)
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -428,14 +497,14 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 	t.Run("replays after unique violation race", func(t *testing.T) {
 		transferRepo, accountRepo, service := newService(t)
 		amount := decimal.NewFromInt(10)
-		hash := requestHash(fromAccountID, toAccountID.String(), amount, "USD", transferTypeInternal, "")
+		hash := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "")
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil).Once()
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
-			Return(&entities.Account{ID: fromAccountID, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, toAccountID).
-			Return(&entities.Account{ID: toAccountID, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, toRef).
+			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		transferRepo.EXPECT().Create(ctx, mock.Anything).Return(nil, &pgconn.PgError{Code: pgUniqueViolation})
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(&entities.Transfer{
 			Reference:           "ITN-01K00000000000000000000000",
@@ -448,11 +517,11 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 		}, nil).Once()
 
 		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.NoError(t, err)
@@ -464,19 +533,19 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 		wantErr := errors.New("db down")
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
-			Return(&entities.Account{ID: fromAccountID, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, toAccountID).
-			Return(&entities.Account{ID: toAccountID, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, toRef).
+			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		transferRepo.EXPECT().Create(ctx, mock.Anything).Return(nil, wantErr)
 
 		_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		assert.ErrorIs(t, err, wantErr)
@@ -492,7 +561,7 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			{
 				"wrong owner",
 				&entities.Account{
-					ID:       fromAccountID,
+					Ref:      fromRef,
 					UserID:   uuid.New(),
 					Currency: "USD",
 					Status:   entities.AccountStatusActive,
@@ -502,7 +571,7 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			{
 				"inactive",
 				&entities.Account{
-					ID:       fromAccountID,
+					Ref:      fromRef,
 					UserID:   userID,
 					Currency: "USD",
 					Status:   entities.AccountStatusFrozen,
@@ -512,7 +581,7 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			{
 				"currency mismatch",
 				&entities.Account{
-					ID:       fromAccountID,
+					Ref:      fromRef,
 					UserID:   userID,
 					Currency: "EUR",
 					Status:   entities.AccountStatusActive,
@@ -524,13 +593,13 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				transferRepo, accountRepo, service := newService(t)
 				transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil)
-				accountRepo.EXPECT().GetByID(ctx, fromAccountID).Return(tc.account, nil)
+				accountRepo.EXPECT().GetByRef(ctx, fromRef).Return(tc.account, nil)
 
 				_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-					FromAccountID: fromAccountID.String(),
-					Amount:        "10",
-					Currency:      "USD",
-					TransferType:  "EXTERNAL",
+					FromAccountRef: fromRef,
+					Amount:         "10",
+					Currency:       "USD",
+					TransferType:   "EXTERNAL",
 				})
 
 				require.Error(t, err)
@@ -543,11 +612,11 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 		_, _, service := newService(t)
 
 		_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10000000000000000",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10000000000000000",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -624,8 +693,8 @@ func TestAccountIsActive(t *testing.T) {
 func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
-	fromAccountID := uuid.New()
-	toAccountID := uuid.New()
+	fromRef := NewAccountReference()
+	toRef := NewAccountReference()
 	key := uuid.New().String()
 
 	newService := func(t *testing.T) (*testmocks.TransferRepository, *testmocks.AccountRepository, *TransferService) {
@@ -641,11 +710,11 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, wantErr)
 
 		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		assert.ErrorIs(t, err, wantErr)
@@ -655,14 +724,14 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		transferRepo, accountRepo, service := newService(t)
 		wantErr := errors.New("account read failed")
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
-		accountRepo.EXPECT().GetByID(ctx, fromAccountID).Return(nil, wantErr)
+		accountRepo.EXPECT().GetByRef(ctx, fromRef).Return(nil, wantErr)
 
 		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		assert.ErrorIs(t, err, wantErr)
@@ -673,16 +742,16 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		wantErr := errors.New("to account read failed")
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
-			Return(&entities.Account{ID: fromAccountID, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
-		accountRepo.EXPECT().GetByID(ctx, toAccountID).Return(nil, wantErr)
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().GetByRef(ctx, toRef).Return(nil, wantErr)
 
 		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		assert.ErrorIs(t, err, wantErr)
@@ -692,18 +761,18 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		transferRepo, accountRepo, service := newService(t)
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
-			Return(&entities.Account{ID: fromAccountID, UserID: userID, Currency: "USD", Status: entities.AccountStatusFrozen}, nil)
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusFrozen}, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, toAccountID).
-			Return(&entities.Account{ID: toAccountID, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, toRef).
+			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
 
 		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.Error(t, err)
@@ -714,15 +783,15 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		transferRepo, accountRepo, service := newService(t)
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, fromAccountID).
-			Return(&entities.Account{ID: fromAccountID, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, fromRef).
+			Return(&entities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: entities.AccountStatusActive}, nil)
 		accountRepo.EXPECT().
-			GetByID(ctx, toAccountID).
-			Return(&entities.Account{ID: toAccountID, UserID: uuid.New(), Currency: "EUR", Status: entities.AccountStatusActive}, nil)
+			GetByRef(ctx, toRef).
+			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "EUR", Status: entities.AccountStatusActive}, nil)
 		transferRepo.EXPECT().
 			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
-				return tr.FromAccountID == fromAccountID &&
-					tr.ToAccountID == toAccountID &&
+				return tr.FromAccountRef == fromRef &&
+					tr.ToAccountRef == toRef &&
 					tr.TransactionAmount.Equal(decimal.NewFromInt(10)) &&
 					tr.TransactionCurrency == "USD" &&
 					tr.FeeAmount.Equal(decimal.Zero) &&
@@ -735,11 +804,11 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 			})
 
 		result, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			ToAccountID:   toAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "INTERNAL",
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
 		})
 
 		require.NoError(t, err)
@@ -753,13 +822,13 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		transferRepo, accountRepo, service := newService(t)
 		wantErr := errors.New("account read failed")
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
-		accountRepo.EXPECT().GetByID(ctx, fromAccountID).Return(nil, wantErr)
+		accountRepo.EXPECT().GetByRef(ctx, fromRef).Return(nil, wantErr)
 
 		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
-			FromAccountID: fromAccountID.String(),
-			Amount:        "10",
-			Currency:      "USD",
-			TransferType:  "EXTERNAL",
+			FromAccountRef: fromRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "EXTERNAL",
 		})
 
 		assert.ErrorIs(t, err, wantErr)

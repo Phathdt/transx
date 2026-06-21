@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	walletservices "transx/internal/modules/wallet/application/services"
 	walletentities "transx/internal/modules/wallet/domain/entities"
 	walletquery "transx/internal/modules/wallet/infrastructure/gen"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
@@ -38,6 +39,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
 
 		account := &walletentities.Account{
+			Ref:              walletservices.NewAccountReference(),
 			UserID:           userID,
 			Name:             "Test USD Account",
 			Currency:         "USD",
@@ -50,6 +52,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotEqual(t, uuid.Nil, created.ID)
+		assert.NotEmpty(t, created.Ref)
 		assert.Equal(t, userID, created.UserID)
 		assert.Equal(t, "USD", created.Currency)
 
@@ -69,7 +72,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		assert.Nil(t, found)
 	})
 
-	t.Run("GetByIDForUser returns account for owner", func(t *testing.T) {
+	t.Run("GetByRefForUser returns account for owner", func(t *testing.T) {
 		tx, err := pool.Begin(ctx)
 		require.NoError(t, err)
 		defer tx.Rollback(ctx) //nolint:errcheck
@@ -78,6 +81,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
 
 		account := &walletentities.Account{
+			Ref:              walletservices.NewAccountReference(),
 			UserID:           userID,
 			Name:             "Owner Account",
 			Currency:         "EUR",
@@ -89,14 +93,14 @@ func TestPostgresAccountRepository(t *testing.T) {
 		created, err := accountRepo.Create(ctx, account)
 		require.NoError(t, err)
 
-		found, err := accountRepo.GetByIDForUser(ctx, created.ID, userID)
+		found, err := accountRepo.GetByRefForUser(ctx, created.Ref, userID)
 
 		require.NoError(t, err)
 		assert.NotNil(t, found)
 		assert.Equal(t, created.ID, found.ID)
 	})
 
-	t.Run("GetByIDForUser returns nil for different user", func(t *testing.T) {
+	t.Run("GetByRef returns account unscoped and nil when missing", func(t *testing.T) {
 		tx, err := pool.Begin(ctx)
 		require.NoError(t, err)
 		defer tx.Rollback(ctx) //nolint:errcheck
@@ -105,6 +109,39 @@ func TestPostgresAccountRepository(t *testing.T) {
 		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
 
 		account := &walletentities.Account{
+			Ref:              walletservices.NewAccountReference(),
+			UserID:           userID,
+			Name:             "Ref Lookup Account",
+			Currency:         "USD",
+			Status:           walletentities.AccountStatusActive,
+			AvailableBalance: decimal.NewFromInt(10),
+			HoldBalance:      decimal.NewFromInt(0),
+		}
+
+		created, err := accountRepo.Create(ctx, account)
+		require.NoError(t, err)
+
+		found, err := accountRepo.GetByRef(ctx, created.Ref)
+		require.NoError(t, err)
+		require.NotNil(t, found)
+		assert.Equal(t, created.ID, found.ID)
+		assert.Equal(t, created.Ref, found.Ref)
+
+		missing, err := accountRepo.GetByRef(ctx, walletservices.NewAccountReference())
+		require.NoError(t, err)
+		assert.Nil(t, missing)
+	})
+
+	t.Run("GetByRefForUser returns nil for different user", func(t *testing.T) {
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer tx.Rollback(ctx) //nolint:errcheck
+
+		accountQueries := walletquery.New(tx)
+		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
+
+		account := &walletentities.Account{
+			Ref:              walletservices.NewAccountReference(),
 			UserID:           userID,
 			Name:             "Secret Account",
 			Currency:         "GBP",
@@ -117,7 +154,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		require.NoError(t, err)
 
 		differentUser := uuid.New()
-		found, err := accountRepo.GetByIDForUser(ctx, created.ID, differentUser)
+		found, err := accountRepo.GetByRefForUser(ctx, created.Ref, differentUser)
 
 		require.NoError(t, err)
 		assert.Nil(t, found)
@@ -132,6 +169,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
 
 		usdAccount := &walletentities.Account{
+			Ref:              walletservices.NewAccountReference(),
 			UserID:           userID,
 			Name:             "USD Account",
 			Currency:         "USD",
@@ -141,6 +179,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		}
 
 		eurAccount := &walletentities.Account{
+			Ref:              walletservices.NewAccountReference(),
 			UserID:           userID,
 			Name:             "EUR Account",
 			Currency:         "EUR",
@@ -156,17 +195,17 @@ func TestPostgresAccountRepository(t *testing.T) {
 		require.NoError(t, err)
 
 		// Both should be found for the owner
-		found1, err := accountRepo.GetByIDForUser(ctx, created1.ID, userID)
+		found1, err := accountRepo.GetByRefForUser(ctx, created1.Ref, userID)
 		require.NoError(t, err)
 		assert.NotNil(t, found1)
 
-		found2, err := accountRepo.GetByIDForUser(ctx, created2.ID, userID)
+		found2, err := accountRepo.GetByRefForUser(ctx, created2.Ref, userID)
 		require.NoError(t, err)
 		assert.NotNil(t, found2)
 
 		// But not for other users
 		otherUser := uuid.New()
-		notFound1, err := accountRepo.GetByIDForUser(ctx, created1.ID, otherUser)
+		notFound1, err := accountRepo.GetByRefForUser(ctx, created1.Ref, otherUser)
 		require.NoError(t, err)
 		assert.Nil(t, notFound1)
 	})
@@ -180,6 +219,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
 
 		account := &walletentities.Account{
+			Ref:      walletservices.NewAccountReference(),
 			UserID:   userID,
 			Name:     "New Account",
 			Currency: "JPY",
@@ -202,6 +242,7 @@ func TestPostgresAccountRepository(t *testing.T) {
 		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
 
 		account := &walletentities.Account{
+			Ref:      walletservices.NewAccountReference(),
 			UserID:   userID,
 			Name:     "Timestamp Account",
 			Currency: "CHF",

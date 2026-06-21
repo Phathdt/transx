@@ -1,6 +1,6 @@
 -- name: CreateAccount :one
-INSERT INTO accounts (user_id, name, currency, available_balance, hold_balance, status)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO accounts (user_id, name, currency, available_balance, hold_balance, status, account_ref)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: GetAccountByID :one
@@ -8,10 +8,25 @@ SELECT *
 FROM accounts
 WHERE id = $1;
 
--- name: GetAccountByIDForUser :one
+-- name: GetAccountByRef :one
 SELECT *
 FROM accounts
-WHERE id = $1 AND user_id = $2;
+WHERE account_ref = $1;
+
+-- name: GetAccountByRefForUser :one
+SELECT *
+FROM accounts
+WHERE account_ref = $1 AND user_id = $2;
+
+-- name: LockAccountsByRefs :many
+-- Locks the given accounts in a deterministic order (ORDER BY account_ref) so
+-- two crossing transfers (A->B and B->A) cannot deadlock on lock acquisition.
+-- Internal balance/ledger work still keys off the UUID id carried on each row.
+SELECT *
+FROM accounts
+WHERE account_ref = ANY(@refs::text [])
+ORDER BY account_ref
+FOR UPDATE;
 
 -- name: UpdateAccountStatus :exec
 UPDATE accounts
