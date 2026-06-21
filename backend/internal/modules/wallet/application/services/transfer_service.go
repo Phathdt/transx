@@ -160,21 +160,19 @@ func (s *TransferService) createInternal(
 	if !from.IsActive() || !to.IsActive() {
 		return nil, apperror.NewUnprocessableError("account not active")
 	}
-	if from.Currency != currency || to.Currency != currency {
-		return nil, apperror.NewUnprocessableError("currency mismatch")
-	}
-
 	return s.persist(ctx, &entities.Transfer{
-		FromAccountID:  fromID,
-		ToAccountID:    toID,
-		Amount:         amount,
-		Currency:       currency,
-		TransferType:   transferTypeInternal,
-		Reference:      NewTransferReference(transferTypeInternal),
-		Status:         entities.TransferStatusPending,
-		UserID:         userID,
-		IdempotencyKey: key,
-		RequestHash:    hash,
+		FromAccountID:       fromID,
+		ToAccountID:         toID,
+		TransactionAmount:   amount,
+		TransactionCurrency: currency,
+		FeeAmount:           decimal.Zero,
+		FeeCurrency:         currency,
+		TransferType:        transferTypeInternal,
+		Reference:           NewTransferReference(transferTypeInternal),
+		Status:              entities.TransferStatusPending,
+		UserID:              userID,
+		IdempotencyKey:      key,
+		RequestHash:         hash,
 	}, userID, key, hash)
 }
 
@@ -212,17 +210,19 @@ func (s *TransferService) createExternal(
 	}
 
 	return s.persist(ctx, &entities.Transfer{
-		FromAccountID:  fromID,
-		ToAccountID:    uuid.Nil, // no in-ledger destination; stored as NULL.
-		Amount:         amount,
-		Currency:       currency,
-		TransferType:   transferTypeExternal,
-		Reference:      NewTransferReference(transferTypeExternal),
-		Provider:       s.providerName,
-		Status:         entities.TransferStatusPending,
-		UserID:         userID,
-		IdempotencyKey: key,
-		RequestHash:    hash,
+		FromAccountID:       fromID,
+		ToAccountID:         uuid.Nil, // no in-ledger destination; stored as NULL.
+		TransactionAmount:   amount,
+		TransactionCurrency: currency,
+		FeeAmount:           decimal.Zero,
+		FeeCurrency:         currency,
+		TransferType:        transferTypeExternal,
+		Reference:           NewTransferReference(transferTypeExternal),
+		Provider:            s.providerName,
+		Status:              entities.TransferStatusPending,
+		UserID:              userID,
+		IdempotencyKey:      key,
+		RequestHash:         hash,
 	}, userID, key, hash)
 }
 
@@ -339,10 +339,25 @@ func isUniqueViolation(err error) bool {
 
 func transferToResponse(t *entities.Transfer) *dto.TransferResponse {
 	return &dto.TransferResponse{
-		TransferID:    t.Reference,
-		Status:        string(t.Status),
-		Amount:        t.Amount.String(),
-		Currency:      t.Currency,
-		FailureReason: t.FailureReason,
+		TransferID:          t.Reference,
+		Status:              string(t.Status),
+		TransactionAmount:   t.TransactionAmount.String(),
+		TransactionCurrency: t.TransactionCurrency,
+		SourceAmount:        decimalString(t.SourceAmount),
+		SourceCurrency:      t.SourceCurrency,
+		DestinationAmount:   decimalString(t.DestinationAmount),
+		DestinationCurrency: t.DestinationCurrency,
+		SourceFXRate:        decimalString(t.SourceFXRate),
+		DestinationFXRate:   decimalString(t.DestinationFXRate),
+		FeeAmount:           t.FeeAmount.String(),
+		FeeCurrency:         t.FeeCurrency,
+		FailureReason:       t.FailureReason,
 	}
+}
+
+func decimalString(value decimal.NullDecimal) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.Decimal.String()
 }

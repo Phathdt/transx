@@ -22,7 +22,7 @@ type TransferRepository interface {
 	// ExecuteInternalTransfer runs the debit/credit/ledger/status/outbox steps
 	// for one transfer atomically in a single transaction. It is idempotent: a
 	// transfer not in PENDING is skipped.
-	ExecuteInternalTransfer(ctx context.Context, transferID uuid.UUID) error
+	ExecuteInternalTransfer(ctx context.Context, transferID uuid.UUID, fx FXService) error
 	// ReserveExternalTransfer moves the amount from available to hold and stages
 	// the provider-request outbox event in one transaction (PENDING → RESERVED).
 	// Idempotent: a transfer not in PENDING is skipped.

@@ -5,6 +5,7 @@ package testmocks
 import (
 	context "context"
 	entities "transx/internal/modules/wallet/domain/entities"
+	interfaces "transx/internal/modules/wallet/domain/interfaces"
 
 	mock "github.com/stretchr/testify/mock"
 
@@ -83,17 +84,17 @@ func (_c *TransferRepository_Create_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
-// ExecuteInternalTransfer provides a mock function with given fields: ctx, transferID
-func (_m *TransferRepository) ExecuteInternalTransfer(ctx context.Context, transferID uuid.UUID) error {
-	ret := _m.Called(ctx, transferID)
+// ExecuteInternalTransfer provides a mock function with given fields: ctx, transferID, fx
+func (_m *TransferRepository) ExecuteInternalTransfer(ctx context.Context, transferID uuid.UUID, fx interfaces.FXService) error {
+	ret := _m.Called(ctx, transferID, fx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ExecuteInternalTransfer")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) error); ok {
-		r0 = rf(ctx, transferID)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, interfaces.FXService) error); ok {
+		r0 = rf(ctx, transferID, fx)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -109,13 +110,14 @@ type TransferRepository_ExecuteInternalTransfer_Call struct {
 // ExecuteInternalTransfer is a helper method to define mock.On call
 //   - ctx context.Context
 //   - transferID uuid.UUID
-func (_e *TransferRepository_Expecter) ExecuteInternalTransfer(ctx interface{}, transferID interface{}) *TransferRepository_ExecuteInternalTransfer_Call {
-	return &TransferRepository_ExecuteInternalTransfer_Call{Call: _e.mock.On("ExecuteInternalTransfer", ctx, transferID)}
+//   - fx interfaces.FXService
+func (_e *TransferRepository_Expecter) ExecuteInternalTransfer(ctx interface{}, transferID interface{}, fx interface{}) *TransferRepository_ExecuteInternalTransfer_Call {
+	return &TransferRepository_ExecuteInternalTransfer_Call{Call: _e.mock.On("ExecuteInternalTransfer", ctx, transferID, fx)}
 }
 
-func (_c *TransferRepository_ExecuteInternalTransfer_Call) Run(run func(ctx context.Context, transferID uuid.UUID)) *TransferRepository_ExecuteInternalTransfer_Call {
+func (_c *TransferRepository_ExecuteInternalTransfer_Call) Run(run func(ctx context.Context, transferID uuid.UUID, fx interfaces.FXService)) *TransferRepository_ExecuteInternalTransfer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(interfaces.FXService))
 	})
 	return _c
 }
@@ -125,7 +127,7 @@ func (_c *TransferRepository_ExecuteInternalTransfer_Call) Return(_a0 error) *Tr
 	return _c
 }
 
-func (_c *TransferRepository_ExecuteInternalTransfer_Call) RunAndReturn(run func(context.Context, uuid.UUID) error) *TransferRepository_ExecuteInternalTransfer_Call {
+func (_c *TransferRepository_ExecuteInternalTransfer_Call) RunAndReturn(run func(context.Context, uuid.UUID, interfaces.FXService) error) *TransferRepository_ExecuteInternalTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }

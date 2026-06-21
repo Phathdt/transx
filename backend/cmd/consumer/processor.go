@@ -26,6 +26,7 @@ type Processor struct {
 	consumer  kafka.MessageConsumer
 	transfers interfaces.TransferRepository
 	inbox     interfaces.InboxRepository
+	fx        interfaces.FXService
 	retry     retryHelper
 	log       logger.Logger
 }
@@ -35,12 +36,14 @@ func NewProcessor(
 	producer kafka.MessageProducer,
 	transfers interfaces.TransferRepository,
 	inbox interfaces.InboxRepository,
+	fx interfaces.FXService,
 	log logger.Logger,
 ) *Processor {
 	return &Processor{
 		consumer:  consumer,
 		transfers: transfers,
 		inbox:     inbox,
+		fx:        fx,
 		retry:     retryHelper{producer: producer, log: log, mainTopic: kafkatopic.TransferRequested},
 		log:       log,
 	}
@@ -122,7 +125,7 @@ func (p *Processor) execute(ctx context.Context, transferID uuid.UUID) error {
 	if t.TransferType == transferTypeExternal {
 		return p.transfers.ReserveExternalTransfer(ctx, transferID)
 	}
-	return p.transfers.ExecuteInternalTransfer(ctx, transferID)
+	return p.transfers.ExecuteInternalTransfer(ctx, transferID, p.fx)
 }
 
 // escalateOrDLQ pushes the message onto the next retry tier, or to the DLQ when

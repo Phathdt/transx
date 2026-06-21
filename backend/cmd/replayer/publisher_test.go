@@ -41,7 +41,12 @@ func (f *fakeProducer) Publish(_ context.Context, topic string, key, value []byt
 	return nil
 }
 
-func (f *fakeProducer) PublishWithHeaders(ctx context.Context, topic string, key, value []byte, _ []kafka.Header) error {
+func (f *fakeProducer) PublishWithHeaders(
+	ctx context.Context,
+	topic string,
+	key, value []byte,
+	_ []kafka.Header,
+) error {
 	return f.Publish(ctx, topic, key, value)
 }
 

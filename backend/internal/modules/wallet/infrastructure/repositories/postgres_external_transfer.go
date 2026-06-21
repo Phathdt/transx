@@ -51,11 +51,25 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 		if from.Status != string(entities.AccountStatusActive) {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
+		if from.Currency != t.TransactionCurrency {
+			return r.failTx(ctx, q, transferID, entities.FailureFXRateUnavailable)
+		}
+		if err := q.SetTransferSettlementSnapshot(ctx, gen.SetTransferSettlementSnapshotParams{
+			SourceAmount:        decimal.NewNullDecimal(t.TransactionAmount),
+			SourceCurrency:      t.TransactionCurrency,
+			DestinationAmount:   decimal.NullDecimal{},
+			DestinationCurrency: "",
+			SourceFxRate:        decimal.NewNullDecimal(decimal.NewFromInt(1)),
+			DestinationFxRate:   decimal.NullDecimal{},
+			ID:                  pgUUID(transferID),
+		}); err != nil {
+			return err
+		}
 
 		// Conditional reserve: ACTIVE + sufficient available funds. No row →
 		// insufficient funds (status already validated as ACTIVE above).
 		reserved, err := q.ReserveHoldIfSufficient(ctx, gen.ReserveHoldIfSufficientParams{
-			Amount: t.Amount,
+			Amount: t.TransactionAmount,
 			ID:     pgUUID(fromID),
 		})
 		if err != nil {
@@ -69,7 +83,8 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 			TransferID:   pgUUID(transferID),
 			AccountID:    pgUUID(fromID),
 			Direction:    string(entities.LedgerHold),
-			Amount:       t.Amount,
+			Amount:       t.TransactionAmount,
+			Currency:     t.TransactionCurrency,
 			BalanceAfter: reserved.AvailableBalance,
 		}); err != nil {
 			return err
@@ -120,9 +135,17 @@ func (r *PostgresTransferRepository) SettleExternalTransfer(
 		}
 
 		if result.Outcome == entities.ProviderSuccess {
-			return r.settleSucceeded(ctx, q, transferID, fromID, t.Amount, result.ReferenceID)
+			return r.settleSucceeded(
+				ctx,
+				q,
+				transferID,
+				fromID,
+				t.TransactionAmount,
+				t.TransactionCurrency,
+				result.ReferenceID,
+			)
 		}
-		return r.settleFailed(ctx, q, transferID, fromID, t.Amount, result.Reason)
+		return r.settleFailed(ctx, q, transferID, fromID, t.TransactionAmount, t.TransactionCurrency, result.Reason)
 	})
 }
 
@@ -132,6 +155,7 @@ func (r *PostgresTransferRepository) settleSucceeded(
 	q *gen.Queries,
 	transferID, fromID uuid.UUID,
 	amount decimal.Decimal,
+	currency string,
 	referenceID string,
 ) error {
 	// Drop the held amount. CHECK (hold_balance >= 0) backstops an unexpected
@@ -148,6 +172,7 @@ func (r *PostgresTransferRepository) settleSucceeded(
 		AccountID:    pgUUID(fromID),
 		Direction:    string(entities.LedgerDebit),
 		Amount:       amount,
+		Currency:     currency,
 		BalanceAfter: debited.AvailableBalance,
 	}); err != nil {
 		return err
@@ -175,6 +200,7 @@ func (r *PostgresTransferRepository) settleFailed(
 	q *gen.Queries,
 	transferID, fromID uuid.UUID,
 	amount decimal.Decimal,
+	currency string,
 	reason string,
 ) error {
 	released, err := q.ReleaseHold(ctx, gen.ReleaseHoldParams{
@@ -189,6 +215,7 @@ func (r *PostgresTransferRepository) settleFailed(
 		AccountID:    pgUUID(fromID),
 		Direction:    string(entities.LedgerRelease),
 		Amount:       amount,
+		Currency:     currency,
 		BalanceAfter: released.AvailableBalance,
 	}); err != nil {
 		return err

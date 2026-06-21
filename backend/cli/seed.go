@@ -88,6 +88,7 @@ type seedAccount struct {
 // devAccounts are fixed development wallets used to exercise transfers.
 var devAccounts = []seedAccount{
 	{OwnerEmail: "alice@transx.dev", Name: "alice-main", Currency: "USD", Balance: "1000.0000"},
+	{OwnerEmail: "alice@transx.dev", Name: "alice-vnd", Currency: "VND", Balance: "5000000.0000"},
 	{OwnerEmail: "bob@transx.dev", Name: "bob-main", Currency: "USD", Balance: "500.0000"},
 }
 

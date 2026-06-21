@@ -13,9 +13,9 @@ import (
 )
 
 const insertLedgerEntry = `-- name: InsertLedgerEntry :one
-INSERT INTO ledger_entries (transfer_id, account_id, direction, amount, balance_after)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, transfer_id, account_id, direction, amount, balance_after, created_at
+INSERT INTO ledger_entries (transfer_id, account_id, direction, amount, currency, balance_after)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, transfer_id, account_id, direction, amount, balance_after, created_at, currency
 `
 
 type InsertLedgerEntryParams struct {
@@ -23,6 +23,7 @@ type InsertLedgerEntryParams struct {
 	AccountID    pgtype.UUID     `db:"account_id"`
 	Direction    string          `db:"direction"`
 	Amount       decimal.Decimal `db:"amount"`
+	Currency     string          `db:"currency"`
 	BalanceAfter decimal.Decimal `db:"balance_after"`
 }
 
@@ -32,6 +33,7 @@ func (q *Queries) InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryPa
 		arg.AccountID,
 		arg.Direction,
 		arg.Amount,
+		arg.Currency,
 		arg.BalanceAfter,
 	)
 	var i LedgerEntry
@@ -43,6 +45,7 @@ func (q *Queries) InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryPa
 		&i.Amount,
 		&i.BalanceAfter,
 		&i.CreatedAt,
+		&i.Currency,
 	)
 	return &i, err
 }

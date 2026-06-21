@@ -26,6 +26,7 @@ type LedgerEntry struct {
 	AccountID    uuid.UUID
 	Direction    LedgerDirection
 	Amount       decimal.Decimal
+	Currency     string
 	BalanceAfter decimal.Decimal
 	CreatedAt    time.Time
 }

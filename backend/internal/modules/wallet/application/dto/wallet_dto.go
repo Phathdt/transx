@@ -38,11 +38,19 @@ type CreateTransferCommand struct {
 type TransferResponse struct {
 	// TransferID is the business reference (ETN- for EXTERNAL, ITN- for INTERNAL,
 	// followed by a ULID), not the internal UUID primary key.
-	TransferID    string `json:"transferId"`
-	Status        string `json:"status"`
-	Amount        string `json:"amount"`
-	Currency      string `json:"currency"`
-	FailureReason string `json:"failureReason,omitempty"`
+	TransferID          string `json:"transferId"`
+	Status              string `json:"status"`
+	TransactionAmount   string `json:"transactionAmount"`
+	TransactionCurrency string `json:"transactionCurrency"`
+	SourceAmount        string `json:"sourceAmount,omitempty"`
+	SourceCurrency      string `json:"sourceCurrency,omitempty"`
+	DestinationAmount   string `json:"destinationAmount,omitempty"`
+	DestinationCurrency string `json:"destinationCurrency,omitempty"`
+	SourceFXRate        string `json:"sourceFxRate,omitempty"`
+	DestinationFXRate   string `json:"destinationFxRate,omitempty"`
+	FeeAmount           string `json:"feeAmount"`
+	FeeCurrency         string `json:"feeCurrency"`
+	FailureReason       string `json:"failureReason,omitempty"`
 }
 
 // TransferEventPayload is the canonical message body for transfer.* events

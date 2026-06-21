@@ -28,6 +28,7 @@ const (
 	FailureAccountNotActive  = "ACCOUNT_NOT_ACTIVE"
 	FailureDestNotActive     = "DEST_NOT_ACTIVE"
 	FailureProviderRejected  = "PROVIDER_REJECTED"
+	FailureFXRateUnavailable = "FX_RATE_UNAVAILABLE"
 )
 
 // Transfer is a movement of funds. INTERNAL transfers move funds between two
@@ -38,8 +39,16 @@ type Transfer struct {
 	Reference           string
 	FromAccountID       uuid.UUID
 	ToAccountID         uuid.UUID
-	Amount              decimal.Decimal
-	Currency            string
+	TransactionAmount   decimal.Decimal
+	TransactionCurrency string
+	SourceAmount        decimal.NullDecimal
+	SourceCurrency      string
+	DestinationAmount   decimal.NullDecimal
+	DestinationCurrency string
+	SourceFXRate        decimal.NullDecimal
+	DestinationFXRate   decimal.NullDecimal
+	FeeAmount           decimal.Decimal
+	FeeCurrency         string
 	TransferType        string
 	Provider            string
 	ProviderReferenceID string

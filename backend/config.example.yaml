@@ -20,3 +20,11 @@ auth:
   jwt_secret: 'dev-secret-change-me'
   jwt_ttl: 24h
 
+fx:
+  # Static MVP rates. Key direction is FROM_TO; same-currency quotes use rate 1.
+  rates:
+    VND_USD: '0.00003924'
+    USD_VND: '25484.20'
+    USD_EUR: '0.92'
+    EUR_USD: '1.0870'
+

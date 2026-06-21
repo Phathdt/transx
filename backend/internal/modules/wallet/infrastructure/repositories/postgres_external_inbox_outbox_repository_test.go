@@ -99,17 +99,19 @@ func TestPostgresExternalTransferRepository(t *testing.T) {
 		t.Helper()
 		fromAccountID := createTestAccount(ctx, t, accountRepo, userID, "USD", balance)
 		transfer := &entities.Transfer{
-			FromAccountID:  fromAccountID,
-			ToAccountID:    uuid.Nil,
-			Amount:         amount,
-			Currency:       "USD",
-			TransferType:   "EXTERNAL",
-			Provider:       "stub-provider",
-			Status:         entities.TransferStatusPending,
-			UserID:         userID,
-			IdempotencyKey: "external-" + uuid.New().String(),
-			RequestHash:    "hash-" + uuid.New().String(),
-			Reference:      "ETN-" + uuid.New().String()[:8],
+			FromAccountID:       fromAccountID,
+			ToAccountID:         uuid.Nil,
+			TransactionAmount:   amount,
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "EXTERNAL",
+			Provider:            "stub-provider",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "external-" + uuid.New().String(),
+			RequestHash:         "hash-" + uuid.New().String(),
+			Reference:           "ETN-" + uuid.New().String()[:8],
 		}
 		created, err := transferRepo.Create(ctx, transfer)
 		require.NoError(t, err)
@@ -160,7 +162,14 @@ func TestPostgresExternalTransferRepository(t *testing.T) {
 			Outcome:     entities.ProviderSuccess,
 			ReferenceID: "provider-ref-1",
 		}))
-		require.NoError(t, transferRepo.SettleExternalTransfer(ctx, transferID, entities.ProviderResult{Outcome: entities.ProviderSuccess}))
+		require.NoError(
+			t,
+			transferRepo.SettleExternalTransfer(
+				ctx,
+				transferID,
+				entities.ProviderResult{Outcome: entities.ProviderSuccess},
+			),
+		)
 
 		transfer, err := transferRepo.GetByID(ctx, transferID)
 		require.NoError(t, err)
@@ -197,10 +206,87 @@ func TestPostgresExternalTransferRepository(t *testing.T) {
 		assertOutboxCount(t, ctx, pool, transferID, entities.EventTransferFailed, 1)
 	})
 
+	t.Run("reserve fails external cross currency before holding funds", func(t *testing.T) {
+		fromAccountID := createTestAccount(ctx, t, accountRepo, userID, "EUR", decimal.NewFromInt(100))
+		transfer := &entities.Transfer{
+			FromAccountID:       fromAccountID,
+			ToAccountID:         uuid.Nil,
+			TransactionAmount:   decimal.NewFromInt(25),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "EXTERNAL",
+			Provider:            "stub-provider",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "external-mismatch-" + uuid.New().String(),
+			RequestHash:         "hash-" + uuid.New().String(),
+			Reference:           "ETN-" + uuid.New().String()[:8],
+		}
+		created, err := transferRepo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		require.NoError(t, transferRepo.ReserveExternalTransfer(ctx, created.ID))
+
+		updated, err := transferRepo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusFailed, updated.Status)
+		assert.Equal(t, entities.FailureFXRateUnavailable, updated.FailureReason)
+		account, err := accountRepo.GetByID(ctx, fromAccountID)
+		require.NoError(t, err)
+		assert.Equal(t, "100", account.AvailableBalance.String())
+		assert.True(t, account.HoldBalance.IsZero())
+	})
+
+	t.Run("settle success without provider reference still completes", func(t *testing.T) {
+		transferID, _ := createExternalTransfer(t, decimal.NewFromInt(100), decimal.NewFromInt(10))
+		require.NoError(t, transferRepo.ReserveExternalTransfer(ctx, transferID))
+
+		require.NoError(
+			t,
+			transferRepo.SettleExternalTransfer(
+				ctx,
+				transferID,
+				entities.ProviderResult{Outcome: entities.ProviderSuccess},
+			),
+		)
+
+		transfer, err := transferRepo.GetByID(ctx, transferID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusSucceeded, transfer.Status)
+		assert.Empty(t, transfer.ProviderReferenceID)
+	})
+
+	t.Run("settle failure defaults provider rejection reason", func(t *testing.T) {
+		transferID, _ := createExternalTransfer(t, decimal.NewFromInt(100), decimal.NewFromInt(10))
+		require.NoError(t, transferRepo.ReserveExternalTransfer(ctx, transferID))
+
+		require.NoError(
+			t,
+			transferRepo.SettleExternalTransfer(
+				ctx,
+				transferID,
+				entities.ProviderResult{Outcome: entities.ProviderFailure},
+			),
+		)
+
+		transfer, err := transferRepo.GetByID(ctx, transferID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusFailed, transfer.Status)
+		assert.Equal(t, entities.FailureProviderRejected, transfer.FailureReason)
+	})
+
 	t.Run("unknown external transfer operations are no-ops", func(t *testing.T) {
 		unknownID := uuid.New()
 		require.NoError(t, transferRepo.ReserveExternalTransfer(ctx, unknownID))
-		require.NoError(t, transferRepo.SettleExternalTransfer(ctx, unknownID, entities.ProviderResult{Outcome: entities.ProviderSuccess}))
+		require.NoError(
+			t,
+			transferRepo.SettleExternalTransfer(
+				ctx,
+				unknownID,
+				entities.ProviderResult{Outcome: entities.ProviderSuccess},
+			),
+		)
 	})
 }
 
@@ -258,7 +344,10 @@ func TestPostgresRepositoryErrorAndEdgeBranches(t *testing.T) {
 	cancel()
 
 	t.Run("account repository returns context errors", func(t *testing.T) {
-		_, err := accountRepo.Create(cancelled, &entities.Account{UserID: userID, Name: "x", Currency: "USD", Status: entities.AccountStatusActive})
+		_, err := accountRepo.Create(
+			cancelled,
+			&entities.Account{UserID: userID, Name: "x", Currency: "USD", Status: entities.AccountStatusActive},
+		)
 		assert.Error(t, err)
 		_, err = accountRepo.GetByID(cancelled, uuid.New())
 		assert.Error(t, err)
@@ -275,9 +364,16 @@ func TestPostgresRepositoryErrorAndEdgeBranches(t *testing.T) {
 		assert.Error(t, err)
 		_, err = transferRepo.FindByUserAndKey(cancelled, userID, "key")
 		assert.Error(t, err)
-		assert.Error(t, transferRepo.ExecuteInternalTransfer(cancelled, uuid.New()))
+		assert.Error(t, transferRepo.ExecuteInternalTransfer(cancelled, uuid.New(), nil))
 		assert.Error(t, transferRepo.ReserveExternalTransfer(cancelled, uuid.New()))
-		assert.Error(t, transferRepo.SettleExternalTransfer(cancelled, uuid.New(), entities.ProviderResult{Outcome: entities.ProviderSuccess}))
+		assert.Error(
+			t,
+			transferRepo.SettleExternalTransfer(
+				cancelled,
+				uuid.New(),
+				entities.ProviderResult{Outcome: entities.ProviderSuccess},
+			),
+		)
 	})
 
 	t.Run("inbox and outbox repositories return context errors", func(t *testing.T) {
