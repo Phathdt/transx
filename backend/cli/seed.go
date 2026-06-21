@@ -58,8 +58,8 @@ func Seed(c *cli.Context) error {
 			VALUES ($1, $2, $3)
 			ON CONFLICT (email) DO UPDATE
 			SET password_hash = EXCLUDED.password_hash,
-			    name          = EXCLUDED.name,
-			    updated_at    = now()`,
+					name          = EXCLUDED.name,
+					updated_at    = now()`,
 			u.Email, string(hash), u.Name,
 		)
 		if err != nil {
@@ -106,8 +106,8 @@ func seedAccounts(ctx context.Context, db *postgres.Pool) error {
 			WHERE u.email = $1
 			ON CONFLICT (user_id, name) DO UPDATE
 			SET currency          = EXCLUDED.currency,
-			    available_balance = EXCLUDED.available_balance,
-			    updated_at        = now()`,
+					available_balance = EXCLUDED.available_balance,
+					updated_at        = now()`,
 			a.OwnerEmail, a.Name, a.Currency, a.Balance, accountRef,
 		)
 		if err != nil {
