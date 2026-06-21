@@ -44,15 +44,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HandlersErrorResponse'
-  /accounts/{accountId}:
+  /accounts/{accountRef}:
     get:
       tags:
         - wallet
-      summary: Get a wallet account balance
-      description: Get a wallet account balance
+      summary: 'Get a wallet account balance by its accountRef (ACC- + ULID)'
+      description: 'Get a wallet account balance by its accountRef (ACC- + ULID)'
       operationId: getAccount
       parameters:
-        - name: accountId
+        - name: accountRef
           in: path
           required: true
           schema:
@@ -140,8 +140,8 @@ paths:
     post:
       tags:
         - wallet
-      summary: Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountId; EXTERNAL omits it (provider is set from server config).
-      description: Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountId; EXTERNAL omits it (provider is set from server config).
+      summary: 'Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountRef (an ACC- account ref); EXTERNAL omits it or carries a free-text beneficiary id (provider is set from server config).'
+      description: 'Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountRef (an ACC- account ref); EXTERNAL omits it or carries a free-text beneficiary id (provider is set from server config).'
       operationId: createTransfer
       parameters:
         - name: Idempotency-Key
@@ -155,7 +155,7 @@ paths:
             schema:
               type: object
               required:
-                - fromAccountId
+                - fromAccountRef
                 - amount
                 - currency
               properties:
@@ -163,9 +163,9 @@ paths:
                   type: string
                 currency:
                   type: string
-                fromAccountId:
+                fromAccountRef:
                   type: string
-                toAccountId:
+                toAccountRef:
                   type: string
                 transferType:
                   type: string
@@ -262,7 +262,7 @@ components:
     DtoAccountResponse:
       type: object
       properties:
-        accountId:
+        accountRef:
           type: string
         availableBalance:
           type: string
