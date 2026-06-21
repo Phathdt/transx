@@ -1,16 +1,17 @@
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE users (
-    id            UUID PRIMARY KEY DEFAULT uuidv7(),
-    email         TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    name          TEXT NOT NULL DEFAULT '',
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id uuid PRIMARY KEY DEFAULT uuidv7 (),
+    email text NOT NULL UNIQUE,
+    password_hash text NOT NULL,
+    name text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
--- +goose StatementEnd
 
+-- +goose StatementEnd
 -- +goose Down
 -- +goose StatementBegin
 DROP TABLE users;
+
 -- +goose StatementEnd
