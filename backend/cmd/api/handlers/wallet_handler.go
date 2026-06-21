@@ -58,6 +58,22 @@ func (h *WalletHandler) GetAccount(c *fiber.Ctx) error {
 	return c.JSON(resp)
 }
 
+// LookupAccount handles GET /accounts/:accountType/:accountRef. Internal lookups
+// validate an in-system transfer recipient (any account, not owner-scoped);
+// external lookups are provider beneficiary validation only. Both are reached
+// only through an authenticated route.
+func (h *WalletHandler) LookupAccount(c *fiber.Ctx) error {
+	resp, err := h.accounts.LookupAccount(
+		c.Context(),
+		c.Params("accountType"),
+		c.Params("accountRef"),
+	)
+	if err != nil {
+		return err
+	}
+	return c.JSON(resp)
+}
+
 // CreateTransfer handles POST /transfers with an Idempotency-Key header.
 func (h *WalletHandler) CreateTransfer(c *fiber.Ctx) error {
 	userID, ok := middleware.UserIDFrom(c)

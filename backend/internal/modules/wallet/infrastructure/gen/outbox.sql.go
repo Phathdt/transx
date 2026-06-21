@@ -13,8 +13,9 @@ import (
 
 const insertOutboxEvent = `-- name: InsertOutboxEvent :one
 INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload)
-VALUES ($1, $2, $3, $4)
-RETURNING id, aggregate_type, aggregate_id, event_type, payload, status, created_at, published_at
+    VALUES ($1, $2, $3, $4)
+RETURNING
+    id, aggregate_type, aggregate_id, event_type, payload, status, created_at, published_at
 `
 
 type InsertOutboxEventParams struct {
@@ -46,10 +47,14 @@ func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventPa
 }
 
 const listPendingOutbox = `-- name: ListPendingOutbox :many
-SELECT id, aggregate_type, aggregate_id, event_type, payload, status, created_at, published_at
-FROM outbox_events
-WHERE status = 'PENDING'
-ORDER BY created_at
+SELECT
+    id, aggregate_type, aggregate_id, event_type, payload, status, created_at, published_at
+FROM
+    outbox_events
+WHERE
+    status = 'PENDING'
+ORDER BY
+    created_at
 LIMIT $1
 `
 
@@ -85,9 +90,14 @@ func (q *Queries) ListPendingOutbox(ctx context.Context, limit int32) ([]*Outbox
 }
 
 const markOutboxPublished = `-- name: MarkOutboxPublished :execrows
-UPDATE outbox_events
-SET status = 'PUBLISHED', published_at = now()
-WHERE id = $1 AND status = 'PENDING'
+UPDATE
+    outbox_events
+SET
+    status = 'PUBLISHED',
+    published_at = now()
+WHERE
+    id = $1
+    AND status = 'PENDING'
 `
 
 // The status='PENDING' guard makes a re-publish of an already-published row a

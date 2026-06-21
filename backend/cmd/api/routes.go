@@ -71,10 +71,11 @@ func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler) {
 	v1 := r.Group("/api/v1")
 
-	var createAccount, getAccount, createTransfer, getTransfer fiber.Handler
+	var createAccount, getAccount, lookupAccount, createTransfer, getTransfer fiber.Handler
 	if walletH != nil {
 		createAccount = walletH.CreateAccount
 		getAccount = walletH.GetAccount
+		lookupAccount = walletH.LookupAccount
 		createTransfer = walletH.CreateTransfer
 		getTransfer = walletH.GetTransfer
 	}
@@ -88,6 +89,17 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Get("/accounts/:accountType/:accountRef", lookupAccount).With(
+		option.Tags("wallet"),
+		option.OperationID("lookupAccount"),
+		option.Summary("Look up an internal or external account for transfer beneficiary validation"),
+		option.Response(fiber.StatusOK, new(walletdto.AccountLookupResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusBadGateway, new(handlers.ErrorResponse)),
 	)
 
 	v1.Get("/accounts/:accountRef", getAccount).With(

@@ -88,3 +88,22 @@ func (r *PostgresAccountRepository) GetByRefForUser(
 	}
 	return accountToEntity(row), nil
 }
+
+func (r *PostgresAccountRepository) GetLookupByRef(
+	ctx context.Context,
+	ref string,
+) (*entities.AccountLookup, error) {
+	row, err := r.q.GetAccountLookupByRef(ctx, ref)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entities.AccountLookup{
+		AccountRef: row.AccountRef,
+		Currency:   row.Currency,
+		Status:     row.Status,
+		HolderName: row.HolderName,
+	}, nil
+}

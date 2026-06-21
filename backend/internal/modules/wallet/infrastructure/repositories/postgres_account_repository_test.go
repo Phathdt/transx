@@ -100,6 +100,39 @@ func TestPostgresAccountRepository(t *testing.T) {
 		assert.Equal(t, created.ID, found.ID)
 	})
 
+	t.Run("GetLookupByRef returns holder name from user identity", func(t *testing.T) {
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer tx.Rollback(ctx) //nolint:errcheck
+
+		_, err = tx.Exec(ctx, "UPDATE users SET name = $1 WHERE id = $2", "Alice Identity", userID)
+		require.NoError(t, err)
+
+		accountQueries := walletquery.New(tx)
+		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
+
+		account := &walletentities.Account{
+			Ref:              walletservices.NewAccountReference(),
+			UserID:           userID,
+			Name:             "Wallet Nickname",
+			Currency:         "USD",
+			Status:           walletentities.AccountStatusActive,
+			AvailableBalance: decimal.NewFromInt(5),
+			HoldBalance:      decimal.NewFromInt(0),
+		}
+		created, err := accountRepo.Create(ctx, account)
+		require.NoError(t, err)
+
+		lookup, err := accountRepo.GetLookupByRef(ctx, created.Ref)
+
+		require.NoError(t, err)
+		require.NotNil(t, lookup)
+		assert.Equal(t, created.Ref, lookup.AccountRef)
+		assert.Equal(t, "USD", lookup.Currency)
+		assert.Equal(t, string(walletentities.AccountStatusActive), lookup.Status)
+		assert.Equal(t, "Alice Identity", lookup.HolderName)
+	})
+
 	t.Run("GetByRef returns account unscoped and nil when missing", func(t *testing.T) {
 		tx, err := pool.Begin(ctx)
 		require.NoError(t, err)

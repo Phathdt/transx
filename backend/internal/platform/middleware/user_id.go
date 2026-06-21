@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
@@ -24,11 +26,23 @@ const userIDHeader = "X-User-Id"
 // middleware overwrites any locals value so a client-supplied header cannot leak
 // past validation.
 func UserID() fiber.Handler {
+	return UserIDExcept()
+}
+
+// UserIDExcept applies UserID to every path except health probes and the provided
+// public prefixes. Keep exceptions narrow because they bypass the ForwardAuth user
+// boundary inside the wallet service.
+func UserIDExcept(publicPrefixes ...string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Health/readiness probes are unauthenticated infrastructure endpoints.
 		switch c.Path() {
 		case "/healthz", "/readyz":
 			return c.Next()
+		}
+		for _, prefix := range publicPrefixes {
+			if strings.HasPrefix(c.Path(), prefix) {
+				return c.Next()
+			}
 		}
 
 		raw := c.Get(userIDHeader)

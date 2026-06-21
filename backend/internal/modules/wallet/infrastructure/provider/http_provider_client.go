@@ -3,12 +3,14 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/imroc/req/v3"
 	"github.com/shopspring/decimal"
 
+	"transx/internal/common/apperror"
 	"transx/internal/modules/wallet/domain/entities"
 )
 
@@ -34,6 +36,39 @@ func NewHTTPProviderClient(baseURL string, timeout time.Duration) *HTTPProviderC
 		SetBaseURL(baseURL).
 		SetTimeout(timeout)
 	return &HTTPProviderClient{client: client}
+}
+
+// LookupAccount reads beneficiary metadata from baseURL+/accounts/{accountRef}.
+// A provider 404 is a definitive business miss; transport and server errors are
+// upstream failures for the API layer.
+func (c *HTTPProviderClient) LookupAccount(
+	ctx context.Context,
+	accountRef string,
+) (*entities.AccountLookup, error) {
+	var out AccountLookupResponse
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetSuccessResult(&out).
+		Get(accountLookupPathPrefix + accountRef)
+	if err != nil {
+		return nil, apperror.NewBadGatewayError("provider lookup failed", err)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if !resp.IsSuccessState() {
+		return nil, apperror.NewBadGatewayError(
+			"provider lookup failed",
+			fmt.Errorf("provider: lookup account %s: unexpected status %d", accountRef, resp.StatusCode),
+		)
+	}
+
+	return &entities.AccountLookup{
+		AccountRef: out.AccountRef,
+		Currency:   out.Currency,
+		Status:     out.Status,
+		HolderName: out.HolderName,
+	}, nil
 }
 
 // Submit POSTs the transfer to baseURL+/submit and maps the response onto the

@@ -50,3 +50,7 @@ func NewNotFoundError(msg string) *AppError {
 func NewConflictError(msg string) *AppError {
 	return &AppError{Status: http.StatusConflict, Message: msg}
 }
+
+func NewBadGatewayError(msg string, err error) *AppError {
+	return &AppError{Status: http.StatusBadGateway, Message: msg, Err: err}
+}

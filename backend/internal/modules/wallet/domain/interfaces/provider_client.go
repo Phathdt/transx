@@ -27,3 +27,9 @@ type ProviderClient interface {
 		currency string,
 	) (entities.ProviderResult, error)
 }
+
+// ProviderAccountLookupClient validates external beneficiary accounts without
+// coupling lookup reads to the transfer submission worker contract.
+type ProviderAccountLookupClient interface {
+	LookupAccount(ctx context.Context, accountRef string) (*entities.AccountLookup, error)
+}

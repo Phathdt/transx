@@ -261,6 +261,65 @@ func (_c *AccountRepository_GetByRefForUser_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// GetLookupByRef provides a mock function with given fields: ctx, ref
+func (_m *AccountRepository) GetLookupByRef(ctx context.Context, ref string) (*entities.AccountLookup, error) {
+	ret := _m.Called(ctx, ref)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLookupByRef")
+	}
+
+	var r0 *entities.AccountLookup
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entities.AccountLookup, error)); ok {
+		return rf(ctx, ref)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entities.AccountLookup); ok {
+		r0 = rf(ctx, ref)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entities.AccountLookup)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, ref)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AccountRepository_GetLookupByRef_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLookupByRef'
+type AccountRepository_GetLookupByRef_Call struct {
+	*mock.Call
+}
+
+// GetLookupByRef is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ref string
+func (_e *AccountRepository_Expecter) GetLookupByRef(ctx interface{}, ref interface{}) *AccountRepository_GetLookupByRef_Call {
+	return &AccountRepository_GetLookupByRef_Call{Call: _e.mock.On("GetLookupByRef", ctx, ref)}
+}
+
+func (_c *AccountRepository_GetLookupByRef_Call) Run(run func(ctx context.Context, ref string)) *AccountRepository_GetLookupByRef_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AccountRepository_GetLookupByRef_Call) Return(_a0 *entities.AccountLookup, _a1 error) *AccountRepository_GetLookupByRef_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AccountRepository_GetLookupByRef_Call) RunAndReturn(run func(context.Context, string) (*entities.AccountLookup, error)) *AccountRepository_GetLookupByRef_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewAccountRepository creates a new instance of AccountRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewAccountRepository(t interface {

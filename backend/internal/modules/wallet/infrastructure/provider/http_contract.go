@@ -21,5 +21,18 @@ type SubmitResponse struct {
 	Reason      string `json:"reason,omitempty"`       // set on FAILURE
 }
 
-// submitPath is the provider submission endpoint, shared by client and server.
-const submitPath = "/submit"
+// AccountLookupResponse is the GET /accounts/{accountRef} success body. It is
+// intentionally compact so beneficiary validation does not expose balances.
+type AccountLookupResponse struct {
+	AccountRef string `json:"account_ref"`
+	Currency   string `json:"currency"`
+	Status     string `json:"status"`
+	HolderName string `json:"holder_name"`
+}
+
+const (
+	// submitPath is the provider submission endpoint, shared by client and server.
+	submitPath = "/submit"
+	// accountLookupPathPrefix is the provider account lookup endpoint prefix.
+	accountLookupPathPrefix = "/accounts/"
+)

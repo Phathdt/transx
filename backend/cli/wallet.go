@@ -16,6 +16,7 @@ import (
 	"transx/cmd/api/handlers"
 	walletservices "transx/internal/modules/wallet/application/services"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
+	walletprovider "transx/internal/modules/wallet/infrastructure/provider"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
 	"transx/internal/platform/httpserver"
@@ -57,7 +58,8 @@ func runWallet(ctx context.Context, configPath string) error {
 	q := walletgen.New(db)
 	accountRepo := walletrepos.NewPostgresAccountRepository(q)
 	transferRepo := walletrepos.NewPostgresTransferRepository(q, db)
-	accountSvc := walletservices.NewAccountService(accountRepo)
+	providerLookup := walletprovider.NewHTTPProviderClient(cfg.Provider.BaseURL, 0)
+	accountSvc := walletservices.NewAccountService(accountRepo, providerLookup)
 	transferSvc := walletservices.NewTransferService(transferRepo, accountRepo, cfg.Provider.Name)
 	walletH := handlers.NewWalletHandler(accountSvc, transferSvc)
 
@@ -68,7 +70,7 @@ func runWallet(ctx context.Context, configPath string) error {
 		ErrorHandler:       handlers.DomainErrorHandler,
 		Middlewares: []fiber.Handler{
 			middleware.RequestID(),
-			middleware.UserID(),
+			middleware.UserIDExcept("/api/v1/accounts/external/"),
 		},
 		Ready: func(ctx context.Context) error {
 			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
