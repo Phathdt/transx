@@ -39,6 +39,11 @@ func main() {
 				Usage:  "Run the stub payment provider HTTP service (POST /submit)",
 				Action: mycli.RunStubProvider,
 			},
+			{
+				Name:   "fx",
+				Usage:  "Run the FX service (gRPC Quote + QuoteFee)",
+				Action: mycli.RunFXService,
+			},
 			{Name: "seed", Usage: "Insert development users (idempotent)", Action: mycli.Seed},
 			{
 				Name:  "openapi-export",

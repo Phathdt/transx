@@ -6,11 +6,12 @@ COVERAGE_MIN ?= 90.0
 SQL_FORMATTER ?= pg_format
 SQL_FILES := $(shell find db internal -type f -name '*.sql' 2>/dev/null)
 
-.PHONY: help sqlc mock format format-sql vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-stub-provider clean
+.PHONY: help sqlc proto mock format format-sql vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-stub-provider run-fx clean
 
 help:
 	@printf "Available targets:\n"
 	@printf "  sqlc         Generate sqlc code\n"
+	@printf "  proto        Generate gRPC code from proto/ with buf\n"
 	@printf "  mock         Generate mockery mocks into internal/testmocks\n"
 	@printf "  format       Format Go and SQL files\n"
 	@printf "  format-sql   Format SQL files with $(SQL_FORMATTER)\n"
@@ -28,10 +29,14 @@ help:
 	@printf "  run-replayer Run outbox-replayer (drain outbox to Kafka)\n"
 	@printf "  run-consumer Run transfer consumer (processor + provider + retries)\n"
 	@printf "  run-stub-provider Run stub payment provider HTTP service\n"
+	@printf "  run-fx       Run the FX gRPC service\n"
 	@printf "  clean        Remove local build artifacts\n"
 
 sqlc:
 	sqlc generate
+
+proto:
+	buf generate
 
 mock:
 	mockery --config .mockery.yaml --log-level=error
@@ -101,6 +106,9 @@ run-consumer:
 
 run-stub-provider:
 	go run . --config config.yaml stub-provider
+
+run-fx:
+	go run . --config config.yaml fx
 
 clean:
 	rm -rf bin/

@@ -196,7 +196,13 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			return err
 		}
 
-		feeQuote := fx.QuoteFee(ctx, t.TransactionCurrency, from.Currency)
+		feeQuote, err := fx.QuoteFee(ctx, t.TransactionCurrency, from.Currency)
+		if err != nil {
+			if errors.Is(err, interfaces.ErrFXRateUnavailable) {
+				return r.failTx(ctx, q, transferID, entities.FailureFXRateUnavailable)
+			}
+			return err
+		}
 
 		if err := q.SetTransferSettlementSnapshot(ctx, gen.SetTransferSettlementSnapshotParams{
 			SourceAmount:        decimal.NewNullDecimal(sourceQuote.Amount),

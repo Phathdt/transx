@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package fx.v1;
+
+option go_package = "transx/internal/platform/grpc/gen/fx/v1;fxv1";
+
+// FXService quotes transaction money into a target currency and computes the
+// flat cross-currency fee. Amounts and rates are decimal strings to preserve
+// precision across the wire.
+service FXService {
+  rpc Quote(QuoteRequest) returns (QuoteResponse);
+  rpc QuoteFee(QuoteFeeRequest) returns (QuoteFeeResponse);
+}
+
+message QuoteRequest {
+  string amount = 1;
+  string from_currency = 2;
+  string to_currency = 3;
+}
+
+message QuoteResponse {
+  string amount = 1;
+  string currency = 2;
+  string rate = 3;
+  string source = 4;
+}
+
+message QuoteFeeRequest {
+  string transaction_currency = 1;
+  string source_currency = 2;
+}
+
+message QuoteFeeResponse {
+  string amount = 1;
+  string currency = 2;
+}

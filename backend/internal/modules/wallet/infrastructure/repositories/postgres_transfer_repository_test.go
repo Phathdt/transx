@@ -11,7 +11,6 @@ import (
 
 	walletservices "transx/internal/modules/wallet/application/services"
 	"transx/internal/modules/wallet/domain/entities"
-	walletfx "transx/internal/modules/wallet/infrastructure/fx"
 	walletquery "transx/internal/modules/wallet/infrastructure/gen"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
@@ -59,7 +58,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 	transferRepo := walletrepos.NewPostgresTransferRepository(transferQueries, pool)
 	accountQueries := walletquery.New(pool)
 	accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
-	fxService := walletfx.NewConfigService(config.FX{})
+	fxService := testsupport.NewInProcessFXService(t, config.FX{})
 
 	userID := createTestUser(ctx, t, pool, "transfer-test-"+uuid.New().String()+"@example.com")
 	fromAccount := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.NewFromInt(1000))
@@ -331,7 +330,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 	t.Run("ExecuteInternalTransfer settles cross-currency snapshot and ledger", func(t *testing.T) {
 		fromAcct := createTestAccount(ctx, t, accountRepo, userID, "VND", decimal.NewFromInt(5000000))
 		toAcct := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.Zero)
-		fxRates := walletfx.NewConfigService(config.FX{Rates: map[string]string{"VND_USD": "0.00003924"}})
+		fxRates := testsupport.NewInProcessFXService(t, config.FX{Rates: map[string]string{"VND_USD": "0.00003924"}})
 
 		transfer := &entities.Transfer{
 			FromAccountRef:      fromAcct.Ref,
@@ -380,7 +379,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 	t.Run("ExecuteInternalTransfer charges FX fee on cross-currency source conversion", func(t *testing.T) {
 		fromAcct := createTestAccount(ctx, t, accountRepo, userID, "VND", decimal.NewFromInt(1000000))
 		toAcct := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.Zero)
-		fxRates := walletfx.NewConfigService(config.FX{
+		fxRates := testsupport.NewInProcessFXService(t, config.FX{
 			Rates: map[string]string{"USD_VND": "25484.20"},
 			Fees:  map[string]string{"VND": "10000"},
 		})
@@ -435,7 +434,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 		// 260000 VND covers the 254842 principal but not principal+fee (264842).
 		fromAcct := createTestAccount(ctx, t, accountRepo, userID, "VND", decimal.NewFromInt(260000))
 		toAcct := createTestAccount(ctx, t, accountRepo, userID, "USD", decimal.Zero)
-		fxRates := walletfx.NewConfigService(config.FX{
+		fxRates := testsupport.NewInProcessFXService(t, config.FX{
 			Rates: map[string]string{"USD_VND": "25484.20"},
 			Fees:  map[string]string{"VND": "10000"},
 		})
@@ -497,7 +496,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 
 		require.NoError(
 			t,
-			transferRepo.ExecuteInternalTransfer(ctx, created.ID, walletfx.NewConfigService(config.FX{})),
+			transferRepo.ExecuteInternalTransfer(ctx, created.ID, testsupport.NewInProcessFXService(t, config.FX{})),
 		)
 
 		updated, err := transferRepo.GetByID(ctx, created.ID)

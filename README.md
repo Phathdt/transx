@@ -40,6 +40,7 @@ the full product spec.
 | DB access      | pgx v5 + sqlc-generated queries       |
 | Migrations     | goose                                 |
 | Provider       | pluggable `ProviderClient` (HTTP stub) |
+| FX             | standalone gRPC service (buf-generated) |
 | Config         | viper + `.env` (env override: `A__B`) |
 
 All identifiers use **UUID v7** (time-ordered, index-friendly).
@@ -50,13 +51,17 @@ All identifiers use **UUID v7** (time-ordered, index-friendly).
 backend/
 ├── main.go                 # urfave/cli entrypoint; one subcommand per service
 ├── cli/                    # service runners (auth, wallet, outbox-replayer,
-│                           #   consumer, stub-provider), migrate, seed
+│                           #   consumer, stub-provider, fx), migrate, seed
+├── proto/                  # gRPC service definitions (buf source)
 ├── cmd/
 │   ├── api/                # HTTP handlers + OpenAPI route registration
+│   ├── consumer/           # transfer processor, provider consumer, retry tiers
+│   ├── replayer/           # outbox publisher
+│   ├── grpc/               # gRPC handler adapters (fx server)
 │   └── shared/             # OpenAPI router factory
 ├── internal/
 │   ├── modules/<domain>/   # DDD per module: domain / application / infrastructure
-│   ├── platform/           # config, postgres, kafka, httpserver, logger, middleware
+│   ├── platform/           # config, postgres, kafka, httpserver, grpc, logger, middleware
 │   ├── common/             # apperror, kafkatopic
 │   └── shared/             # lifecycle, pgconv
 └── db/migrations/          # goose SQL migrations
@@ -108,6 +113,7 @@ make run-wallet         # wallet: HTTP API only
 make run-replayer       # outbox-replayer: drain outbox table to Kafka
 make run-consumer       # consumer: transfer processor + provider + retries
 make run-stub-provider  # stub-provider: fake payment provider (POST /submit)
+make run-fx             # fx: FX quoting service (gRPC Quote + QuoteFee)
 go run . --config config.yaml auth   # auth service (ForwardAuth backend)
 ```
 
@@ -122,6 +128,11 @@ bundled `stub-provider` is mode-driven via `PROVIDER__MODE` (`always_success` |
 `always_failure` | `always_timeout`, default `always_success`) so the full
 external lifecycle can be exercised without a real provider API; the `consumer`
 reaches it at `PROVIDER__BASE_URL`.
+
+FX quoting (exchange rates + cross-currency fees) lives in the standalone `fx`
+service, which serves `Quote` and `QuoteFee` over gRPC. The `consumer` dials it
+at `FX__GRPC_ADDRESS`; a brief gRPC unavailability is retried through the
+delayed-retry tiers rather than failing the transfer.
 
 ### Full stack via Compose
 
@@ -155,6 +166,7 @@ transx [--config|-c config.yaml] <subcommand>
   consumer  Process the transfer lifecycle (processor + provider + retries)
   stub-provider
             Run the stub payment provider HTTP service (POST /submit)
+  fx        Run the FX service (gRPC Quote + QuoteFee)
   seed      Insert development users and wallet accounts (idempotent)
   openapi-export
             Generate the merged OpenAPI spec without starting services
@@ -179,9 +191,11 @@ make run-wallet         # wallet HTTP API
 make run-replayer       # outbox-replayer
 make run-consumer       # transfer consumer
 make run-stub-provider  # stub payment provider
+make run-fx             # FX gRPC service
 
 # Code generation / quality
 make sqlc           # regenerate sqlc query code after editing query/*.sql
+make proto          # regenerate gRPC code after editing proto/*.proto (buf)
 make openapi        # regenerate openapi.yaml without Docker
 make format         # gofmt / goimports / golines / gofumpt
 make vet            # go vet ./...
@@ -200,6 +214,7 @@ flowchart TD
     WALLET["Wallet API\nFiber HTTP :4000\n(API only)"]
     REPLAYER["Outbox Replayer\ndrain outbox → Kafka\n(single instance)"]
     CONSUMER["Consumer\ntransfer processor + provider consumer + retries"]
+    FX["FX Service\ngRPC :50051\nQuote + QuoteFee"]
     PG[("PostgreSQL")]
     RP[("Redpanda\ntransfer.requested / provider.requested / completed / failed")]
     PROV["Stub Provider\nFiber HTTP :4100\nPOST /submit"]
@@ -217,6 +232,7 @@ flowchart TD
     RP -->|"consume transfer.requested / provider.requested"| CONSUMER
     CONSUMER --> PG
     CONSUMER -->|"submit external transfer (HTTP)"| PROV
+    CONSUMER -->|"Quote / QuoteFee (gRPC)"| FX
     CONSUMER -.->|"poison / exhausted retries"| DLQ
 ```
 
@@ -235,7 +251,11 @@ flowchart TD
     money in one transaction; external transfers add a reserve→submit→settle
     lifecycle where the provider consumer submits to the payment provider over
     HTTP and settles the outcome (success debits the hold, failure releases it).
+    It reaches the `fx` service over gRPC to quote settlement amounts and fees.
   - **`stub-provider`** is the fake payment provider reached over HTTP.
+- **FX service** (`fx`) is a standalone gRPC service owning exchange rates and
+  cross-currency fees. It is stateless (no Postgres, no Kafka), serving `Quote`
+  and `QuoteFee` so quoting can scale and deploy independently of the consumer.
 
 ## Wallet API
 
@@ -322,7 +342,8 @@ sequenceDiagram
 
     PR->>RP: consume transfer.requested
     Note over PR: dedup via inbox_events
-    PR->>DB: BEGIN — lock accounts (ordered)<br/>FX-quote source & destination postings<br/>debit from / credit to (if ACTIVE & funded)<br/>write ledger (per-account currency), status=SUCCEEDED<br/>+ outbox(transfer.completed) — COMMIT
+    PR->>FX: Quote + QuoteFee (gRPC)
+    PR->>DB: BEGIN — lock accounts (ordered)<br/>apply FX-quoted source & destination postings<br/>debit from / credit to (if ACTIVE & funded)<br/>write ledger (per-account currency), status=SUCCEEDED<br/>+ outbox(transfer.completed) — COMMIT
     Note over PR,DB: insufficient funds / not active / no FX rate →<br/>status=FAILED + outbox(transfer.failed)
     PR->>RP: commit offset
 
@@ -372,13 +393,16 @@ sequenceDiagram
 A transfer separates the **transaction intent** (what the client asked to move,
 `transaction_amount` / `transaction_currency`) from the **settlement** (what
 actually posts to each account, in that account's own currency). The settlement
-is computed server-side by the consumer from configured FX rates and recorded as
-a snapshot on the transfer, so the client never supplies exchange rates.
+is computed server-side by the consumer — which calls the standalone `fx` service
+over gRPC (`Quote` / `QuoteFee`) — and recorded as a snapshot on the transfer, so
+the client never supplies exchange rates.
 
 Rates come from static config (`fx.rates`, keyed `FROM_TO`, e.g. `USD_VND`); the
-local adapter parses them once at startup. A same-currency corridor always quotes
+`fx` service parses them once at startup. A same-currency corridor always quotes
 at rate `1`; a missing cross-currency corridor fails the transfer with
-`FX_RATE_UNAVAILABLE` (a business failure, not a retried error).
+`FX_RATE_UNAVAILABLE` (a business failure, not a retried error). A briefly
+unavailable `fx` service surfaces as a transient gRPC error and is retried
+through the delayed-retry tiers rather than failing the transfer.
 
 A flat **FX conversion fee** (`fx.fees`, keyed by the source currency code) is
 charged when an internal transfer converts out of the source account's currency.

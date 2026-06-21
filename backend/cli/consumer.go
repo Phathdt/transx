@@ -11,6 +11,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"transx/cmd/consumer"
 	"transx/internal/common/kafkatopic"
@@ -19,6 +21,7 @@ import (
 	"transx/internal/modules/wallet/infrastructure/provider"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
+	fxv1 "transx/internal/platform/grpc/gen/fx/v1"
 	"transx/internal/platform/httpserver"
 	"transx/internal/platform/kafka"
 	"transx/internal/platform/logger"
@@ -83,7 +86,14 @@ func runConsumer(ctx context.Context, configPath string) error {
 		}))
 	}
 
-	fxService := walletfx.NewConfigService(cfg.FX)
+	// FX quoting lives in a separate gRPC service; dial it lazily (the
+	// connection establishes on first RPC) so the consumer still starts if FX
+	// is briefly unavailable.
+	fxConn, err := grpc.NewClient(cfg.FX.GRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	fxService := walletfx.NewGRPCClient(fxv1.NewFXServiceClient(fxConn))
 	transferProcessor := consumer.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, fxService, log)
 	providerConsumer := consumer.NewProviderConsumer(
 		providerRequestConsumer, producer, providerClient, transferRepo, inboxRepo, log,
@@ -127,6 +137,7 @@ func runConsumer(ctx context.Context, configPath string) error {
 			_ = rc.Close()
 		}
 		_ = producer.Close()
+		_ = fxConn.Close()
 		return nil
 	})
 

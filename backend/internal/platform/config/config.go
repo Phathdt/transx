@@ -58,10 +58,13 @@ type Provider struct {
 // FX configures static exchange-rate corridors and cross-currency fees for the
 // local MVP adapter. Rate keys use FROM_TO (VND_USD = one VND converted to USD).
 // Fee keys are a source currency code; the flat fee is charged in that currency
-// when a transfer converts out of it.
+// when a transfer converts out of it. GRPCAddress is where consumers dial the FX
+// service; ListenAddress is where the fx service serves gRPC.
 type FX struct {
-	Rates map[string]string `yaml:"rates" mapstructure:"rates"`
-	Fees  map[string]string `yaml:"fees"  mapstructure:"fees"`
+	Rates         map[string]string `yaml:"rates"          mapstructure:"rates"`
+	Fees          map[string]string `yaml:"fees"           mapstructure:"fees"`
+	GRPCAddress   string            `yaml:"grpc_address"   mapstructure:"grpc_address"`
+	ListenAddress string            `yaml:"listen_address" mapstructure:"listen_address"`
 }
 
 // Load reads config from configPath YAML file with env var overrides.
@@ -104,6 +107,14 @@ func Load(configPath string) (Config, error) {
 	}
 	if cfg.Provider.ListenAddress == "" {
 		cfg.Provider.ListenAddress = ":4100"
+	}
+	// FX gRPC transport defaults for local single-host runs; compose and
+	// non-local envs override via FX__GRPC_ADDRESS / FX__LISTEN_ADDRESS.
+	if cfg.FX.GRPCAddress == "" {
+		cfg.FX.GRPCAddress = "localhost:50051"
+	}
+	if cfg.FX.ListenAddress == "" {
+		cfg.FX.ListenAddress = ":50051"
 	}
 
 	return cfg, nil

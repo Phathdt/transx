@@ -27,4 +27,13 @@ fx:
     USD_VND: '25484.20'
     USD_EUR: '0.92'
     EUR_USD: '1.0870'
+  # Flat cross-currency fee charged in the source currency when a transfer
+  # converts out of it. Key is the source currency code; missing = no fee.
+  fees:
+    USD: '1'
+    VND: '10000'
+  # gRPC transport: grpc_address is where the consumer dials the FX service;
+  # listen_address is where the fx service serves.
+  grpc_address: 'localhost:50051'
+  listen_address: ':50051'
 

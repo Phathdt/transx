@@ -1,17 +1,20 @@
-package fx
+package services
 
 import (
-	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/shopspring/decimal"
 
-	"transx/internal/modules/wallet/domain/interfaces"
+	"transx/internal/modules/fx/domain/entities"
 	"transx/internal/platform/config"
 )
 
 const quoteSourceConfig = "config"
+
+// ErrRateUnavailable means the requested currency corridor is not configured.
+// Callers treat it as a business failure, not a transient retry condition.
+var ErrRateUnavailable = errors.New("fx rate unavailable")
 
 // ConfigService quotes FX from static config rates. Same-currency corridors are
 // always available at rate 1; cross-currency corridors require a FROM_TO key.
@@ -20,8 +23,6 @@ type ConfigService struct {
 	rates map[string]decimal.Decimal
 	fees  map[string]decimal.Decimal
 }
-
-var _ interfaces.FXService = (*ConfigService)(nil)
 
 func NewConfigService(cfg config.FX) *ConfigService {
 	// Parse and validate rates once at construction so each Quote is a map
@@ -49,17 +50,16 @@ func NewConfigService(cfg config.FX) *ConfigService {
 }
 
 func (s *ConfigService) Quote(
-	_ context.Context,
 	amount decimal.Decimal,
 	fromCurrency, toCurrency string,
-) (interfaces.FXQuote, error) {
+) (entities.FXQuote, error) {
 	from := normalizeCurrency(fromCurrency)
 	to := normalizeCurrency(toCurrency)
 	if from == "" || to == "" {
-		return interfaces.FXQuote{}, fmt.Errorf("%w: empty currency", interfaces.ErrFXRateUnavailable)
+		return entities.FXQuote{}, ErrRateUnavailable
 	}
 	if from == to {
-		return interfaces.FXQuote{
+		return entities.FXQuote{
 			Amount:   roundByCurrency(amount, to),
 			Currency: to,
 			Rate:     decimal.NewFromInt(1),
@@ -70,9 +70,9 @@ func (s *ConfigService) Quote(
 	key := from + "_" + to
 	rate, ok := s.rates[key]
 	if !ok {
-		return interfaces.FXQuote{}, fmt.Errorf("%w: %s", interfaces.ErrFXRateUnavailable, key)
+		return entities.FXQuote{}, ErrRateUnavailable
 	}
-	return interfaces.FXQuote{
+	return entities.FXQuote{
 		Amount:   roundByCurrency(amount.Mul(rate), to),
 		Currency: to,
 		Rate:     rate,
@@ -81,19 +81,18 @@ func (s *ConfigService) Quote(
 }
 
 func (s *ConfigService) QuoteFee(
-	_ context.Context,
 	transactionCurrency, sourceCurrency string,
-) interfaces.FeeQuote {
+) entities.FeeQuote {
 	src := normalizeCurrency(sourceCurrency)
 	// No conversion happened on the source side → no FX fee.
 	if normalizeCurrency(transactionCurrency) == src {
-		return interfaces.FeeQuote{Amount: decimal.Zero, Currency: src}
+		return entities.FeeQuote{Amount: decimal.Zero, Currency: src}
 	}
 	fee, ok := s.fees[src]
 	if !ok {
-		return interfaces.FeeQuote{Amount: decimal.Zero, Currency: src}
+		return entities.FeeQuote{Amount: decimal.Zero, Currency: src}
 	}
-	return interfaces.FeeQuote{
+	return entities.FeeQuote{
 		Amount:   roundByCurrency(fee, src),
 		Currency: src,
 	}

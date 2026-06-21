@@ -192,6 +192,7 @@ services:
       <<: *backend-env
       HTTP__ADDRESS: ":4002"
       PROVIDER__BASE_URL: "http://stub-provider:4100"
+      FX__GRPC_ADDRESS: "fx:50051"
     depends_on:
       postgres:
         condition: service_healthy
@@ -202,6 +203,8 @@ services:
       redpanda-init:
         condition: service_completed_successfully
       stub-provider:
+        condition: service_started
+      fx:
         condition: service_started
     restart: unless-stopped
 
@@ -214,6 +217,16 @@ services:
       <<: *backend-env
       PROVIDER__LISTEN_ADDRESS: ":4100"
       PROVIDER__MODE: "always_success"
+    restart: unless-stopped
+
+  # FX service: serves gRPC Quote + QuoteFee. Internal service, no auth, no DB.
+  fx:
+    <<: *backend
+    container_name: transx-fx
+    command: ["fx"]
+    environment:
+      <<: *backend-env
+      FX__LISTEN_ADDRESS: ":50051"
     restart: unless-stopped
 
 
