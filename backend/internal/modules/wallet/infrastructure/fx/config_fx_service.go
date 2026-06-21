@@ -16,15 +16,22 @@ const quoteSourceConfig = "config"
 // ConfigService quotes FX from static config rates. Same-currency corridors are
 // always available at rate 1; cross-currency corridors require a FROM_TO key.
 type ConfigService struct {
-	rates map[string]string
+	rates map[string]decimal.Decimal
 }
 
 var _ interfaces.FXService = (*ConfigService)(nil)
 
 func NewConfigService(cfg config.FX) *ConfigService {
-	rates := make(map[string]string, len(cfg.Rates))
+	// Parse and validate rates once at construction so each Quote is a map
+	// lookup; malformed or non-positive rates are dropped and surface as an
+	// unavailable corridor at quote time.
+	rates := make(map[string]decimal.Decimal, len(cfg.Rates))
 	for k, v := range cfg.Rates {
-		rates[normalizeRateKey(k)] = strings.TrimSpace(v)
+		rate, err := decimal.NewFromString(strings.TrimSpace(v))
+		if err != nil || rate.LessThanOrEqual(decimal.Zero) {
+			continue
+		}
+		rates[normalizeRateKey(k)] = rate
 	}
 	return &ConfigService{rates: rates}
 }
@@ -49,13 +56,9 @@ func (s *ConfigService) Quote(
 	}
 
 	key := from + "_" + to
-	rateText, ok := s.rates[key]
-	if !ok || rateText == "" {
+	rate, ok := s.rates[key]
+	if !ok {
 		return interfaces.FXQuote{}, fmt.Errorf("%w: %s", interfaces.ErrFXRateUnavailable, key)
-	}
-	rate, err := decimal.NewFromString(rateText)
-	if err != nil || rate.LessThanOrEqual(decimal.Zero) {
-		return interfaces.FXQuote{}, fmt.Errorf("invalid fx rate %s: %w", key, interfaces.ErrFXRateUnavailable)
 	}
 	return interfaces.FXQuote{
 		Amount:   roundByCurrency(amount.Mul(rate), to),
