@@ -20,8 +20,20 @@ type FXQuote struct {
 	Source   string
 }
 
-// FXService quotes transaction money into a target currency. Implementations must
-// be synchronous and must not trust client-supplied settlement values.
+// FeeQuote is the FX conversion fee charged on the source account, already
+// rounded to the source currency scale. Currency is always the source currency.
+type FeeQuote struct {
+	Amount   decimal.Decimal
+	Currency string
+}
+
+// FXService quotes transaction money into a target currency. Implementations may
+// reach a remote service, so every method can fail; callers must not trust
+// client-supplied settlement values.
 type FXService interface {
 	Quote(ctx context.Context, amount decimal.Decimal, fromCurrency, toCurrency string) (FXQuote, error)
+	// QuoteFee returns the flat FX fee charged in the source currency when a
+	// transfer converts out of it. A same-currency corridor (transactionCurrency
+	// == sourceCurrency) means no conversion happened, so the fee is zero.
+	QuoteFee(ctx context.Context, transactionCurrency, sourceCurrency string) (FeeQuote, error)
 }

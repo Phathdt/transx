@@ -196,6 +196,14 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			return err
 		}
 
+		feeQuote, err := fx.QuoteFee(ctx, t.TransactionCurrency, from.Currency)
+		if err != nil {
+			if errors.Is(err, interfaces.ErrFXRateUnavailable) {
+				return r.failTx(ctx, q, transferID, entities.FailureFXRateUnavailable)
+			}
+			return err
+		}
+
 		if err := q.SetTransferSettlementSnapshot(ctx, gen.SetTransferSettlementSnapshotParams{
 			SourceAmount:        decimal.NewNullDecimal(sourceQuote.Amount),
 			SourceCurrency:      sourceQuote.Currency,
@@ -203,6 +211,8 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			DestinationCurrency: destinationQuote.Currency,
 			SourceFxRate:        decimal.NewNullDecimal(sourceQuote.Rate),
 			DestinationFxRate:   decimal.NewNullDecimal(destinationQuote.Rate),
+			FeeAmount:           feeQuote.Amount,
+			FeeCurrency:         feeQuote.Currency,
 			ID:                  pgUUID(transferID),
 		}); err != nil {
 			return err
@@ -216,9 +226,12 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		}
 
 		// Conditional debit: ACTIVE + sufficient funds in the source account's base
-		// currency. No row → insufficient funds (status already validated ACTIVE).
+		// currency. The fee leaves the source account too, so debit principal+fee as
+		// one block — sufficiency is checked whole, never debiting the principal only
+		// to find the fee unaffordable. No row → insufficient funds.
+		totalDebit := sourceQuote.Amount.Add(feeQuote.Amount)
 		fromBalance, err := q.DebitAvailableIfSufficient(ctx, gen.DebitAvailableIfSufficientParams{
-			Amount: sourceQuote.Amount,
+			Amount: totalDebit,
 			ID:     pgUUID(fromID),
 		})
 		if err != nil {
@@ -239,15 +252,30 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			return fmt.Errorf("credit after debit failed for transfer %s: %w", transferID, err)
 		}
 
+		// balance_after is derived arithmetically so the merged debit still reads as
+		// two audit steps: after principal the balance is the final balance plus the
+		// not-yet-deducted fee; after the fee it is the final balance.
 		if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
 			TransferID:   pgUUID(transferID),
 			AccountID:    pgUUID(fromID),
 			Direction:    string(entities.LedgerDebit),
 			Amount:       sourceQuote.Amount,
 			Currency:     sourceQuote.Currency,
-			BalanceAfter: fromBalance,
+			BalanceAfter: fromBalance.Add(feeQuote.Amount),
 		}); err != nil {
 			return err
+		}
+		if feeQuote.Amount.IsPositive() {
+			if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
+				TransferID:   pgUUID(transferID),
+				AccountID:    pgUUID(fromID),
+				Direction:    string(entities.LedgerFee),
+				Amount:       feeQuote.Amount,
+				Currency:     feeQuote.Currency,
+				BalanceAfter: fromBalance,
+			}); err != nil {
+				return err
+			}
 		}
 		if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
 			TransferID:   pgUUID(transferID),

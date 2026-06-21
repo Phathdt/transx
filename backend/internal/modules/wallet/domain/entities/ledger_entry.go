@@ -16,6 +16,7 @@ const (
 	LedgerCredit  LedgerDirection = "CREDIT"
 	LedgerHold    LedgerDirection = "HOLD"
 	LedgerRelease LedgerDirection = "RELEASE"
+	LedgerFee     LedgerDirection = "FEE"
 )
 
 // LedgerEntry is an append-only record of a balance change. BalanceAfter is the

@@ -14,6 +14,8 @@ SET
     destination_currency = @destination_currency,
     source_fx_rate = @source_fx_rate,
     destination_fx_rate = @destination_fx_rate,
+    fee_amount = @fee_amount,
+    fee_currency = @fee_currency,
     updated_at = now()
 WHERE
     id = @id;

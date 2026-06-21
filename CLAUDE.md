@@ -16,6 +16,7 @@ Run from `backend/`:
 make build          # compile (run after code changes)
 make check          # sqlc + format + vet + lint — run before considering work done
 make sqlc           # regenerate query code after editing internal/modules/*/infrastructure/query/*.sql
+make proto          # regenerate gRPC code after editing proto/*.proto (buf)
 make migrate        # apply goose migrations
 make seed           # insert dev users (idempotent)
 go run . --config config.yaml auth            # auth service (ForwardAuth backend)
@@ -23,14 +24,16 @@ go run . --config config.yaml wallet          # wallet HTTP API (API only)
 go run . --config config.yaml outbox-replayer # drain outbox to Kafka (single instance)
 go run . --config config.yaml consumer        # transfer processor + provider + retries
 go run . --config config.yaml stub-provider   # stub payment provider (POST /submit)
+go run . --config config.yaml fx              # FX service (gRPC Quote + QuoteFee)
 ```
 
 The wallet workload is split across independent commands on the one `transx`
 binary so each scales/deploys separately: `wallet` serves only HTTP, the
 background work lives in `outbox-replayer` (drains the outbox to Kafka) and
 `consumer` (processes the transfer lifecycle + retries), and `consumer` reaches
-the payment provider over HTTP via `stub-provider`. `outbox-replayer` must stay
-single-instance (the publisher holds no row lock).
+the payment provider over HTTP via `stub-provider`. FX quoting (rates + fees)
+lives in the standalone `fx` service, which `consumer` reaches over gRPC.
+`outbox-replayer` must stay single-instance (the publisher holds no row lock).
 
 There is no unit-test suite yet; verify by building and exercising endpoints
 with `curl` against a running service (Postgres must be up via `docker compose`).
@@ -38,9 +41,10 @@ with `curl` against a running service (Postgres must be up via `docker compose`)
 ## Architecture conventions
 
 - **Service runners** live in `cli/` (`runAuth`, `runWallet`, `runConsumer`,
-  `runOutboxReplayer`, `runStubProvider`). Each runner is self-contained: load
-  config → init logger → connect Postgres eagerly → build module wiring → start
-  `httpserver` and/or workers → block on signal/errgroup. Mirror an existing runner.
+  `runOutboxReplayer`, `runStubProvider`, `runFXService`). Each runner is
+  self-contained: load config → init logger → connect Postgres eagerly → build
+  module wiring → start `httpserver`/gRPC and/or workers → block on
+  signal/errgroup. Mirror an existing runner.
 - **DDD modules** under `internal/modules/<domain>/`:
   - `domain/entities`, `domain/interfaces` — no infra imports.
   - `application/services`, `application/dto` — use cases.
@@ -54,9 +58,17 @@ with `curl` against a running service (Postgres must be up via `docker compose`)
   These are Kafka consume/drain orchestration loops, not domain adapters, so
   they sit beside `cmd/api` rather than inside a module. They import a module's
   `domain/interfaces` and are wired up by the matching `cli/` runner.
+- **gRPC handlers** live under `cmd/grpc/` (`fx_grpc_handler.go` — the FX
+  server adapter). They translate between the generated proto types and a
+  module's application service. The `fx` module owns rate/fee logic; the wallet
+  module reaches it through a gRPC client adapter
+  (`wallet/infrastructure/fx/grpc_fx_client.go`) implementing `FXService`.
+- **Protos** live in `proto/`; `make proto` (buf) regenerates Go code into
+  `internal/platform/grpc/gen/`. Reuse `platform/grpc.Serve` to run a server;
+  do not hand-roll the gRPC lifecycle.
 - **Platform** (`internal/platform/`) is shared infra: `config`, `postgres`,
-  `kafka`, `httpserver` (Fiber, serves `/healthz` + `/readyz`), `logger`,
-  `middleware`. Reuse it; do not hand-roll HTTP servers.
+  `kafka`, `httpserver` (Fiber, serves `/healthz` + `/readyz`), `grpc`, `logger`,
+  `middleware`. Reuse it; do not hand-roll HTTP or gRPC servers.
 - **HTTP routes** register in `cmd/api/routes.go` via the oaswrap spec router so
   they appear in the exported OpenAPI spec. Handlers in `cmd/api/handlers/`.
   Errors return `*apperror.AppError` (carries HTTP status); `DomainErrorHandler`
@@ -66,6 +78,10 @@ with `curl` against a running service (Postgres must be up via `docker compose`)
 
 - **IDs are UUID v7.** DB columns default to `uuidv7()` (Postgres 18); let the
   DB assign them. Don't hardcode IDs in seeds.
+- **FX fees** are a flat amount per source currency in config (`fx.fees`, keyed
+  by source currency code), charged on internal transfers that convert out of the
+  source currency as a third `FEE` ledger entry. A missing/non-positive entry =
+  no fee. Not a percentage; don't reintroduce a rate-based fee.
 - **Config**: add fields to `internal/platform/config/config.go`. Env override
   format is `SECTION__KEY` (e.g. `AUTH__JWT_SECRET`). Secrets stay in `.env` /
   env vars, never committed.

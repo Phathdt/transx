@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"transx/internal/common/kafkatopic"
 	"transx/internal/modules/wallet/application/dto"
@@ -115,6 +117,12 @@ func IsTransient(err error) bool {
 		case sqlStateSerializationFailure, sqlStateDeadlockDetected:
 			return true
 		}
+	}
+	// A FX gRPC call that is briefly unavailable or times out is worth a delayed
+	// retry rather than failing the transfer permanently.
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
 	}
 	return false
 }
