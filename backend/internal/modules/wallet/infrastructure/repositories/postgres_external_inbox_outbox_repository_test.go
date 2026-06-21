@@ -97,10 +97,10 @@ func TestPostgresExternalTransferRepository(t *testing.T) {
 
 	createExternalTransfer := func(t *testing.T, balance, amount decimal.Decimal) (uuid.UUID, uuid.UUID) {
 		t.Helper()
-		fromAccountID := createTestAccount(ctx, t, accountRepo, userID, "USD", balance)
+		fromAccount := createTestAccount(ctx, t, accountRepo, userID, "USD", balance)
 		transfer := &entities.Transfer{
-			FromAccountID:       fromAccountID,
-			ToAccountID:         uuid.Nil,
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        "",
 			TransactionAmount:   amount,
 			TransactionCurrency: "USD",
 			FeeAmount:           decimal.Zero,
@@ -115,7 +115,7 @@ func TestPostgresExternalTransferRepository(t *testing.T) {
 		}
 		created, err := transferRepo.Create(ctx, transfer)
 		require.NoError(t, err)
-		return created.ID, fromAccountID
+		return created.ID, fromAccount.ID
 	}
 
 	t.Run("reserve moves available to hold and stages provider request", func(t *testing.T) {
@@ -207,10 +207,10 @@ func TestPostgresExternalTransferRepository(t *testing.T) {
 	})
 
 	t.Run("reserve fails external cross currency before holding funds", func(t *testing.T) {
-		fromAccountID := createTestAccount(ctx, t, accountRepo, userID, "EUR", decimal.NewFromInt(100))
+		fromAccount := createTestAccount(ctx, t, accountRepo, userID, "EUR", decimal.NewFromInt(100))
 		transfer := &entities.Transfer{
-			FromAccountID:       fromAccountID,
-			ToAccountID:         uuid.Nil,
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        "",
 			TransactionAmount:   decimal.NewFromInt(25),
 			TransactionCurrency: "USD",
 			FeeAmount:           decimal.Zero,
@@ -232,7 +232,7 @@ func TestPostgresExternalTransferRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entities.TransferStatusFailed, updated.Status)
 		assert.Equal(t, entities.FailureFXRateUnavailable, updated.FailureReason)
-		account, err := accountRepo.GetByID(ctx, fromAccountID)
+		account, err := accountRepo.GetByID(ctx, fromAccount.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "100", account.AvailableBalance.String())
 		assert.True(t, account.HoldBalance.IsZero())
@@ -351,7 +351,7 @@ func TestPostgresRepositoryErrorAndEdgeBranches(t *testing.T) {
 		assert.Error(t, err)
 		_, err = accountRepo.GetByID(cancelled, uuid.New())
 		assert.Error(t, err)
-		_, err = accountRepo.GetByIDForUser(cancelled, uuid.New(), userID)
+		_, err = accountRepo.GetByRefForUser(cancelled, "ACC-00000000000000000000000000", userID)
 		assert.Error(t, err)
 	})
 

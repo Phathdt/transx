@@ -181,7 +181,7 @@ Represents a wallet.
 
 | Field            | Type      | Notes              |
 | ---------------- | --------- | ------------------ | -------- | -------- |
-| accountId        | UUID v7   | Primary identifier |
+| accountRef       | string    | External id `ACC-` + ULID (primary client identifier) |
 | userId           | UUID v7   | Owner              |
 | name             | string    |                    |
 | currency         | string    |                    |
@@ -197,9 +197,9 @@ Represents transfer intent.
 
 | Field               | Type      | Notes              |
 | ------------------- | --------- | ------------------ | ---------- |
-| transferId          | UUID v7   | Primary identifier |
-| fromAccountId       | UUID v7   |                    |
-| toAccountId         | UUID v7   |                    |
+| transferId          | string    | Business ref `ITN-`/`ETN-` + ULID |
+| fromAccountRef      | string    | Source account ref (always internal) |
+| toAccountRef        | string    | Internal `ACC-` ref (INTERNAL) or free-text beneficiary (EXTERNAL) |
 | amount              | number    |                    |
 | currency            | string    |                    |
 | transferType        | enum      | `INTERNAL`         | `EXTERNAL` |
@@ -238,6 +238,7 @@ Immutable, append-only accounting records.
 | Column            | Type        | Notes           |
 | ----------------- | ----------- | --------------- |
 | id                | UUID        | v7, primary key |
+| account_ref       | text        | `ACC-` + ULID, UNIQUE NOT NULL (external id) |
 | user_id           | UUID        | v7              |
 | name              | text        |                 |
 | currency          | text        |                 |
@@ -252,8 +253,8 @@ Immutable, append-only accounting records.
 | Column                | Type        | Notes                |
 | --------------------- | ----------- | -------------------- |
 | id                    | UUID        | v7, primary key      |
-| from_account_id       | UUID        | v7, FK → accounts.id |
-| to_account_id         | UUID        | v7, FK → accounts.id |
+| from_account_ref      | text        | NOT NULL, FK → accounts.account_ref |
+| to_account_ref        | text        | nullable, no FK (internal ref or external beneficiary) |
 | amount                | numeric     |                      |
 | currency              | text        |                      |
 | transfer_type         | text        |                      |
@@ -311,20 +312,20 @@ Immutable, append-only accounting records.
 
 ```json
 {
-  "accountId": "0190b8e1-3a2c-7f4d-8b1a-2c3d4e5f6a7b",
+  "accountRef": "ACC-01KVMHSJ8FDGFP2E58B2HWKHGF",
   "status": "ACTIVE"
 }
 ```
 
 ### Get Account
 
-`GET /v1/accounts/{accountId}`
+`GET /v1/accounts/{accountRef}`
 
 **Response**
 
 ```json
 {
-  "accountId": "0190b8e1-3a2c-7f4d-8b1a-2c3d4e5f6a7b",
+  "accountRef": "ACC-01KVMHSJ8FDGFP2E58B2HWKHGF",
   "availableBalance": 500,
   "holdBalance": 0,
   "currency": "USD"
@@ -343,8 +344,8 @@ Immutable, append-only accounting records.
 
 ```json
 {
-  "fromAccountId": "0190b8e1-3a2c-7f4d-8b1a-2c3d4e5f6a7b",
-  "toAccountId": "0190b8e1-4b3d-7a5e-9c2b-3d4e5f6a7b8c",
+  "fromAccountRef": "ACC-01KVMHSJ8FDGFP2E58B2HWKHGF",
+  "toAccountRef": "ACC-01KVMHSJ8J7SEG5X9WP58SAR68",
   "amount": 100,
   "currency": "USD",
   "transferType": "INTERNAL"
@@ -355,7 +356,7 @@ Immutable, append-only accounting records.
 
 ```json
 {
-  "transferId": "0190b8e1-5c4e-7b6f-a03c-4e5f6a7b8c9d",
+  "transferId": "ITN-01KVMHZ1G23B393WA6SBXZGETJ",
   "status": "PENDING"
 }
 ```
@@ -397,6 +398,9 @@ BEGIN;
 
 UPDATE transfer SET status = 'PROCESSING';
 
+-- from_account_ref / to_account_ref are resolved to the internal account id
+-- (locked by ref) before the balance and ledger writes below, which still key
+-- off the UUID id.
 UPDATE accounts
   SET available_balance = available_balance - amount
   WHERE id = fromAccountId

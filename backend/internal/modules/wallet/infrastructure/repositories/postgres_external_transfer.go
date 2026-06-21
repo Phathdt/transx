@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
 	"transx/internal/modules/wallet/domain/entities"
@@ -41,13 +40,19 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 			return nil
 		}
 
-		fromID := t.FromAccountID.Bytes
+		fromRef := t.FromAccountRef
 
-		// Lock the source account and validate ACTIVE before mutating balances.
-		from, err := q.GetAccountByID(ctx, pgUUID(fromID))
+		// Lock the source account by ref and validate ACTIVE before mutating
+		// balances. The locked row carries the internal UUID id used below.
+		locked, err := q.LockAccountsByRefs(ctx, []string{fromRef})
 		if err != nil {
 			return err
 		}
+		if len(locked) == 0 {
+			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
+		}
+		from := locked[0]
+		fromID := uuid.UUID(from.ID.Bytes)
 		if from.Status != string(entities.AccountStatusActive) {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
@@ -128,11 +133,16 @@ func (r *PostgresTransferRepository) SettleExternalTransfer(
 			return nil
 		}
 
-		fromID := t.FromAccountID.Bytes
-		// Lock the source account FOR UPDATE to serialize a concurrent redelivery.
-		if _, err := q.LockAccountsByIDs(ctx, []pgtype.UUID{pgUUID(fromID)}); err != nil {
+		// Lock the source account by ref FOR UPDATE to serialize a concurrent
+		// redelivery. The locked row carries the internal UUID id used for settle.
+		locked, err := q.LockAccountsByRefs(ctx, []string{t.FromAccountRef})
+		if err != nil {
 			return err
 		}
+		if len(locked) == 0 {
+			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
+		}
+		fromID := uuid.UUID(locked[0].ID.Bytes)
 
 		if result.Outcome == entities.ProviderSuccess {
 			return r.settleSucceeded(

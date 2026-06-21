@@ -90,10 +90,10 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
 	)
 
-	v1.Get("/accounts/:accountId", getAccount).With(
+	v1.Get("/accounts/:accountRef", getAccount).With(
 		option.Tags("wallet"),
 		option.OperationID("getAccount"),
-		option.Summary("Get a wallet account balance"),
+		option.Summary("Get a wallet account balance by its accountRef (ACC- + ULID)"),
 		option.Response(fiber.StatusOK, new(walletdto.AccountResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
@@ -103,7 +103,7 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 	v1.Post("/transfers", createTransfer).With(
 		option.Tags("wallet"),
 		option.OperationID("createTransfer"),
-		option.Summary("Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountId; EXTERNAL omits it (provider is set from server config)."),
+		option.Summary("Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountRef (an ACC- account ref); EXTERNAL omits it or carries a free-text beneficiary id (provider is set from server config)."),
 		option.Request(new(walletdto.CreateTransferCommand), option.ContentRequired()),
 		option.Response(fiber.StatusAccepted, new(walletdto.TransferResponse)),
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),

@@ -142,29 +142,29 @@ func (_c *AccountRepository_GetByID_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
-// GetByIDForUser provides a mock function with given fields: ctx, id, userID
-func (_m *AccountRepository) GetByIDForUser(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*entities.Account, error) {
-	ret := _m.Called(ctx, id, userID)
+// GetByRef provides a mock function with given fields: ctx, ref
+func (_m *AccountRepository) GetByRef(ctx context.Context, ref string) (*entities.Account, error) {
+	ret := _m.Called(ctx, ref)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByIDForUser")
+		panic("no return value specified for GetByRef")
 	}
 
 	var r0 *entities.Account
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) (*entities.Account, error)); ok {
-		return rf(ctx, id, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entities.Account, error)); ok {
+		return rf(ctx, ref)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID) *entities.Account); ok {
-		r0 = rf(ctx, id, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entities.Account); ok {
+		r0 = rf(ctx, ref)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entities.Account)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID) error); ok {
-		r1 = rf(ctx, id, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, ref)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -172,32 +172,91 @@ func (_m *AccountRepository) GetByIDForUser(ctx context.Context, id uuid.UUID, u
 	return r0, r1
 }
 
-// AccountRepository_GetByIDForUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByIDForUser'
-type AccountRepository_GetByIDForUser_Call struct {
+// AccountRepository_GetByRef_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByRef'
+type AccountRepository_GetByRef_Call struct {
 	*mock.Call
 }
 
-// GetByIDForUser is a helper method to define mock.On call
+// GetByRef is a helper method to define mock.On call
 //   - ctx context.Context
-//   - id uuid.UUID
-//   - userID uuid.UUID
-func (_e *AccountRepository_Expecter) GetByIDForUser(ctx interface{}, id interface{}, userID interface{}) *AccountRepository_GetByIDForUser_Call {
-	return &AccountRepository_GetByIDForUser_Call{Call: _e.mock.On("GetByIDForUser", ctx, id, userID)}
+//   - ref string
+func (_e *AccountRepository_Expecter) GetByRef(ctx interface{}, ref interface{}) *AccountRepository_GetByRef_Call {
+	return &AccountRepository_GetByRef_Call{Call: _e.mock.On("GetByRef", ctx, ref)}
 }
 
-func (_c *AccountRepository_GetByIDForUser_Call) Run(run func(ctx context.Context, id uuid.UUID, userID uuid.UUID)) *AccountRepository_GetByIDForUser_Call {
+func (_c *AccountRepository_GetByRef_Call) Run(run func(ctx context.Context, ref string)) *AccountRepository_GetByRef_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(uuid.UUID))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *AccountRepository_GetByIDForUser_Call) Return(_a0 *entities.Account, _a1 error) *AccountRepository_GetByIDForUser_Call {
+func (_c *AccountRepository_GetByRef_Call) Return(_a0 *entities.Account, _a1 error) *AccountRepository_GetByRef_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *AccountRepository_GetByIDForUser_Call) RunAndReturn(run func(context.Context, uuid.UUID, uuid.UUID) (*entities.Account, error)) *AccountRepository_GetByIDForUser_Call {
+func (_c *AccountRepository_GetByRef_Call) RunAndReturn(run func(context.Context, string) (*entities.Account, error)) *AccountRepository_GetByRef_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetByRefForUser provides a mock function with given fields: ctx, ref, userID
+func (_m *AccountRepository) GetByRefForUser(ctx context.Context, ref string, userID uuid.UUID) (*entities.Account, error) {
+	ret := _m.Called(ctx, ref, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByRefForUser")
+	}
+
+	var r0 *entities.Account
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, uuid.UUID) (*entities.Account, error)); ok {
+		return rf(ctx, ref, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, uuid.UUID) *entities.Account); ok {
+		r0 = rf(ctx, ref, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entities.Account)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, uuid.UUID) error); ok {
+		r1 = rf(ctx, ref, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AccountRepository_GetByRefForUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByRefForUser'
+type AccountRepository_GetByRefForUser_Call struct {
+	*mock.Call
+}
+
+// GetByRefForUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ref string
+//   - userID uuid.UUID
+func (_e *AccountRepository_Expecter) GetByRefForUser(ctx interface{}, ref interface{}, userID interface{}) *AccountRepository_GetByRefForUser_Call {
+	return &AccountRepository_GetByRefForUser_Call{Call: _e.mock.On("GetByRefForUser", ctx, ref, userID)}
+}
+
+func (_c *AccountRepository_GetByRefForUser_Call) Run(run func(ctx context.Context, ref string, userID uuid.UUID)) *AccountRepository_GetByRefForUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(uuid.UUID))
+	})
+	return _c
+}
+
+func (_c *AccountRepository_GetByRefForUser_Call) Return(_a0 *entities.Account, _a1 error) *AccountRepository_GetByRefForUser_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AccountRepository_GetByRefForUser_Call) RunAndReturn(run func(context.Context, string, uuid.UUID) (*entities.Account, error)) *AccountRepository_GetByRefForUser_Call {
 	_c.Call.Return(run)
 	return _c
 }

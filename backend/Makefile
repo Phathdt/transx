@@ -3,14 +3,17 @@ SHELL := /usr/bin/env bash
 BINARY := transx
 COVERPROFILE ?= /tmp/modules.noquery.cover
 COVERAGE_MIN ?= 90.0
+SQL_FORMATTER ?= pg_format
+SQL_FILES := $(shell find db internal -type f -name '*.sql' 2>/dev/null)
 
-.PHONY: help sqlc mock format vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-stub-provider clean
+.PHONY: help sqlc mock format format-sql vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-stub-provider clean
 
 help:
 	@printf "Available targets:\n"
 	@printf "  sqlc         Generate sqlc code\n"
 	@printf "  mock         Generate mockery mocks into internal/testmocks\n"
-	@printf "  format       Format Go code\n"
+	@printf "  format       Format Go and SQL files\n"
+	@printf "  format-sql   Format SQL files with $(SQL_FORMATTER)\n"
 	@printf "  vet          Run go vet\n"
 	@printf "  lint         Run golangci-lint (enforces module boundaries via depguard)\n"
 	@printf "  test         Run go test ./...\n"
@@ -33,7 +36,7 @@ sqlc:
 mock:
 	mockery --config .mockery.yaml --log-level=error
 
-format:
+format: format-sql
 	@echo "🎨 Formatting all Go files..."
 	@gofmt -w .
 	@echo "📦 Organizing imports..."
@@ -44,6 +47,16 @@ format:
 	@gofumpt -extra -w .
 	@echo "✅ Go files formatted successfully"
 
+format-sql:
+	@if command -v $(SQL_FORMATTER) >/dev/null 2>&1; then \
+		if [ -n "$(SQL_FILES)" ]; then \
+			echo "🧹 Formatting SQL files..."; \
+			$(SQL_FORMATTER) -i $(SQL_FILES); \
+		fi; \
+		echo "✅ SQL files formatted successfully"; \
+	else \
+		echo "⚠️  $(SQL_FORMATTER) not found; skipping SQL formatting (install pgFormatter / pg_format to enable)"; \
+	fi
 
 vet:
 	go vet ./...

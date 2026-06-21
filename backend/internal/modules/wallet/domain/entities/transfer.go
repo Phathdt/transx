@@ -33,12 +33,17 @@ const (
 
 // Transfer is a movement of funds. INTERNAL transfers move funds between two
 // in-ledger accounts; EXTERNAL transfers send funds out through a provider and
-// carry no in-ledger destination (ToAccountID is uuid.Nil / NULL).
+// carry no in-ledger destination (ToAccountRef is empty / NULL).
+//
+// Accounts are referenced by their external text ref (ACC- + ULID), not the
+// internal UUID. FromAccountRef always names an in-system account; ToAccountRef
+// is an in-system account for INTERNAL transfers or a free-text beneficiary for
+// EXTERNAL ones (no FK), and is empty when there is no destination.
 type Transfer struct {
 	ID                  uuid.UUID
 	Reference           string
-	FromAccountID       uuid.UUID
-	ToAccountID         uuid.UUID
+	FromAccountRef      string
+	ToAccountRef        string
 	TransactionAmount   decimal.Decimal
 	TransactionCurrency string
 	SourceAmount        decimal.NullDecimal

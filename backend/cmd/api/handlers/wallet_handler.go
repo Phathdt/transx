@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 
 	"transx/internal/common/apperror"
 	"transx/internal/modules/wallet/application/dto"
@@ -44,17 +43,15 @@ func (h *WalletHandler) CreateAccount(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(resp)
 }
 
-// GetAccount handles GET /accounts/:accountId.
+// GetAccount handles GET /accounts/:accountRef, where accountRef is the external
+// business id (ACC- + ULID), not the internal UUID. The service validates the
+// ref format.
 func (h *WalletHandler) GetAccount(c *fiber.Ctx) error {
 	userID, ok := middleware.UserIDFrom(c)
 	if !ok {
 		return apperror.NewUnauthorizedError("missing X-User-Id")
 	}
-	id, err := uuid.Parse(c.Params("accountId"))
-	if err != nil {
-		return apperror.NewBadRequestError("invalid accountId")
-	}
-	resp, err := h.accounts.GetAccount(c.Context(), id, userID)
+	resp, err := h.accounts.GetAccount(c.Context(), c.Params("accountRef"), userID)
 	if err != nil {
 		return err
 	}

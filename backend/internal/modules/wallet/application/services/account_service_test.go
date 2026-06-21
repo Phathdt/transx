@@ -44,7 +44,8 @@ func TestAccountServiceCreateAccount(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		assert.NotEmpty(t, result.AccountID)
+		assert.NotEmpty(t, result.AccountRef)
+		assert.Regexp(t, `^ACC-[0-9A-HJKMNP-TV-Z]{26}$`, result.AccountRef)
 		assert.Equal(t, "USD", result.Currency)
 		assert.Equal(t, string(entities.AccountStatusActive), result.Status)
 		assert.Equal(t, "0", result.AvailableBalance)
@@ -96,11 +97,13 @@ func TestAccountServiceGetAccount(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 	accountID := uuid.New()
+	accountRef := NewAccountReference()
 
 	t.Run("returns account for owner", func(t *testing.T) {
 		accountRepo := testmocks.NewAccountRepository(t)
 		account := &entities.Account{
 			ID:               accountID,
+			Ref:              accountRef,
 			UserID:           userID,
 			Name:             "My Account",
 			Currency:         "USD",
@@ -109,28 +112,41 @@ func TestAccountServiceGetAccount(t *testing.T) {
 			HoldBalance:      decimal.NewFromInt(0),
 		}
 		accountRepo.EXPECT().
-			GetByIDForUser(ctx, accountID, userID).
+			GetByRefForUser(ctx, accountRef, userID).
 			Return(account, nil)
 
 		service := NewAccountService(accountRepo)
 
-		result, err := service.GetAccount(ctx, accountID, userID)
+		result, err := service.GetAccount(ctx, accountRef, userID)
 
 		require.NoError(t, err)
-		assert.Equal(t, accountID.String(), result.AccountID)
+		assert.Equal(t, accountRef, result.AccountRef)
 		assert.Equal(t, "USD", result.Currency)
 		assert.Equal(t, "1000", result.AvailableBalance)
+	})
+
+	t.Run("malformed ref returns bad request", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.GetAccount(ctx, "not-a-ref", userID)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
 	})
 
 	t.Run("account not found for different owner", func(t *testing.T) {
 		accountRepo := testmocks.NewAccountRepository(t)
 		accountRepo.EXPECT().
-			GetByIDForUser(ctx, accountID, userID).
+			GetByRefForUser(ctx, accountRef, userID).
 			Return(nil, nil)
 
 		service := NewAccountService(accountRepo)
 
-		result, err := service.GetAccount(ctx, accountID, userID)
+		result, err := service.GetAccount(ctx, accountRef, userID)
 
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -143,12 +159,12 @@ func TestAccountServiceGetAccount(t *testing.T) {
 		accountRepo := testmocks.NewAccountRepository(t)
 		differentUserID := uuid.New()
 		accountRepo.EXPECT().
-			GetByIDForUser(ctx, accountID, differentUserID).
+			GetByRefForUser(ctx, accountRef, differentUserID).
 			Return(nil, nil)
 
 		service := NewAccountService(accountRepo)
 
-		result, err := service.GetAccount(ctx, accountID, differentUserID)
+		result, err := service.GetAccount(ctx, accountRef, differentUserID)
 
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -158,7 +174,7 @@ func TestAccountServiceGetAccount(t *testing.T) {
 func TestAccountServiceRepositoryErrors(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
-	accountID := uuid.New()
+	accountRef := NewAccountReference()
 	wantErr := assert.AnError
 
 	t.Run("create returns repository error", func(t *testing.T) {
@@ -174,10 +190,10 @@ func TestAccountServiceRepositoryErrors(t *testing.T) {
 
 	t.Run("get returns repository error", func(t *testing.T) {
 		accountRepo := testmocks.NewAccountRepository(t)
-		accountRepo.EXPECT().GetByIDForUser(ctx, accountID, userID).Return(nil, wantErr)
+		accountRepo.EXPECT().GetByRefForUser(ctx, accountRef, userID).Return(nil, wantErr)
 		service := NewAccountService(accountRepo)
 
-		result, err := service.GetAccount(ctx, accountID, userID)
+		result, err := service.GetAccount(ctx, accountRef, userID)
 
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, wantErr)

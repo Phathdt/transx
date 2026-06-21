@@ -13,9 +13,9 @@ import (
 )
 
 const createAccount = `-- name: CreateAccount :one
-INSERT INTO accounts (user_id, name, currency, available_balance, hold_balance, status)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at
+INSERT INTO accounts (user_id, name, currency, available_balance, hold_balance, status, account_ref)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
 `
 
 type CreateAccountParams struct {
@@ -25,6 +25,7 @@ type CreateAccountParams struct {
 	AvailableBalance decimal.Decimal `db:"available_balance"`
 	HoldBalance      decimal.Decimal `db:"hold_balance"`
 	Status           string          `db:"status"`
+	AccountRef       string          `db:"account_ref"`
 }
 
 func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (*Account, error) {
@@ -35,6 +36,7 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (*
 		arg.AvailableBalance,
 		arg.HoldBalance,
 		arg.Status,
+		arg.AccountRef,
 	)
 	var i Account
 	err := row.Scan(
@@ -47,6 +49,7 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (*
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AccountRef,
 	)
 	return &i, err
 }
@@ -126,7 +129,7 @@ func (q *Queries) DebitHold(ctx context.Context, arg DebitHoldParams) (*DebitHol
 }
 
 const getAccountByID = `-- name: GetAccountByID :one
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at
+SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
 FROM accounts
 WHERE id = $1
 `
@@ -144,23 +147,19 @@ func (q *Queries) GetAccountByID(ctx context.Context, id pgtype.UUID) (*Account,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AccountRef,
 	)
 	return &i, err
 }
 
-const getAccountByIDForUser = `-- name: GetAccountByIDForUser :one
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at
+const getAccountByRef = `-- name: GetAccountByRef :one
+SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
 FROM accounts
-WHERE id = $1 AND user_id = $2
+WHERE account_ref = $1
 `
 
-type GetAccountByIDForUserParams struct {
-	ID     pgtype.UUID `db:"id"`
-	UserID pgtype.UUID `db:"user_id"`
-}
-
-func (q *Queries) GetAccountByIDForUser(ctx context.Context, arg GetAccountByIDForUserParams) (*Account, error) {
-	row := q.db.QueryRow(ctx, getAccountByIDForUser, arg.ID, arg.UserID)
+func (q *Queries) GetAccountByRef(ctx context.Context, accountRef string) (*Account, error) {
+	row := q.db.QueryRow(ctx, getAccountByRef, accountRef)
 	var i Account
 	err := row.Scan(
 		&i.ID,
@@ -172,12 +171,42 @@ func (q *Queries) GetAccountByIDForUser(ctx context.Context, arg GetAccountByIDF
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AccountRef,
+	)
+	return &i, err
+}
+
+const getAccountByRefForUser = `-- name: GetAccountByRefForUser :one
+SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM accounts
+WHERE account_ref = $1 AND user_id = $2
+`
+
+type GetAccountByRefForUserParams struct {
+	AccountRef string      `db:"account_ref"`
+	UserID     pgtype.UUID `db:"user_id"`
+}
+
+func (q *Queries) GetAccountByRefForUser(ctx context.Context, arg GetAccountByRefForUserParams) (*Account, error) {
+	row := q.db.QueryRow(ctx, getAccountByRefForUser, arg.AccountRef, arg.UserID)
+	var i Account
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Currency,
+		&i.AvailableBalance,
+		&i.HoldBalance,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AccountRef,
 	)
 	return &i, err
 }
 
 const lockAccountsByIDs = `-- name: LockAccountsByIDs :many
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at
+SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
 FROM accounts
 WHERE id = ANY($1::uuid [])
 ORDER BY id
@@ -205,6 +234,49 @@ func (q *Queries) LockAccountsByIDs(ctx context.Context, ids []pgtype.UUID) ([]*
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AccountRef,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockAccountsByRefs = `-- name: LockAccountsByRefs :many
+SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM accounts
+WHERE account_ref = ANY($1::text [])
+ORDER BY account_ref
+FOR UPDATE
+`
+
+// Locks the given accounts in a deterministic order (ORDER BY account_ref) so
+// two crossing transfers (A->B and B->A) cannot deadlock on lock acquisition.
+// Internal balance/ledger work still keys off the UUID id carried on each row.
+func (q *Queries) LockAccountsByRefs(ctx context.Context, refs []string) ([]*Account, error) {
+	rows, err := q.db.Query(ctx, lockAccountsByRefs, refs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Account
+	for rows.Next() {
+		var i Account
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.Currency,
+			&i.AvailableBalance,
+			&i.HoldBalance,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AccountRef,
 		); err != nil {
 			return nil, err
 		}

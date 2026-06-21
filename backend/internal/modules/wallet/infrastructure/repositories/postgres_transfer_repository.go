@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
 	"transx/internal/modules/wallet/application/dto"
@@ -45,8 +44,8 @@ func (r *PostgresTransferRepository) Create(
 	err := postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
 		row, err := q.CreateTransfer(ctx, gen.CreateTransferParams{
-			FromAccountID:       pgUUID(t.FromAccountID),
-			ToAccountID:         pgUUIDOrNull(t.ToAccountID),
+			FromAccountRef:      t.FromAccountRef,
+			ToAccountRef:        textOrNull(t.ToAccountRef),
 			TransactionAmount:   t.TransactionAmount,
 			TransactionCurrency: t.TransactionCurrency,
 			TransferType:        t.TransferType,
@@ -150,26 +149,28 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			return nil
 		}
 
-		fromID := t.FromAccountID.Bytes
-		toID := t.ToAccountID.Bytes
+		fromRef := t.FromAccountRef
+		toRef := textValue(t.ToAccountRef)
 
 		// Lock both accounts in a deterministic order to avoid a cross deadlock
 		// between A->B and B->A transfers, then validate status before mutating so
-		// a debit never lands when the credit would be rejected.
-		locked, err := q.LockAccountsByIDs(ctx, []pgtype.UUID{
-			pgUUID(fromID), pgUUID(toID),
-		})
+		// a debit never lands when the credit would be rejected. Accounts are named
+		// by ref on the transfer; the locked rows carry the internal UUID id used
+		// for the balance and ledger writes below.
+		locked, err := q.LockAccountsByRefs(ctx, []string{fromRef, toRef})
 		if err != nil {
 			return err
 		}
-		byID := make(map[uuid.UUID]*gen.Account, len(locked))
+		byRef := make(map[string]*gen.Account, len(locked))
 		for _, a := range locked {
-			byID[a.ID.Bytes] = a
+			byRef[a.AccountRef] = a
 		}
-		from, to := byID[fromID], byID[toID]
+		from, to := byRef[fromRef], byRef[toRef]
 		if from == nil || to == nil {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
+		fromID := uuid.UUID(from.ID.Bytes)
+		toID := uuid.UUID(to.ID.Bytes)
 		if from.Status != string(entities.AccountStatusActive) {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}

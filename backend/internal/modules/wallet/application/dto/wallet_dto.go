@@ -6,9 +6,10 @@ type CreateAccountCommand struct {
 	Currency string `json:"currency" validate:"required,iso4217"`
 }
 
-// AccountResponse is the wallet account view returned to clients.
+// AccountResponse is the wallet account view returned to clients. AccountRef is
+// the external business id (ACC- + ULID); the internal UUID is never exposed.
 type AccountResponse struct {
-	AccountID        string `json:"accountId"`
+	AccountRef       string `json:"accountRef"`
 	AvailableBalance string `json:"availableBalance"`
 	HoldBalance      string `json:"holdBalance"`
 	Currency         string `json:"currency"`
@@ -24,14 +25,15 @@ type CreateTransferCommand struct {
 	// it (no json tag) and the handler reads it via c.Get.
 	IdempotencyKey string `header:"Idempotency-Key" json:"-" required:"true" validate:"required,uuid"`
 
-	FromAccountID string `json:"fromAccountId" validate:"required,uuid"`
-	// ToAccountID is required for INTERNAL transfers and omitted for EXTERNAL
-	// (validated per type in the service, not by a static tag). nefield guards a
-	// self-transfer only when a destination is supplied.
-	ToAccountID  string `json:"toAccountId"   validate:"omitempty,uuid,nefield=FromAccountID"`
-	Amount       string `json:"amount"        validate:"required,number"`
-	Currency     string `json:"currency"      validate:"required,iso4217"`
-	TransferType string `json:"transferType"  validate:"omitempty,oneof=INTERNAL EXTERNAL"`
+	FromAccountRef string `json:"fromAccountRef" validate:"required"`
+	// ToAccountRef is required for INTERNAL transfers (an ACC- ref of an
+	// in-system account) and is a free-text beneficiary id for EXTERNAL
+	// transfers (validated per type in the service, not by a static tag).
+	// nefield guards a self-transfer only when a destination is supplied.
+	ToAccountRef string `json:"toAccountRef"   validate:"omitempty,nefield=FromAccountRef"`
+	Amount       string `json:"amount"         validate:"required,number"`
+	Currency     string `json:"currency"       validate:"required,iso4217"`
+	TransferType string `json:"transferType"   validate:"omitempty,oneof=INTERNAL EXTERNAL"`
 }
 
 // TransferResponse is the transfer view returned to clients.
