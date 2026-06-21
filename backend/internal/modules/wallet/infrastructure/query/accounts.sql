@@ -29,6 +29,23 @@ WHERE
     account_ref = $1
     AND user_id = $2;
 
+-- name: GetAccountLookupByRef :one
+-- Resolves any in-system account by its external ref for transfer-beneficiary
+-- validation. Intentionally not owner-scoped: a caller must be able to confirm
+-- the recipient (holder name, currency, status) of an account they don't own
+-- before sending an internal transfer. The route still requires authentication;
+-- the compact view exposes no balances, user ids, internal UUIDs, or emails.
+SELECT
+    accounts.account_ref,
+    accounts.currency,
+    accounts.status,
+    users.name AS holder_name
+FROM
+    accounts
+    JOIN users ON users.id = accounts.user_id
+WHERE
+    accounts.account_ref = $1;
+
 -- name: LockAccountsByRefs :many
 -- Locks the given accounts in a deterministic order (ORDER BY account_ref) so
 -- two crossing transfers (A->B and B->A) cannot deadlock on lock acquisition.

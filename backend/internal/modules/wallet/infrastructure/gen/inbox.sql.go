@@ -10,11 +10,15 @@ import (
 )
 
 const isMessageProcessed = `-- name: IsMessageProcessed :one
-SELECT EXISTS (
-    SELECT 1
-    FROM inbox_events
-    WHERE consumer_group = $1 AND message_key = $2
-)
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            inbox_events
+        WHERE
+            consumer_group = $1
+            AND message_key = $2)
 `
 
 type IsMessageProcessedParams struct {
@@ -31,8 +35,9 @@ func (q *Queries) IsMessageProcessed(ctx context.Context, arg IsMessageProcessed
 
 const markMessageProcessed = `-- name: MarkMessageProcessed :execrows
 INSERT INTO inbox_events (consumer_group, message_key)
-VALUES ($1, $2)
-ON CONFLICT (consumer_group, message_key) DO NOTHING
+    VALUES ($1, $2)
+ON CONFLICT (consumer_group, message_key)
+    DO NOTHING
 `
 
 type MarkMessageProcessedParams struct {

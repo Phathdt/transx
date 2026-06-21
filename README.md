@@ -244,10 +244,11 @@ All routes are under `/api/v1` and gated by ForwardAuth (the gateway injects
 
 | Method | Path                      | Description                              |
 | ------ | ------------------------- | ---------------------------------------- |
-| `POST` | `/accounts`               | Create a wallet account for the caller   |
-| `GET`  | `/accounts/{accountId}`   | Get an account balance (owner-scoped)    |
-| `POST` | `/transfers`              | Create a transfer (idempotent)           |
-| `GET`  | `/transfers/{transferId}` | Get a transfer (owner-scoped)            |
+| `POST` | `/accounts`                            | Create a wallet account for the caller               |
+| `GET`  | `/accounts/{accountId}`                | Get an account balance (owner-scoped)                |
+| `GET`  | `/accounts/{accountType}/{accountRef}` | Look up internal/external beneficiary account info   |
+| `POST` | `/transfers`                           | Create a transfer (idempotent)                       |
+| `GET`  | `/transfers/{transferId}`              | Get a transfer (owner-scoped)                        |
 
 `POST /transfers` requires an `Idempotency-Key` header — a client-generated UUID
 (uuidv7 recommended). Retrying with the same key replays the original transfer;
@@ -288,8 +289,12 @@ curl -X POST http://localhost:4000/api/v1/transfers \
 
 Authorization is P2P: the `fromAccountId` must belong to the caller (otherwise
 `403`); the destination may be anyone's. Reads are owner-scoped — another user's
-account or transfer returns `404`. The full request/response schema is in the
-generated `openapi.yaml` (`make openapi`).
+account or transfer returns `404`. Typed account lookup returns only
+`accountRef`, `currency`, `status`, and `holderName`: `internal` lookups are
+authenticated and owner-scoped, while the narrow `/api/v1/accounts/external/`
+path is public provider-beneficiary validation and never returns balances or
+internal IDs. The full request/response schema is in the generated `openapi.yaml`
+(`make openapi`).
 
 ## Internal Transfer Flow
 

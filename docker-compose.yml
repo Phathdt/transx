@@ -151,7 +151,12 @@ services:
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      # All non-login traffic flows here, gated by forward-auth.
+      # Public provider-beneficiary validation route; all other wallet routes stay gated.
+      - traefik.http.routers.wallet-external-lookup.rule=PathPrefix(`/api/v1/accounts/external/`)
+      - traefik.http.routers.wallet-external-lookup.entrypoints=web
+      - traefik.http.routers.wallet-external-lookup.priority=100
+      - traefik.http.routers.wallet-external-lookup.service=wallet-svc
+      # All other non-login traffic flows here, gated by forward-auth.
       - traefik.http.routers.wallet.rule=PathPrefix(`/`)
       - traefik.http.routers.wallet.entrypoints=web
       - traefik.http.routers.wallet.middlewares=forward-auth

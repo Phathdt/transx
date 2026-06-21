@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"transx/internal/common/apperror"
 	"transx/internal/modules/wallet/domain/entities"
 )
 
@@ -109,6 +110,106 @@ func TestHTTPProviderClient(t *testing.T) {
 		_, err := client.Submit(ctx, transferID, decimal.NewFromInt(1), "USD")
 
 		require.Error(t, err)
+	})
+
+	t.Run("lookup maps successful response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, accountLookupPathPrefix+"EXT-ACME-USD-001", r.URL.Path)
+			assert.Equal(t, http.MethodGet, r.Method)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(
+				[]byte(
+					`{"account_ref":"EXT-ACME-USD-001","currency":"USD","status":"ACTIVE","holder_name":"Acme Treasury"}`,
+				),
+			)
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-ACME-USD-001")
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, "EXT-ACME-USD-001", result.AccountRef)
+		assert.Equal(t, "Acme Treasury", result.HolderName)
+	})
+
+	t.Run("lookup maps not found to nil result", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.NotFound(w, nil)
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-MISSING")
+
+		require.NoError(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("lookup maps server error to bad gateway", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-ACME-USD-001")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusBadGateway, appErr.Status)
+	})
+
+	t.Run("lookup maps transport error to bad gateway", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		baseURL := server.URL
+		server.Close()
+
+		client := NewHTTPProviderClient(baseURL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-ACME-USD-001")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusBadGateway, appErr.Status)
+	})
+}
+
+func TestStubHandlerLookupAccount(t *testing.T) {
+	t.Run("returns hardcoded external account", func(t *testing.T) {
+		app := fiber.New()
+		app.Get(AccountLookupPath(), NewStubHandler(ModeAlwaysSuccess).LookupAccount)
+
+		req := httptest.NewRequest(http.MethodGet, "/accounts/EXT-ACME-USD-001", nil)
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+		var out AccountLookupResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		assert.Equal(t, "EXT-ACME-USD-001", out.AccountRef)
+		assert.Equal(t, "USD", out.Currency)
+		assert.Equal(t, "ACTIVE", out.Status)
+		assert.Equal(t, "Acme Treasury", out.HolderName)
+	})
+
+	t.Run("unknown external account returns not found", func(t *testing.T) {
+		app := fiber.New()
+		app.Get(AccountLookupPath(), NewStubHandler(ModeAlwaysSuccess).LookupAccount)
+
+		req := httptest.NewRequest(http.MethodGet, "/accounts/EXT-MISSING", nil)
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
 	})
 }
 

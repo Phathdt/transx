@@ -332,6 +332,27 @@ Immutable, append-only accounting records.
 }
 ```
 
+### Lookup Account
+
+`GET /v1/accounts/{accountType}/{accountRef}`
+
+`accountType` is `internal` or `external`. Internal lookups are authenticated and
+resolve any in-system account by its ref so a sender can validate a recipient they
+don't own before an internal transfer. External lookups validate provider
+beneficiaries. Both return only compact metadata; no balance, user id, internal
+UUID, or email is exposed.
+
+**Response**
+
+```json
+{
+  "accountRef": "EXT-ACME-USD-001",
+  "currency": "USD",
+  "status": "ACTIVE",
+  "holderName": "Acme Treasury"
+}
+```
+
 ### Create Transfer
 
 `POST /v1/transfers`

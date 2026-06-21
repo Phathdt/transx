@@ -12,9 +12,17 @@ import (
 )
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, name, created_at, updated_at
-FROM users
-WHERE email = $1
+SELECT
+    id,
+    email,
+    password_hash,
+    name,
+    created_at,
+    updated_at
+FROM
+    users
+WHERE
+    email = $1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (*User, error) {
@@ -32,9 +40,17 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (*User, erro
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, name, created_at, updated_at
-FROM users
-WHERE id = $1
+SELECT
+    id,
+    email,
+    password_hash,
+    name,
+    created_at,
+    updated_at
+FROM
+    users
+WHERE
+    id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (*User, error) {

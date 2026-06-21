@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/oklog/ulid/v2"
@@ -24,13 +25,26 @@ func NewAccountReference() string {
 // 26-char Crockford base32 ULID (the alphabet excludes I, L, O, U).
 var accountReferencePattern = regexp.MustCompile(`^ACC-[0-9A-HJKMNP-TV-Z]{26}$`)
 
+// externalReferencePattern bounds an external beneficiary ref before it is
+// concatenated into the unauthenticated outbound provider lookup path, so a
+// caller cannot smuggle path segments (e.g. encoded slashes) to the upstream.
+var externalReferencePattern = regexp.MustCompile(`^EXT-[A-Za-z0-9-]{1,64}$`)
+
 // AccountService handles account creation and owner-scoped reads.
 type AccountService struct {
-	accounts interfaces.AccountRepository
+	accounts       interfaces.AccountRepository
+	providerLookup interfaces.ProviderAccountLookupClient
 }
 
-func NewAccountService(accounts interfaces.AccountRepository) *AccountService {
-	return &AccountService{accounts: accounts}
+func NewAccountService(
+	accounts interfaces.AccountRepository,
+	providerLookups ...interfaces.ProviderAccountLookupClient,
+) *AccountService {
+	var providerLookup interfaces.ProviderAccountLookupClient
+	if len(providerLookups) > 0 {
+		providerLookup = providerLookups[0]
+	}
+	return &AccountService{accounts: accounts, providerLookup: providerLookup}
 }
 
 // CreateAccount opens a new wallet for the caller in a supported currency.
@@ -78,6 +92,61 @@ func (s *AccountService) GetAccount(
 	return accountToResponse(account), nil
 }
 
+func (s *AccountService) LookupAccount(
+	ctx context.Context,
+	accountType string,
+	ref string,
+) (*dto.AccountLookupResponse, error) {
+	switch strings.ToLower(strings.TrimSpace(accountType)) {
+	case "internal":
+		return s.LookupInternalAccount(ctx, ref)
+	case "external":
+		return s.LookupExternalAccount(ctx, ref)
+	default:
+		return nil, apperror.NewBadRequestError("unsupported accountType")
+	}
+}
+
+// LookupInternalAccount resolves any in-system account by its ref so a caller can
+// validate a transfer recipient they don't own. It is not owner-scoped; the route
+// is still authenticated and the compact view leaks no balances or identities.
+func (s *AccountService) LookupInternalAccount(
+	ctx context.Context,
+	ref string,
+) (*dto.AccountLookupResponse, error) {
+	if !accountReferencePattern.MatchString(ref) {
+		return nil, apperror.NewBadRequestError("invalid accountRef")
+	}
+	lookup, err := s.accounts.GetLookupByRef(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if lookup == nil {
+		return nil, apperror.NewNotFoundError("account not found")
+	}
+	return accountLookupToResponse(lookup), nil
+}
+
+func (s *AccountService) LookupExternalAccount(
+	ctx context.Context,
+	ref string,
+) (*dto.AccountLookupResponse, error) {
+	if !externalReferencePattern.MatchString(ref) {
+		return nil, apperror.NewBadRequestError("invalid accountRef")
+	}
+	if s.providerLookup == nil {
+		return nil, apperror.NewBadGatewayError("provider lookup unavailable", nil)
+	}
+	lookup, err := s.providerLookup.LookupAccount(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if lookup == nil {
+		return nil, apperror.NewNotFoundError("account not found")
+	}
+	return accountLookupToResponse(lookup), nil
+}
+
 func accountToResponse(a *entities.Account) *dto.AccountResponse {
 	return &dto.AccountResponse{
 		AccountRef:       a.Ref,
@@ -85,5 +154,14 @@ func accountToResponse(a *entities.Account) *dto.AccountResponse {
 		HoldBalance:      a.HoldBalance.String(),
 		Currency:         a.Currency,
 		Status:           string(a.Status),
+	}
+}
+
+func accountLookupToResponse(a *entities.AccountLookup) *dto.AccountLookupResponse {
+	return &dto.AccountLookupResponse{
+		AccountRef: a.AccountRef,
+		Currency:   a.Currency,
+		Status:     a.Status,
+		HolderName: a.HolderName,
 	}
 }

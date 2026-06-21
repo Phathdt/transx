@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -171,6 +172,157 @@ func TestAccountServiceGetAccount(t *testing.T) {
 	})
 }
 
+func TestAccountServiceLookupAccount(t *testing.T) {
+	ctx := context.Background()
+	accountRef := NewAccountReference()
+
+	t.Run("internal lookup returns compact recipient view", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, accountRef).
+			Return(&entities.AccountLookup{
+				AccountRef: accountRef,
+				Currency:   "USD",
+				Status:     string(entities.AccountStatusActive),
+				HolderName: "Alice Tran",
+			}, nil)
+
+		service := NewAccountService(accountRepo)
+
+		result, err := service.LookupAccount(ctx, "internal", accountRef)
+
+		require.NoError(t, err)
+		assert.Equal(t, accountRef, result.AccountRef)
+		assert.Equal(t, "USD", result.Currency)
+		assert.Equal(t, string(entities.AccountStatusActive), result.Status)
+		assert.Equal(t, "Alice Tran", result.HolderName)
+	})
+
+	t.Run("internal malformed ref returns bad request", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.LookupAccount(ctx, "internal", "bad-ref")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+
+	t.Run("internal unknown ref returns not found", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, accountRef).
+			Return(nil, nil)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.LookupAccount(ctx, "internal", accountRef)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 404, appErr.Status)
+	})
+
+	t.Run("external lookup delegates to provider", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo, fakeAccountLookupClient{
+			lookup: &entities.AccountLookup{
+				AccountRef: "EXT-ACME-USD-001",
+				Currency:   "USD",
+				Status:     string(entities.AccountStatusActive),
+				HolderName: "Acme Treasury",
+			},
+		})
+
+		result, err := service.LookupAccount(ctx, "external", "EXT-ACME-USD-001")
+
+		require.NoError(t, err)
+		assert.Equal(t, "EXT-ACME-USD-001", result.AccountRef)
+		assert.Equal(t, "Acme Treasury", result.HolderName)
+	})
+
+	t.Run("external unknown ref returns not found", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo, fakeAccountLookupClient{})
+
+		result, err := service.LookupAccount(ctx, "external", "EXT-MISSING")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 404, appErr.Status)
+	})
+
+	t.Run("external blank ref returns bad request", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo, fakeAccountLookupClient{})
+
+		result, err := service.LookupAccount(ctx, "external", " ")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+
+	t.Run("external ref with path-smuggling characters returns bad request", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo, fakeAccountLookupClient{})
+
+		for _, ref := range []string{"EXT-../internal/ACC-1", "EXT-x%2fy", "ACC-1", "EXT-" + strings.Repeat("x", 65)} {
+			result, err := service.LookupAccount(ctx, "external", ref)
+
+			require.Error(t, err)
+			assert.Nil(t, result)
+			appErr, ok := err.(*apperror.AppError)
+			require.True(t, ok)
+			assert.Equal(t, 400, appErr.Status, "ref %q must be rejected before reaching provider", ref)
+		}
+	})
+
+	t.Run("external without provider returns bad gateway", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.LookupAccount(ctx, "external", "EXT-ACME-USD-001")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 502, appErr.Status)
+	})
+
+	t.Run("external provider error propagates", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo, fakeAccountLookupClient{err: assert.AnError})
+
+		result, err := service.LookupAccount(ctx, "external", "EXT-ACME-USD-001")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+
+	t.Run("unsupported type returns bad request", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.LookupAccount(ctx, "partner", accountRef)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		assert.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+}
+
 func TestAccountServiceRepositoryErrors(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
@@ -198,4 +350,16 @@ func TestAccountServiceRepositoryErrors(t *testing.T) {
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, wantErr)
 	})
+}
+
+type fakeAccountLookupClient struct {
+	lookup *entities.AccountLookup
+	err    error
+}
+
+func (f fakeAccountLookupClient) LookupAccount(
+	_ context.Context,
+	_ string,
+) (*entities.AccountLookup, error) {
+	return f.lookup, f.err
 }

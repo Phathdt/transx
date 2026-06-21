@@ -47,6 +47,7 @@ func runStubProvider(ctx context.Context, configPath string) error {
 		Address: cfg.Provider.ListenAddress,
 		Logger:  log,
 	})
+	server.App().Get(provider.AccountLookupPath(), handler.LookupAccount)
 	server.App().Post(provider.SubmitPath(), handler.Submit)
 
 	errCh := make(chan error, 1)

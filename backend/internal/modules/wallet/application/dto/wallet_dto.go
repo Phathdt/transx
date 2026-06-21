@@ -16,6 +16,15 @@ type AccountResponse struct {
 	Status           string `json:"status"`
 }
 
+// AccountLookupResponse is the compact lookup view used to validate a transfer
+// beneficiary without exposing balances, internal UUIDs, user IDs, or emails.
+type AccountLookupResponse struct {
+	AccountRef string `json:"accountRef"`
+	Currency   string `json:"currency"`
+	Status     string `json:"status"`
+	HolderName string `json:"holderName"`
+}
+
 // CreateTransferCommand is the POST /transfers request body. The idempotency key
 // travels in the Idempotency-Key header (read separately by the handler), not in
 // the body; it is declared here only so it appears in the OpenAPI spec.

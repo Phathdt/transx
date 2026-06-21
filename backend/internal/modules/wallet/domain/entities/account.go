@@ -34,5 +34,14 @@ type Account struct {
 	UpdatedAt        time.Time
 }
 
+// AccountLookup is the compact transfer-oriented account view. It intentionally
+// omits balances, user ids, and internal UUIDs.
+type AccountLookup struct {
+	AccountRef string
+	Currency   string
+	Status     string
+	HolderName string
+}
+
 // IsActive reports whether the account can take part in a transfer.
 func (a *Account) IsActive() bool { return a.Status == AccountStatusActive }

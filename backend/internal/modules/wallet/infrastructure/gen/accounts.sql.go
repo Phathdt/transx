@@ -14,8 +14,9 @@ import (
 
 const createAccount = `-- name: CreateAccount :one
 INSERT INTO accounts (user_id, name, currency, available_balance, hold_balance, status, account_ref)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING
+    id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
 `
 
 type CreateAccountParams struct {
@@ -55,12 +56,16 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (*
 }
 
 const creditAvailable = `-- name: CreditAvailable :one
-UPDATE accounts
-SET available_balance = available_balance + $1,
-    updated_at        = now()
-WHERE id = $2
-  AND status = 'ACTIVE'
-RETURNING available_balance
+UPDATE
+    accounts
+SET
+    available_balance = available_balance + $1,
+    updated_at = now()
+WHERE
+    id = $2
+    AND status = 'ACTIVE'
+RETURNING
+    available_balance
 `
 
 type CreditAvailableParams struct {
@@ -77,13 +82,17 @@ func (q *Queries) CreditAvailable(ctx context.Context, arg CreditAvailableParams
 }
 
 const debitAvailableIfSufficient = `-- name: DebitAvailableIfSufficient :one
-UPDATE accounts
-SET available_balance = available_balance - $1,
-    updated_at        = now()
-WHERE id = $2
-  AND status = 'ACTIVE'
-  AND available_balance >= $1
-RETURNING available_balance
+UPDATE
+    accounts
+SET
+    available_balance = available_balance - $1,
+    updated_at = now()
+WHERE
+    id = $2
+    AND status = 'ACTIVE'
+    AND available_balance >= $1
+RETURNING
+    available_balance
 `
 
 type DebitAvailableIfSufficientParams struct {
@@ -101,11 +110,16 @@ func (q *Queries) DebitAvailableIfSufficient(ctx context.Context, arg DebitAvail
 }
 
 const debitHold = `-- name: DebitHold :one
-UPDATE accounts
-SET hold_balance = hold_balance - $1,
-    updated_at   = now()
-WHERE id = $2
-RETURNING available_balance, hold_balance
+UPDATE
+    accounts
+SET
+    hold_balance = hold_balance - $1,
+    updated_at = now()
+WHERE
+    id = $2
+RETURNING
+    available_balance,
+    hold_balance
 `
 
 type DebitHoldParams struct {
@@ -129,9 +143,12 @@ func (q *Queries) DebitHold(ctx context.Context, arg DebitHoldParams) (*DebitHol
 }
 
 const getAccountByID = `-- name: GetAccountByID :one
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
-FROM accounts
-WHERE id = $1
+SELECT
+    id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM
+    accounts
+WHERE
+    id = $1
 `
 
 func (q *Queries) GetAccountByID(ctx context.Context, id pgtype.UUID) (*Account, error) {
@@ -153,9 +170,12 @@ func (q *Queries) GetAccountByID(ctx context.Context, id pgtype.UUID) (*Account,
 }
 
 const getAccountByRef = `-- name: GetAccountByRef :one
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
-FROM accounts
-WHERE account_ref = $1
+SELECT
+    id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM
+    accounts
+WHERE
+    account_ref = $1
 `
 
 func (q *Queries) GetAccountByRef(ctx context.Context, accountRef string) (*Account, error) {
@@ -177,9 +197,13 @@ func (q *Queries) GetAccountByRef(ctx context.Context, accountRef string) (*Acco
 }
 
 const getAccountByRefForUser = `-- name: GetAccountByRefForUser :one
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
-FROM accounts
-WHERE account_ref = $1 AND user_id = $2
+SELECT
+    id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM
+    accounts
+WHERE
+    account_ref = $1
+    AND user_id = $2
 `
 
 type GetAccountByRefForUserParams struct {
@@ -205,11 +229,52 @@ func (q *Queries) GetAccountByRefForUser(ctx context.Context, arg GetAccountByRe
 	return &i, err
 }
 
+const getAccountLookupByRef = `-- name: GetAccountLookupByRef :one
+SELECT
+    accounts.account_ref,
+    accounts.currency,
+    accounts.status,
+    users.name AS holder_name
+FROM
+    accounts
+    JOIN users ON users.id = accounts.user_id
+WHERE
+    accounts.account_ref = $1
+`
+
+type GetAccountLookupByRefRow struct {
+	AccountRef string `db:"account_ref"`
+	Currency   string `db:"currency"`
+	Status     string `db:"status"`
+	HolderName string `db:"holder_name"`
+}
+
+// Resolves any in-system account by its external ref for transfer-beneficiary
+// validation. Intentionally not owner-scoped: a caller must be able to confirm
+// the recipient (holder name, currency, status) of an account they don't own
+// before sending an internal transfer. The route still requires authentication;
+// the compact view exposes no balances, user ids, internal UUIDs, or emails.
+func (q *Queries) GetAccountLookupByRef(ctx context.Context, accountRef string) (*GetAccountLookupByRefRow, error) {
+	row := q.db.QueryRow(ctx, getAccountLookupByRef, accountRef)
+	var i GetAccountLookupByRefRow
+	err := row.Scan(
+		&i.AccountRef,
+		&i.Currency,
+		&i.Status,
+		&i.HolderName,
+	)
+	return &i, err
+}
+
 const lockAccountsByIDs = `-- name: LockAccountsByIDs :many
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
-FROM accounts
-WHERE id = ANY($1::uuid [])
-ORDER BY id
+SELECT
+    id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM
+    accounts
+WHERE
+    id = ANY ($1::uuid[])
+ORDER BY
+    id
 FOR UPDATE
 `
 
@@ -247,10 +312,14 @@ func (q *Queries) LockAccountsByIDs(ctx context.Context, ids []pgtype.UUID) ([]*
 }
 
 const lockAccountsByRefs = `-- name: LockAccountsByRefs :many
-SELECT id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
-FROM accounts
-WHERE account_ref = ANY($1::text [])
-ORDER BY account_ref
+SELECT
+    id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM
+    accounts
+WHERE
+    account_ref = ANY ($1::text[])
+ORDER BY
+    account_ref
 FOR UPDATE
 `
 
@@ -289,12 +358,17 @@ func (q *Queries) LockAccountsByRefs(ctx context.Context, refs []string) ([]*Acc
 }
 
 const releaseHold = `-- name: ReleaseHold :one
-UPDATE accounts
-SET hold_balance      = hold_balance - $1,
+UPDATE
+    accounts
+SET
+    hold_balance = hold_balance - $1,
     available_balance = available_balance + $1,
-    updated_at        = now()
-WHERE id = $2
-RETURNING available_balance, hold_balance
+    updated_at = now()
+WHERE
+    id = $2
+RETURNING
+    available_balance,
+    hold_balance
 `
 
 type ReleaseHoldParams struct {
@@ -316,14 +390,19 @@ func (q *Queries) ReleaseHold(ctx context.Context, arg ReleaseHoldParams) (*Rele
 }
 
 const reserveHoldIfSufficient = `-- name: ReserveHoldIfSufficient :one
-UPDATE accounts
-SET available_balance = available_balance - $1,
-    hold_balance      = hold_balance + $1,
-    updated_at        = now()
-WHERE id = $2
-  AND status = 'ACTIVE'
-  AND available_balance >= $1
-RETURNING available_balance, hold_balance
+UPDATE
+    accounts
+SET
+    available_balance = available_balance - $1,
+    hold_balance = hold_balance + $1,
+    updated_at = now()
+WHERE
+    id = $2
+    AND status = 'ACTIVE'
+    AND available_balance >= $1
+RETURNING
+    available_balance,
+    hold_balance
 `
 
 type ReserveHoldIfSufficientParams struct {
@@ -347,9 +426,13 @@ func (q *Queries) ReserveHoldIfSufficient(ctx context.Context, arg ReserveHoldIf
 }
 
 const updateAccountStatus = `-- name: UpdateAccountStatus :exec
-UPDATE accounts
-SET status = $1, updated_at = now()
-WHERE id = $2
+UPDATE
+    accounts
+SET
+    status = $1,
+    updated_at = now()
+WHERE
+    id = $2
 `
 
 type UpdateAccountStatusParams struct {
