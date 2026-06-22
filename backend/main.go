@@ -35,6 +35,11 @@ func main() {
 			},
 			{Name: "consumer", Usage: "Process transfer lifecycle events + retries", Action: mycli.RunConsumer},
 			{
+				Name:   "notification",
+				Usage:  "Consume terminal transfer events and dispatch notifications",
+				Action: mycli.RunNotificationService,
+			},
+			{
 				Name:   "stub-provider",
 				Usage:  "Run the stub payment provider HTTP service (POST /submit)",
 				Action: mycli.RunStubProvider,

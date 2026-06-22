@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"transx/internal/common/consumerretry"
 	"transx/internal/common/kafkatopic"
 	"transx/internal/modules/wallet/domain/entities"
 	"transx/internal/modules/wallet/domain/interfaces"
@@ -29,7 +30,7 @@ type ProviderConsumer struct {
 	client    interfaces.ProviderClient
 	transfers interfaces.TransferRepository
 	inbox     interfaces.InboxRepository
-	retry     retryHelper
+	retry     consumerretry.RetryHelper
 	log       logger.Logger
 }
 
@@ -46,8 +47,10 @@ func NewProviderConsumer(
 		client:    client,
 		transfers: transfers,
 		inbox:     inbox,
-		retry:     retryHelper{producer: producer, log: log, mainTopic: kafkatopic.TransferProviderRequested},
-		log:       log,
+		retry: consumerretry.NewRetryHelper(
+			producer, log, kafkatopic.TransferProviderRequested, kafkatopic.WalletRetryStages(), kafkatopic.WalletDLQ,
+		),
+		log: log,
 	}
 }
 
@@ -68,16 +71,16 @@ func (c *ProviderConsumer) Run(ctx context.Context) error {
 
 // handle processes one message: parse → dedup → submit+settle → commit/escalate.
 func (c *ProviderConsumer) handle(ctx context.Context, msg kafka.Message) {
-	key, err := ParseTransferID(msg.Value)
+	key, err := consumerretry.ParseTransferID(msg.Value)
 	if err != nil {
-		c.retry.toDLQ(ctx, msg, err)
+		c.retry.ToDLQ(ctx, msg, err)
 		c.commit(ctx, msg)
 		return
 	}
 
 	processed, err := c.inbox.IsProcessed(ctx, providerConsumerGroup, key)
 	if err != nil {
-		c.retry.escalateOrDLQ(ctx, msg, err)
+		c.retry.EscalateOrDLQ(ctx, msg, err)
 		c.commit(ctx, msg)
 		return
 	}
@@ -91,7 +94,7 @@ func (c *ProviderConsumer) handle(ctx context.Context, msg kafka.Message) {
 		// Both a transient provider error and a transient DB error (serialization
 		// failure/deadlock) are retried; the message is not marked processed so a
 		// later redelivery re-runs it. The RESERVED guard keeps settle idempotent.
-		c.retry.escalateOrDLQ(ctx, msg, err)
+		c.retry.EscalateOrDLQ(ctx, msg, err)
 		c.commit(ctx, msg)
 		return
 	}

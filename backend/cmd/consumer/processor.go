@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"transx/internal/common/consumerretry"
 	"transx/internal/common/kafkatopic"
 	"transx/internal/modules/wallet/domain/interfaces"
 	"transx/internal/platform/kafka"
@@ -27,7 +28,7 @@ type Processor struct {
 	transfers interfaces.TransferRepository
 	inbox     interfaces.InboxRepository
 	fx        interfaces.FXService
-	retry     retryHelper
+	retry     consumerretry.RetryHelper
 	log       logger.Logger
 }
 
@@ -44,8 +45,10 @@ func NewProcessor(
 		transfers: transfers,
 		inbox:     inbox,
 		fx:        fx,
-		retry:     retryHelper{producer: producer, log: log, mainTopic: kafkatopic.TransferRequested},
-		log:       log,
+		retry: consumerretry.NewRetryHelper(
+			producer, log, kafkatopic.TransferRequested, kafkatopic.WalletRetryStages(), kafkatopic.WalletDLQ,
+		),
+		log: log,
 	}
 }
 
@@ -69,11 +72,11 @@ func (p *Processor) Run(ctx context.Context) error {
 // Handle processes one message: parse → dedup → execute → commit/escalate.
 // Exported for testing.
 func (p *Processor) Handle(ctx context.Context, msg kafka.Message) {
-	key, err := ParseTransferID(msg.Value)
+	key, err := consumerretry.ParseTransferID(msg.Value)
 	if err != nil {
 		// Poison message: cannot ever succeed. Park in the DLQ and commit so it
 		// does not wedge the partition.
-		p.retry.toDLQ(ctx, msg, err)
+		p.retry.ToDLQ(ctx, msg, err)
 		p.commit(ctx, msg)
 		return
 	}
@@ -81,7 +84,7 @@ func (p *Processor) Handle(ctx context.Context, msg kafka.Message) {
 	processed, err := p.inbox.IsProcessed(ctx, consumerGroup, key)
 	if err != nil {
 		// Treat an inbox read failure as transient and retry the whole message.
-		p.retry.escalateOrDLQ(ctx, msg, err)
+		p.retry.EscalateOrDLQ(ctx, msg, err)
 		p.commit(ctx, msg)
 		return
 	}
@@ -93,8 +96,8 @@ func (p *Processor) Handle(ctx context.Context, msg kafka.Message) {
 
 	transferID, _ := uuid.Parse(key) // key already validated by ParseTransferID.
 	if err := p.execute(ctx, transferID); err != nil {
-		if IsTransient(err) {
-			p.retry.escalateOrDLQ(ctx, msg, err)
+		if consumerretry.IsTransient(err) {
+			p.retry.EscalateOrDLQ(ctx, msg, err)
 			p.commit(ctx, msg)
 			return
 		}

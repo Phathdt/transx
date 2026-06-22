@@ -427,14 +427,3 @@ func TestProcessorCommitAndMarkProcessedErrorsAreNonFatal(t *testing.T) {
 
 	assert.Empty(t, producer.published)
 }
-
-func TestRetryHelperPublishErrorsAreNonFatal(t *testing.T) {
-	producer := &internalProducer{err: errors.New("kafka down")}
-	h := NewRetryHelper(producer, logger.New("plain", "error"), kafkatopic.TransferRequested)
-	msg := internalTransferMessage(uuid.New())
-
-	h.EscalateOrDLQ(context.Background(), msg, errors.New("retry"))
-	h.ToDLQ(context.Background(), msg, errors.New("poison"))
-
-	assert.Empty(t, producer.published)
-}
