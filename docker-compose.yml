@@ -210,6 +210,25 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # Consumes terminal transfer events and records notification dispatch attempts.
+  notification:
+    <<: *backend
+    container_name: transx-notification
+    command: ["notification"]
+    environment:
+      <<: *backend-env
+      HTTP__ADDRESS: ":4003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   # Stub payment provider: serves POST /submit. Internal service, no auth, no DB.
   stub-provider:
     <<: *backend

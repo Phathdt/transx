@@ -40,7 +40,7 @@ type CreateTransferCommand struct {
 	// transfers (validated per type in the service, not by a static tag).
 	// nefield guards a self-transfer only when a destination is supplied.
 	ToAccountRef string `json:"toAccountRef"   validate:"omitempty,nefield=FromAccountRef"`
-	Amount       string `json:"amount"         validate:"required,number"`
+	Amount       string `json:"amount"         validate:"required"`
 	Currency     string `json:"currency"       validate:"required,iso4217"`
 	TransferType string `json:"transferType"   validate:"omitempty,oneof=INTERNAL EXTERNAL"`
 }

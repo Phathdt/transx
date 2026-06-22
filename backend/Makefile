@@ -6,7 +6,7 @@ COVERAGE_MIN ?= 90.0
 SQL_FORMATTER ?= pg_format
 SQL_FILES := $(shell find db internal -type f -name '*.sql' 2>/dev/null)
 
-.PHONY: help sqlc proto mock format format-sql vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-stub-provider run-fx clean
+.PHONY: help sqlc proto mock format format-sql vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-notification run-stub-provider run-fx clean
 
 help:
 	@printf "Available targets:\n"
@@ -28,6 +28,7 @@ help:
 	@printf "  run-wallet   Run wallet HTTP API (API only)\n"
 	@printf "  run-replayer Run outbox-replayer (drain outbox to Kafka)\n"
 	@printf "  run-consumer Run transfer consumer (processor + provider + retries)\n"
+	@printf "  run-notification Run notification consumer for terminal transfer events\n"
 	@printf "  run-stub-provider Run stub payment provider HTTP service\n"
 	@printf "  run-fx       Run the FX gRPC service\n"
 	@printf "  clean        Remove local build artifacts\n"
@@ -103,6 +104,9 @@ run-replayer:
 
 run-consumer:
 	HTTP__ADDRESS=:4002 go run . --config config.yaml consumer
+
+run-notification:
+	HTTP__ADDRESS=:4003 go run . --config config.yaml notification
 
 run-stub-provider:
 	go run . --config config.yaml stub-provider

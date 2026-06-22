@@ -23,6 +23,7 @@ go run . --config config.yaml auth            # auth service (ForwardAuth backen
 go run . --config config.yaml wallet          # wallet HTTP API (API only)
 go run . --config config.yaml outbox-replayer # drain outbox to Kafka (single instance)
 go run . --config config.yaml consumer        # transfer processor + provider + retries
+go run . --config config.yaml notification    # terminal transfer event notifications
 go run . --config config.yaml stub-provider   # stub payment provider (POST /submit)
 go run . --config config.yaml fx              # FX service (gRPC Quote + QuoteFee)
 ```
@@ -30,10 +31,12 @@ go run . --config config.yaml fx              # FX service (gRPC Quote + QuoteFe
 The wallet workload is split across independent commands on the one `transx`
 binary so each scales/deploys separately: `wallet` serves only HTTP, the
 background work lives in `outbox-replayer` (drains the outbox to Kafka) and
-`consumer` (processes the transfer lifecycle + retries), and `consumer` reaches
-the payment provider over HTTP via `stub-provider`. FX quoting (rates + fees)
-lives in the standalone `fx` service, which `consumer` reaches over gRPC.
-`outbox-replayer` must stay single-instance (the publisher holds no row lock).
+`consumer` (processes the transfer lifecycle + retries), and `notification`
+(consumes terminal transfer events and records notification audit rows).
+`consumer` reaches the payment provider over HTTP via `stub-provider`. FX quoting
+(rates + fees) lives in the standalone `fx` service, which `consumer` reaches
+over gRPC. `outbox-replayer` must stay single-instance (the publisher holds no
+row lock).
 
 There is no unit-test suite yet; verify by building and exercising endpoints
 with `curl` against a running service (Postgres must be up via `docker compose`).
@@ -41,7 +44,7 @@ with `curl` against a running service (Postgres must be up via `docker compose`)
 ## Architecture conventions
 
 - **Service runners** live in `cli/` (`runAuth`, `runWallet`, `runConsumer`,
-  `runOutboxReplayer`, `runStubProvider`, `runFXService`). Each runner is
+  `runOutboxReplayer`, `runNotificationService`, `runStubProvider`, `runFXService`). Each runner is
   self-contained: load config → init logger → connect Postgres eagerly → build
   module wiring → start `httpserver`/gRPC and/or workers → block on
   signal/errgroup. Mirror an existing runner.

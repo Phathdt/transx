@@ -112,6 +112,7 @@ binary so each scales and deploys separately:
 make run-wallet         # wallet: HTTP API only
 make run-replayer       # outbox-replayer: drain outbox table to Kafka
 make run-consumer       # consumer: transfer processor + provider + retries
+make run-notification   # notification: terminal transfer event notifications
 make run-stub-provider  # stub-provider: fake payment provider (POST /submit)
 make run-fx             # fx: FX quoting service (gRPC Quote + QuoteFee)
 go run . --config config.yaml auth   # auth service (ForwardAuth backend)
@@ -137,7 +138,7 @@ delayed-retry tiers rather than failing the transfer.
 ### Full stack via Compose
 
 ```bash
-docker compose up -d        # traefik + auth + wallet + outbox-replayer + consumer + stub-provider + postgres + redpanda
+docker compose up -d        # traefik + auth + wallet + outbox-replayer + consumer + notification + stub-provider + fx + postgres + redpanda
 ```
 
 A Traefik gateway fronts the backend on `http://localhost:4000`. Login is
@@ -164,6 +165,8 @@ transx [--config|-c config.yaml] <subcommand>
   outbox-replayer
             Drain the wallet outbox table to Kafka (single instance)
   consumer  Process the transfer lifecycle (processor + provider + retries)
+  notification
+            Consume terminal transfer events and dispatch notifications
   stub-provider
             Run the stub payment provider HTTP service (POST /submit)
   fx        Run the FX service (gRPC Quote + QuoteFee)
@@ -190,6 +193,7 @@ make seed           # insert dev users + accounts
 make run-wallet         # wallet HTTP API
 make run-replayer       # outbox-replayer
 make run-consumer       # transfer consumer
+make run-notification   # notification consumer
 make run-stub-provider  # stub payment provider
 make run-fx             # FX gRPC service
 
@@ -214,11 +218,13 @@ flowchart TD
     WALLET["Wallet API\nFiber HTTP :4000\n(API only)"]
     REPLAYER["Outbox Replayer\ndrain outbox → Kafka\n(single instance)"]
     CONSUMER["Consumer\ntransfer processor + provider consumer + retries"]
+    NOTIF["Notification Service\nterminal transfer events → audit rows"]
     FX["FX Service\ngRPC :50051\nQuote + QuoteFee"]
     PG[("PostgreSQL")]
     RP[("Redpanda\ntransfer.requested / provider.requested / completed / failed")]
     PROV["Stub Provider\nFiber HTTP :4100\nPOST /submit"]
     DLQ[("transx.wallet.dlq")]
+    NDLQ[("transx.notification.dlq")]
 
     FE -->|"REST /api/v1"| TR
     TR -->|"/api/v1/login (public)"| AUTH
@@ -230,10 +236,13 @@ flowchart TD
     REPLAYER -->|"poll outbox"| PG
     REPLAYER -->|"publish events"| RP
     RP -->|"consume transfer.requested / provider.requested"| CONSUMER
+    RP -->|"consume transfer.completed / transfer.failed"| NOTIF
     CONSUMER --> PG
+    NOTIF -->|"insert notification audit rows"| PG
     CONSUMER -->|"submit external transfer (HTTP)"| PROV
     CONSUMER -->|"Quote / QuoteFee (gRPC)"| FX
     CONSUMER -.->|"poison / exhausted retries"| DLQ
+    NOTIF -.->|"poison / exhausted retries"| NDLQ
 ```
 
 - **Gateway**: Traefik terminates routing and delegates authentication to the
@@ -252,6 +261,8 @@ flowchart TD
     lifecycle where the provider consumer submits to the payment provider over
     HTTP and settles the outcome (success debits the hold, failure releases it).
     It reaches the `fx` service over gRPC to quote settlement amounts and fees.
+  - **`notification`** consumes terminal transfer events and records EMAIL/PUSH
+    dispatch attempts in the append-only `notifications` audit table.
   - **`stub-provider`** is the fake payment provider reached over HTTP.
 - **FX service** (`fx`) is a standalone gRPC service owning exchange rates and
   cross-currency fees. It is stateless (no Postgres, no Kafka), serving `Quote`
