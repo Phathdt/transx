@@ -17,7 +17,7 @@ help:
 	@printf "  format-sql   Format SQL files with $(SQL_FORMATTER)\n"
 	@printf "  vet          Run go vet\n"
 	@printf "  lint         Run golangci-lint (enforces module boundaries via depguard)\n"
-	@printf "  test         Run go test ./...\n"
+	@printf "  test         Run unit tests with go test -short -p 1 ./...\n"
 	@printf "  test-integration Run tagged integration tests (requires Docker)\n"
 	@printf "  coverage     Run internal/modules tests excluding generated gen and sqlc query packages; require >= $(COVERAGE_MIN)%%\n"
 	@printf "  build        Build transx binary\n"
@@ -70,13 +70,13 @@ lint:
 	golangci-lint run ./...
 
 test:
-	go test ./...
+	go test -short -p 1 ./...
 
 test-integration:
-	go test -count=1 -tags=integration ./... -timeout 120s
+	go test -count=1 -tags=integration -p 1 ./... -timeout 120s
 
 coverage:
-	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/replayer/... | grep -Ev '(/query|/gen)' | xargs go test -coverprofile=$(COVERPROFILE)
+	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/notification/... ./cmd/replayer/... ./internal/common/consumerretry/... | grep -Ev '(/query|/gen)' | xargs go test -coverprofile=$(COVERPROFILE)
 	@coverage="$$(go tool cover -func=$(COVERPROFILE) | awk '/^total:/ {gsub(/%/,"",$$3); print $$3}')"; \
 		echo "modules + workers coverage: $$coverage%"; \
 		awk -v coverage="$$coverage" -v min="$(COVERAGE_MIN)" 'BEGIN { if (coverage + 0 < min + 0) exit 1 }'

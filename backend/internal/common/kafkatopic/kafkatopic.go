@@ -41,6 +41,9 @@ const (
 
 	// WalletDLQ is the wallet service's dead-letter queue.
 	WalletDLQ = "transx.wallet.dlq"
+
+	// NotificationDLQ is the notification service's dead-letter queue.
+	NotificationDLQ = "transx.notification.dlq"
 )
 
 // Delayed-retry topics. A handler that fails on the main topic escalates the
@@ -64,6 +67,10 @@ const (
 	WalletRetry6s  = "transx.wallet.retry-6s"
 	WalletRetry30s = "transx.wallet.retry-30s"
 	WalletRetry5m  = "transx.wallet.retry-5m"
+
+	NotificationRetry6s  = "transx.notification.retry-6s"
+	NotificationRetry30s = "transx.notification.retry-30s"
+	NotificationRetry5m  = "transx.notification.retry-5m"
 )
 
 // Message headers used by the delayed-retry machinery.
@@ -115,6 +122,12 @@ var (
 		{Topic: WalletRetry30s, Delay: 30 * time.Second},
 		{Topic: WalletRetry5m, Delay: 5 * time.Minute},
 	}
+
+	notificationRetryStages = []RetryStage{
+		{Topic: NotificationRetry6s, Delay: 6 * time.Second},
+		{Topic: NotificationRetry30s, Delay: 30 * time.Second},
+		{Topic: NotificationRetry5m, Delay: 5 * time.Minute},
+	}
 )
 
 // OrderRetryStages returns the order service's retry escalation tiers.
@@ -125,6 +138,9 @@ func SettlementRetryStages() []RetryStage { return settlementRetryStages }
 
 // WalletRetryStages returns the wallet service's retry escalation tiers.
 func WalletRetryStages() []RetryStage { return walletRetryStages }
+
+// NotificationRetryStages returns the notification service's retry escalation tiers.
+func NotificationRetryStages() []RetryStage { return notificationRetryStages }
 
 // NextRetryStage returns the retry tier for the given 0-based attempt count and
 // ok=true, or ok=false when the attempts are exhausted and the caller should

@@ -88,7 +88,9 @@ services:
         for topic in \
           transfer.requested transfer.completed transfer.failed \
           transx.wallet.retry-6s transx.wallet.retry-30s transx.wallet.retry-5m \
-          transx.wallet.dlq; do
+          transx.wallet.dlq \
+          transx.notification.retry-6s transx.notification.retry-30s transx.notification.retry-5m \
+          transx.notification.dlq; do
           rpk topic create "$$topic" \
             --brokers redpanda:29092 \
             --partitions 1 \

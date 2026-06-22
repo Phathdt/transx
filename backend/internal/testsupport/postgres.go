@@ -1,12 +1,16 @@
+//go:build integration
+
 package testsupport
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +21,10 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-const postgresImage = "postgres:16-alpine"
+const (
+	postgresImage         = "postgres:16-alpine"
+	postgresContainerName = "transx-integration-postgres"
+)
 
 func NewPostgresPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -31,20 +38,26 @@ func NewPostgresPool(t *testing.T) *pgxpool.Pool {
 		tcpostgres.WithUsername("postgres"),
 		tcpostgres.WithPassword("postgres"),
 		tcpostgres.BasicWaitStrategies(),
+		testcontainers.WithReuseByName(postgresContainerName),
 	)
 	if err != nil {
 		t.Fatalf("start postgres container: %v", err)
 	}
 
-	t.Cleanup(func() {
-		if err := testcontainers.TerminateContainer(container); err != nil {
-			t.Logf("terminate postgres container: %v", err)
-		}
-	})
-
-	connString, err := container.ConnectionString(ctx, "sslmode=disable")
+	adminConnString, err := container.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatalf("postgres connection string: %v", err)
+	}
+
+	databaseName := testDatabaseName()
+	createTestDatabase(ctx, t, adminConnString, databaseName)
+	t.Cleanup(func() {
+		dropTestDatabase(context.Background(), t, adminConnString, databaseName)
+	})
+
+	connString, err := databaseConnectionString(adminConnString, databaseName)
+	if err != nil {
+		t.Fatalf("postgres test database connection string: %v", err)
 	}
 
 	MigrateUp(ctx, t, connString)
@@ -56,6 +69,41 @@ func NewPostgresPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	return pool
+}
+
+func testDatabaseName() string {
+	return fmt.Sprintf("transx_test_%d_%d", os.Getpid(), time.Now().UnixNano())
+}
+
+func createTestDatabase(ctx context.Context, t *testing.T, adminURL, databaseName string) {
+	t.Helper()
+
+	withMigrationDB(ctx, t, adminURL, func(db *sql.DB) error {
+		_, err := db.ExecContext(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName))
+		return err
+	})
+}
+
+func dropTestDatabase(ctx context.Context, t *testing.T, adminURL, databaseName string) {
+	t.Helper()
+
+	withMigrationDB(ctx, t, adminURL, func(db *sql.DB) error {
+		_, err := db.ExecContext(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`)
+		return err
+	})
+}
+
+func databaseConnectionString(adminURL, databaseName string) (string, error) {
+	parsed, err := url.Parse(adminURL)
+	if err != nil {
+		return "", fmt.Errorf("parse postgres connection string: %w", err)
+	}
+	parsed.Path = "/" + databaseName
+	return parsed.String(), nil
+}
+
+func quoteIdentifier(identifier string) string {
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
 func MigrateUp(ctx context.Context, t *testing.T, databaseURL string) {
