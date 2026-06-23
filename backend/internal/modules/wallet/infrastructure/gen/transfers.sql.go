@@ -12,6 +12,33 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const countTransfersByUser = `-- name: CountTransfersByUser :one
+SELECT
+    count(*)
+FROM
+    transfers
+WHERE
+    user_id = $1
+    AND ($2::text IS NULL
+        OR status = $2)
+    AND ($3::text IS NULL
+        OR from_account_ref = $3
+        OR to_account_ref = $3)
+`
+
+type CountTransfersByUserParams struct {
+	UserID     pgtype.UUID `db:"user_id"`
+	Status     *string     `db:"status"`
+	AccountRef *string     `db:"account_ref"`
+}
+
+func (q *Queries) CountTransfersByUser(ctx context.Context, arg CountTransfersByUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countTransfersByUser, arg.UserID, arg.Status, arg.AccountRef)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createTransfer = `-- name: CreateTransfer :one
 INSERT INTO transfers (from_account_ref, to_account_ref, transaction_amount, transaction_currency, transfer_type, provider, status, user_id, idempotency_key, request_hash, reference, fee_amount, fee_currency)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -235,6 +262,83 @@ func (q *Queries) GetTransferByUserAndKey(ctx context.Context, arg GetTransferBy
 		&i.ToAccountRef,
 	)
 	return &i, err
+}
+
+const listTransfersByUser = `-- name: ListTransfersByUser :many
+SELECT
+    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref
+FROM
+    transfers
+WHERE
+    user_id = $1
+    AND ($2::text IS NULL
+        OR status = $2)
+    AND ($3::text IS NULL
+        OR from_account_ref = $3
+        OR to_account_ref = $3)
+ORDER BY
+    created_at DESC,
+    id DESC
+LIMIT $5 OFFSET $4
+`
+
+type ListTransfersByUserParams struct {
+	UserID     pgtype.UUID `db:"user_id"`
+	Status     *string     `db:"status"`
+	AccountRef *string     `db:"account_ref"`
+	Off        int32       `db:"off"`
+	Lim        int32       `db:"lim"`
+}
+
+func (q *Queries) ListTransfersByUser(ctx context.Context, arg ListTransfersByUserParams) ([]*Transfer, error) {
+	rows, err := q.db.Query(ctx, listTransfersByUser,
+		arg.UserID,
+		arg.Status,
+		arg.AccountRef,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Transfer
+	for rows.Next() {
+		var i Transfer
+		if err := rows.Scan(
+			&i.ID,
+			&i.TransactionAmount,
+			&i.TransactionCurrency,
+			&i.TransferType,
+			&i.Provider,
+			&i.ProviderReferenceID,
+			&i.Status,
+			&i.FailureReason,
+			&i.UserID,
+			&i.IdempotencyKey,
+			&i.RequestHash,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Reference,
+			&i.SourceAmount,
+			&i.SourceCurrency,
+			&i.DestinationAmount,
+			&i.DestinationCurrency,
+			&i.SourceFxRate,
+			&i.DestinationFxRate,
+			&i.FeeAmount,
+			&i.FeeCurrency,
+			&i.FromAccountRef,
+			&i.ToAccountRef,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockTransferByID = `-- name: LockTransferByID :one

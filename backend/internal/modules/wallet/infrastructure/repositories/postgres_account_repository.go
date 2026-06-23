@@ -107,3 +107,38 @@ func (r *PostgresAccountRepository) GetLookupByRef(
 		HolderName: row.HolderName,
 	}, nil
 }
+
+func (r *PostgresAccountRepository) ListByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+	currency, status *string,
+	limit, offset int32,
+) ([]*entities.Account, error) {
+	rows, err := r.q.ListAccountsByUser(ctx, gen.ListAccountsByUserParams{
+		UserID:   pgUUID(userID),
+		Currency: currency,
+		Status:   status,
+		Lim:      limit,
+		Off:      offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*entities.Account, len(rows))
+	for i, row := range rows {
+		result[i] = accountToEntity(row)
+	}
+	return result, nil
+}
+
+func (r *PostgresAccountRepository) CountByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+	currency, status *string,
+) (int64, error) {
+	return r.q.CountAccountsByUser(ctx, gen.CountAccountsByUserParams{
+		UserID:   pgUUID(userID),
+		Currency: currency,
+		Status:   status,
+	})
+}

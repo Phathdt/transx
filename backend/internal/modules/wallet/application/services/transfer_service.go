@@ -366,3 +366,59 @@ func decimalString(value decimal.NullDecimal) string {
 	}
 	return value.Decimal.String()
 }
+
+// ListTransfers returns a paginated, owner-scoped list of transfers with optional
+// status and accountRef filters. Invalid filter values are rejected with 400.
+func (s *TransferService) ListTransfers(
+	ctx context.Context,
+	userID uuid.UUID,
+	page, pageSize int,
+	status, accountRef string,
+) (*dto.TransferListResponse, error) {
+	var statusPtr *string
+	if status != "" {
+		switch entities.TransferStatus(status) {
+		case entities.TransferStatusPending,
+			entities.TransferStatusReserved,
+			entities.TransferStatusProcessing,
+			entities.TransferStatusSubmitted,
+			entities.TransferStatusSucceeded,
+			entities.TransferStatusFailed,
+			entities.TransferStatusReversed,
+			entities.TransferStatusUnknown:
+			statusPtr = &status
+		default:
+			return nil, apperror.NewBadRequestError("invalid status")
+		}
+	}
+
+	var accountRefPtr *string
+	if accountRef != "" {
+		if !accountReferencePattern.MatchString(accountRef) {
+			return nil, apperror.NewBadRequestError("invalid accountRef")
+		}
+		accountRefPtr = &accountRef
+	}
+
+	effectivePage, limit, offset := clampPaging(page, pageSize)
+
+	rows, err := s.transfers.ListByUser(ctx, userID, statusPtr, accountRefPtr, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.transfers.CountByUser(ctx, userID, statusPtr, accountRefPtr)
+	if err != nil {
+		return nil, err
+	}
+
+	data := make([]dto.TransferResponse, 0, len(rows))
+	for _, t := range rows {
+		data = append(data, *transferToResponse(t))
+	}
+	return &dto.TransferListResponse{
+		Data:     data,
+		Page:     effectivePage,
+		PageSize: int(limit),
+		Total:    total,
+	}, nil
+}

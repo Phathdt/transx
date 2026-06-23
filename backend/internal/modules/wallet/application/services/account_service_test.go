@@ -363,3 +363,159 @@ func (f fakeAccountLookupClient) LookupAccount(
 ) (*entities.AccountLookup, error) {
 	return f.lookup, f.err
 }
+
+func TestAccountServiceListAccounts(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+
+	newAccount := func(ref, currency string) *entities.Account {
+		return &entities.Account{
+			ID:               uuid.New(),
+			Ref:              ref,
+			UserID:           userID,
+			Currency:         currency,
+			Status:           entities.AccountStatusActive,
+			AvailableBalance: decimal.NewFromInt(100),
+			HoldBalance:      decimal.NewFromInt(0),
+		}
+	}
+
+	t.Run("returns paginated accounts without filters", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accounts := []*entities.Account{
+			newAccount(NewAccountReference(), "USD"),
+			newAccount(NewAccountReference(), "EUR"),
+		}
+		accountRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return(accounts, nil)
+		accountRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(2), nil)
+
+		service := NewAccountService(accountRepo)
+
+		result, err := service.ListAccounts(ctx, userID, 1, 20, "", "")
+
+		require.NoError(t, err)
+		assert.Len(t, result.Data, 2)
+		assert.Equal(t, 1, result.Page)
+		assert.Equal(t, 20, result.PageSize)
+		assert.Equal(t, int64(2), result.Total)
+	})
+
+	t.Run("empty result returns non-nil slice", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accountRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return([]*entities.Account{}, nil)
+		accountRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(0), nil)
+
+		service := NewAccountService(accountRepo)
+
+		result, err := service.ListAccounts(ctx, userID, 1, 20, "", "")
+
+		require.NoError(t, err)
+		assert.NotNil(t, result.Data)
+		assert.Empty(t, result.Data)
+	})
+
+	t.Run("clamps oversized pageSize and negative page", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accountRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(100), int32(0)).
+			Return([]*entities.Account{}, nil)
+		accountRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(0), nil)
+
+		service := NewAccountService(accountRepo)
+
+		result, err := service.ListAccounts(ctx, userID, 0, 999, "", "")
+
+		require.NoError(t, err)
+		assert.Equal(t, 100, result.PageSize)
+		assert.Equal(t, 1, result.Page)
+	})
+
+	t.Run("applies currency and status filters", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accountRepo.EXPECT().
+			ListByUser(ctx, userID, mock.MatchedBy(func(c *string) bool {
+				return c != nil && *c == "USD"
+			}), mock.MatchedBy(func(s *string) bool {
+				return s != nil && *s == "ACTIVE"
+			}), int32(20), int32(0)).
+			Return([]*entities.Account{}, nil)
+		accountRepo.EXPECT().
+			CountByUser(ctx, userID, mock.MatchedBy(func(c *string) bool {
+				return c != nil && *c == "USD"
+			}), mock.MatchedBy(func(s *string) bool {
+				return s != nil && *s == "ACTIVE"
+			})).
+			Return(int64(0), nil)
+
+		service := NewAccountService(accountRepo)
+
+		_, err := service.ListAccounts(ctx, userID, 1, 20, "usd", "ACTIVE")
+
+		require.NoError(t, err)
+	})
+
+	t.Run("unsupported currency returns bad request", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.ListAccounts(ctx, userID, 1, 20, "XYZ", "")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+
+	t.Run("invalid status returns bad request", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.ListAccounts(ctx, userID, 1, 20, "", "BADVALUE")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+
+	t.Run("list repository error propagates", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accountRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return(nil, assert.AnError)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.ListAccounts(ctx, userID, 1, 20, "", "")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+
+	t.Run("count repository error propagates", func(t *testing.T) {
+		accountRepo := testmocks.NewAccountRepository(t)
+		accountRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return([]*entities.Account{}, nil)
+		accountRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(0), assert.AnError)
+		service := NewAccountService(accountRepo)
+
+		result, err := service.ListAccounts(ctx, userID, 1, 20, "", "")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+}

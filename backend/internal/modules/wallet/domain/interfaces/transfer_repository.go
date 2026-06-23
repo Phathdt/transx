@@ -31,4 +31,16 @@ type TransferRepository interface {
 	// (RESERVED → SUCCEEDED on success, → FAILED with hold released on failure).
 	// Idempotent: a transfer not in RESERVED is skipped.
 	SettleExternalTransfer(ctx context.Context, transferID uuid.UUID, result entities.ProviderResult) error
+	// ListByUser returns a page of transfers owned by userID, optionally filtered
+	// by status and accountRef (nil = no filter). accountRef matches either
+	// from_account_ref or to_account_ref.
+	ListByUser(
+		ctx context.Context,
+		userID uuid.UUID,
+		status, accountRef *string,
+		limit, offset int32,
+	) ([]*entities.Transfer, error)
+	// CountByUser returns the total number of transfers owned by userID matching
+	// the optional status and accountRef filters (nil = no filter).
+	CountByUser(ctx context.Context, userID uuid.UUID, status, accountRef *string) (int64, error)
 }

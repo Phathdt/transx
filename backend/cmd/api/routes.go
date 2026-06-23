@@ -71,13 +71,15 @@ func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler) {
 	v1 := r.Group("/api/v1")
 
-	var createAccount, getAccount, lookupAccount, createTransfer, getTransfer fiber.Handler
+	var createAccount, getAccount, lookupAccount, listAccounts, createTransfer, getTransfer, listTransfers fiber.Handler
 	if walletH != nil {
 		createAccount = walletH.CreateAccount
 		getAccount = walletH.GetAccount
 		lookupAccount = walletH.LookupAccount
+		listAccounts = walletH.ListAccounts
 		createTransfer = walletH.CreateTransfer
 		getTransfer = walletH.GetTransfer
+		listTransfers = walletH.ListTransfers
 	}
 
 	v1.Post("/accounts", createAccount).With(
@@ -86,6 +88,17 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 		option.Summary("Create a wallet account for the caller"),
 		option.Request(new(walletdto.CreateAccountCommand), option.ContentRequired()),
 		option.Response(fiber.StatusCreated, new(walletdto.AccountResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Get("/accounts", listAccounts).With(
+		option.Tags("wallet"),
+		option.OperationID("listAccounts"),
+		option.Summary("List the caller's wallet accounts, paginated, with optional currency and status filters"),
+		option.Request(new(walletdto.ListAccountsQuery)),
+		option.Response(fiber.StatusOK, new(walletdto.AccountListResponse)),
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
@@ -123,6 +136,17 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 		option.Response(fiber.StatusForbidden, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusConflict, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnprocessableEntity, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Get("/transfers", listTransfers).With(
+		option.Tags("wallet"),
+		option.OperationID("listTransfers"),
+		option.Summary("List the caller's transfers, paginated, with optional status and accountRef filters"),
+		option.Request(new(walletdto.ListTransfersQuery)),
+		option.Response(fiber.StatusOK, new(walletdto.TransferListResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
 	)
 

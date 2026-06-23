@@ -25,6 +25,65 @@ func (_m *TransferRepository) EXPECT() *TransferRepository_Expecter {
 	return &TransferRepository_Expecter{mock: &_m.Mock}
 }
 
+// CountByUser provides a mock function with given fields: ctx, userID, status, accountRef
+func (_m *TransferRepository) CountByUser(ctx context.Context, userID uuid.UUID, status *string, accountRef *string) (int64, error) {
+	ret := _m.Called(ctx, userID, status, accountRef)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountByUser")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string) (int64, error)); ok {
+		return rf(ctx, userID, status, accountRef)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string) int64); ok {
+		r0 = rf(ctx, userID, status, accountRef)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, *string, *string) error); ok {
+		r1 = rf(ctx, userID, status, accountRef)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// TransferRepository_CountByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountByUser'
+type TransferRepository_CountByUser_Call struct {
+	*mock.Call
+}
+
+// CountByUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uuid.UUID
+//   - status *string
+//   - accountRef *string
+func (_e *TransferRepository_Expecter) CountByUser(ctx interface{}, userID interface{}, status interface{}, accountRef interface{}) *TransferRepository_CountByUser_Call {
+	return &TransferRepository_CountByUser_Call{Call: _e.mock.On("CountByUser", ctx, userID, status, accountRef)}
+}
+
+func (_c *TransferRepository_CountByUser_Call) Run(run func(ctx context.Context, userID uuid.UUID, status *string, accountRef *string)) *TransferRepository_CountByUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(*string), args[3].(*string))
+	})
+	return _c
+}
+
+func (_c *TransferRepository_CountByUser_Call) Return(_a0 int64, _a1 error) *TransferRepository_CountByUser_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *TransferRepository_CountByUser_Call) RunAndReturn(run func(context.Context, uuid.UUID, *string, *string) (int64, error)) *TransferRepository_CountByUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function with given fields: ctx, t
 func (_m *TransferRepository) Create(ctx context.Context, t *entities.Transfer) (*entities.Transfer, error) {
 	ret := _m.Called(ctx, t)
@@ -307,6 +366,69 @@ func (_c *TransferRepository_GetByReferenceForUser_Call) Return(_a0 *entities.Tr
 }
 
 func (_c *TransferRepository_GetByReferenceForUser_Call) RunAndReturn(run func(context.Context, string, uuid.UUID) (*entities.Transfer, error)) *TransferRepository_GetByReferenceForUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByUser provides a mock function with given fields: ctx, userID, status, accountRef, limit, offset
+func (_m *TransferRepository) ListByUser(ctx context.Context, userID uuid.UUID, status *string, accountRef *string, limit int32, offset int32) ([]*entities.Transfer, error) {
+	ret := _m.Called(ctx, userID, status, accountRef, limit, offset)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByUser")
+	}
+
+	var r0 []*entities.Transfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string, int32, int32) ([]*entities.Transfer, error)); ok {
+		return rf(ctx, userID, status, accountRef, limit, offset)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string, int32, int32) []*entities.Transfer); ok {
+		r0 = rf(ctx, userID, status, accountRef, limit, offset)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entities.Transfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, *string, *string, int32, int32) error); ok {
+		r1 = rf(ctx, userID, status, accountRef, limit, offset)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// TransferRepository_ListByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUser'
+type TransferRepository_ListByUser_Call struct {
+	*mock.Call
+}
+
+// ListByUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uuid.UUID
+//   - status *string
+//   - accountRef *string
+//   - limit int32
+//   - offset int32
+func (_e *TransferRepository_Expecter) ListByUser(ctx interface{}, userID interface{}, status interface{}, accountRef interface{}, limit interface{}, offset interface{}) *TransferRepository_ListByUser_Call {
+	return &TransferRepository_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID, status, accountRef, limit, offset)}
+}
+
+func (_c *TransferRepository_ListByUser_Call) Run(run func(ctx context.Context, userID uuid.UUID, status *string, accountRef *string, limit int32, offset int32)) *TransferRepository_ListByUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(*string), args[3].(*string), args[4].(int32), args[5].(int32))
+	})
+	return _c
+}
+
+func (_c *TransferRepository_ListByUser_Call) Return(_a0 []*entities.Transfer, _a1 error) *TransferRepository_ListByUser_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *TransferRepository_ListByUser_Call) RunAndReturn(run func(context.Context, uuid.UUID, *string, *string, int32, int32) ([]*entities.Transfer, error)) *TransferRepository_ListByUser_Call {
 	_c.Call.Return(run)
 	return _c
 }

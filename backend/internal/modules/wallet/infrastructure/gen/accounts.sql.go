@@ -12,6 +12,32 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const countAccountsByUser = `-- name: CountAccountsByUser :one
+SELECT
+    count(*)
+FROM
+    accounts
+WHERE
+    user_id = $1
+    AND ($2::text IS NULL
+        OR currency = $2)
+    AND ($3::text IS NULL
+        OR status = $3)
+`
+
+type CountAccountsByUserParams struct {
+	UserID   pgtype.UUID `db:"user_id"`
+	Currency *string     `db:"currency"`
+	Status   *string     `db:"status"`
+}
+
+func (q *Queries) CountAccountsByUser(ctx context.Context, arg CountAccountsByUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAccountsByUser, arg.UserID, arg.Currency, arg.Status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAccount = `-- name: CreateAccount :one
 INSERT INTO accounts (user_id, name, currency, available_balance, hold_balance, status, account_ref)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -264,6 +290,68 @@ func (q *Queries) GetAccountLookupByRef(ctx context.Context, accountRef string) 
 		&i.HolderName,
 	)
 	return &i, err
+}
+
+const listAccountsByUser = `-- name: ListAccountsByUser :many
+SELECT
+    id, user_id, name, currency, available_balance, hold_balance, status, created_at, updated_at, account_ref
+FROM
+    accounts
+WHERE
+    user_id = $1
+    AND ($2::text IS NULL
+        OR currency = $2)
+    AND ($3::text IS NULL
+        OR status = $3)
+ORDER BY
+    created_at DESC,
+    id DESC
+LIMIT $5 OFFSET $4
+`
+
+type ListAccountsByUserParams struct {
+	UserID   pgtype.UUID `db:"user_id"`
+	Currency *string     `db:"currency"`
+	Status   *string     `db:"status"`
+	Off      int32       `db:"off"`
+	Lim      int32       `db:"lim"`
+}
+
+func (q *Queries) ListAccountsByUser(ctx context.Context, arg ListAccountsByUserParams) ([]*Account, error) {
+	rows, err := q.db.Query(ctx, listAccountsByUser,
+		arg.UserID,
+		arg.Currency,
+		arg.Status,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Account
+	for rows.Next() {
+		var i Account
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.Currency,
+			&i.AvailableBalance,
+			&i.HoldBalance,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AccountRef,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockAccountsByIDs = `-- name: LockAccountsByIDs :many

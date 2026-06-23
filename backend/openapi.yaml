@@ -7,6 +7,56 @@ servers:
   - url: /api/v1
 paths:
   /accounts:
+    get:
+      tags:
+        - wallet
+      summary: List the caller's wallet accounts, paginated, with optional currency and status filters
+      description: List the caller's wallet accounts, paginated, with optional currency and status filters
+      operationId: listAccounts
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: currency
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoAccountListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
     post:
       tags:
         - wallet
@@ -186,6 +236,56 @@ paths:
               schema:
                 $ref: '#/components/schemas/HandlersErrorResponse'
   /transfers:
+    get:
+      tags:
+        - wallet
+      summary: List the caller's transfers, paginated, with optional status and accountRef filters
+      description: List the caller's transfers, paginated, with optional status and accountRef filters
+      operationId: listTransfers
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: accountRef
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoTransferListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
     post:
       tags:
         - wallet
@@ -308,6 +408,22 @@ paths:
                 $ref: '#/components/schemas/HandlersErrorResponse'
 components:
   schemas:
+    DtoAccountListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DtoAccountResponse'
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
     DtoAccountLookupResponse:
       type: object
       properties:
@@ -360,6 +476,22 @@ components:
           type: string
         userId:
           type: string
+    DtoTransferListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DtoTransferResponse'
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
     DtoTransferResponse:
       type: object
       properties:

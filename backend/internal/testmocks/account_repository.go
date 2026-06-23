@@ -24,6 +24,65 @@ func (_m *AccountRepository) EXPECT() *AccountRepository_Expecter {
 	return &AccountRepository_Expecter{mock: &_m.Mock}
 }
 
+// CountByUser provides a mock function with given fields: ctx, userID, currency, status
+func (_m *AccountRepository) CountByUser(ctx context.Context, userID uuid.UUID, currency *string, status *string) (int64, error) {
+	ret := _m.Called(ctx, userID, currency, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountByUser")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string) (int64, error)); ok {
+		return rf(ctx, userID, currency, status)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string) int64); ok {
+		r0 = rf(ctx, userID, currency, status)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, *string, *string) error); ok {
+		r1 = rf(ctx, userID, currency, status)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AccountRepository_CountByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountByUser'
+type AccountRepository_CountByUser_Call struct {
+	*mock.Call
+}
+
+// CountByUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uuid.UUID
+//   - currency *string
+//   - status *string
+func (_e *AccountRepository_Expecter) CountByUser(ctx interface{}, userID interface{}, currency interface{}, status interface{}) *AccountRepository_CountByUser_Call {
+	return &AccountRepository_CountByUser_Call{Call: _e.mock.On("CountByUser", ctx, userID, currency, status)}
+}
+
+func (_c *AccountRepository_CountByUser_Call) Run(run func(ctx context.Context, userID uuid.UUID, currency *string, status *string)) *AccountRepository_CountByUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(*string), args[3].(*string))
+	})
+	return _c
+}
+
+func (_c *AccountRepository_CountByUser_Call) Return(_a0 int64, _a1 error) *AccountRepository_CountByUser_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AccountRepository_CountByUser_Call) RunAndReturn(run func(context.Context, uuid.UUID, *string, *string) (int64, error)) *AccountRepository_CountByUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function with given fields: ctx, a
 func (_m *AccountRepository) Create(ctx context.Context, a *entities.Account) (*entities.Account, error) {
 	ret := _m.Called(ctx, a)
@@ -316,6 +375,69 @@ func (_c *AccountRepository_GetLookupByRef_Call) Return(_a0 *entities.AccountLoo
 }
 
 func (_c *AccountRepository_GetLookupByRef_Call) RunAndReturn(run func(context.Context, string) (*entities.AccountLookup, error)) *AccountRepository_GetLookupByRef_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByUser provides a mock function with given fields: ctx, userID, currency, status, limit, offset
+func (_m *AccountRepository) ListByUser(ctx context.Context, userID uuid.UUID, currency *string, status *string, limit int32, offset int32) ([]*entities.Account, error) {
+	ret := _m.Called(ctx, userID, currency, status, limit, offset)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByUser")
+	}
+
+	var r0 []*entities.Account
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string, int32, int32) ([]*entities.Account, error)); ok {
+		return rf(ctx, userID, currency, status, limit, offset)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, *string, *string, int32, int32) []*entities.Account); ok {
+		r0 = rf(ctx, userID, currency, status, limit, offset)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entities.Account)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, *string, *string, int32, int32) error); ok {
+		r1 = rf(ctx, userID, currency, status, limit, offset)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AccountRepository_ListByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUser'
+type AccountRepository_ListByUser_Call struct {
+	*mock.Call
+}
+
+// ListByUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uuid.UUID
+//   - currency *string
+//   - status *string
+//   - limit int32
+//   - offset int32
+func (_e *AccountRepository_Expecter) ListByUser(ctx interface{}, userID interface{}, currency interface{}, status interface{}, limit interface{}, offset interface{}) *AccountRepository_ListByUser_Call {
+	return &AccountRepository_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID, currency, status, limit, offset)}
+}
+
+func (_c *AccountRepository_ListByUser_Call) Run(run func(ctx context.Context, userID uuid.UUID, currency *string, status *string, limit int32, offset int32)) *AccountRepository_ListByUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(*string), args[3].(*string), args[4].(int32), args[5].(int32))
+	})
+	return _c
+}
+
+func (_c *AccountRepository_ListByUser_Call) Return(_a0 []*entities.Account, _a1 error) *AccountRepository_ListByUser_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AccountRepository_ListByUser_Call) RunAndReturn(run func(context.Context, uuid.UUID, *string, *string, int32, int32) ([]*entities.Account, error)) *AccountRepository_ListByUser_Call {
 	_c.Call.Return(run)
 	return _c
 }

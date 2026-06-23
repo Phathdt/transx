@@ -23,4 +23,15 @@ type AccountRepository interface {
 	// before an internal transfer. HolderName comes from the owner identity, not
 	// the wallet account label.
 	GetLookupByRef(ctx context.Context, ref string) (*entities.AccountLookup, error)
+	// ListByUser returns a page of accounts owned by userID, optionally filtered
+	// by currency and status (nil = no filter).
+	ListByUser(
+		ctx context.Context,
+		userID uuid.UUID,
+		currency, status *string,
+		limit, offset int32,
+	) ([]*entities.Account, error)
+	// CountByUser returns the total number of accounts owned by userID matching
+	// the optional currency and status filters (nil = no filter).
+	CountByUser(ctx context.Context, userID uuid.UUID, currency, status *string) (int64, error)
 }

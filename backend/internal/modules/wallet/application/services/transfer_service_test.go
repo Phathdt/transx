@@ -846,3 +846,153 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		_ = accountRepo
 	})
 }
+
+func TestTransferServiceListTransfers(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+
+	newService := func(t *testing.T) (*testmocks.TransferRepository, *TransferService) {
+		t.Helper()
+		transferRepo := testmocks.NewTransferRepository(t)
+		accountRepo := testmocks.NewAccountRepository(t)
+		return transferRepo, NewTransferService(transferRepo, accountRepo, "stub-provider")
+	}
+
+	newTransfer := func() *entities.Transfer {
+		return &entities.Transfer{
+			ID:                  uuid.New(),
+			Reference:           NewTransferReference(transferTypeInternal),
+			FromAccountRef:      NewAccountReference(),
+			TransactionAmount:   decimal.NewFromInt(10),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        transferTypeInternal,
+			Status:              entities.TransferStatusSucceeded,
+			UserID:              userID,
+		}
+	}
+
+	t.Run("returns paginated transfers without filters", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transfers := []*entities.Transfer{newTransfer(), newTransfer()}
+		transferRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return(transfers, nil)
+		transferRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(2), nil)
+
+		result, err := service.ListTransfers(ctx, userID, 1, 20, "", "")
+
+		require.NoError(t, err)
+		assert.Len(t, result.Data, 2)
+		assert.Equal(t, int64(2), result.Total)
+	})
+
+	t.Run("empty result returns non-nil slice", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transferRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return([]*entities.Transfer{}, nil)
+		transferRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(0), nil)
+
+		result, err := service.ListTransfers(ctx, userID, 1, 20, "", "")
+
+		require.NoError(t, err)
+		assert.NotNil(t, result.Data)
+		assert.Empty(t, result.Data)
+	})
+
+	t.Run("clamps oversized pageSize and negative page", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transferRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(100), int32(0)).
+			Return([]*entities.Transfer{}, nil)
+		transferRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(0), nil)
+
+		result, err := service.ListTransfers(ctx, userID, -5, 999, "", "")
+
+		require.NoError(t, err)
+		assert.Equal(t, 100, result.PageSize)
+		assert.Equal(t, 1, result.Page)
+	})
+
+	t.Run("applies status and accountRef filters", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		accountRef := NewAccountReference()
+		transferRepo.EXPECT().
+			ListByUser(ctx, userID, mock.MatchedBy(func(s *string) bool {
+				return s != nil && *s == "SUCCEEDED"
+			}), mock.MatchedBy(func(a *string) bool {
+				return a != nil && *a == accountRef
+			}), int32(20), int32(0)).
+			Return([]*entities.Transfer{}, nil)
+		transferRepo.EXPECT().
+			CountByUser(ctx, userID, mock.MatchedBy(func(s *string) bool {
+				return s != nil && *s == "SUCCEEDED"
+			}), mock.MatchedBy(func(a *string) bool {
+				return a != nil && *a == accountRef
+			})).
+			Return(int64(0), nil)
+
+		_, err := service.ListTransfers(ctx, userID, 1, 20, "SUCCEEDED", accountRef)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("invalid status returns bad request", func(t *testing.T) {
+		_, service := newService(t)
+
+		result, err := service.ListTransfers(ctx, userID, 1, 20, "BADVALUE", "")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+
+	t.Run("malformed accountRef returns bad request", func(t *testing.T) {
+		_, service := newService(t)
+
+		result, err := service.ListTransfers(ctx, userID, 1, 20, "", "not-a-ref")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, 400, appErr.Status)
+	})
+
+	t.Run("list repository error propagates", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transferRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return(nil, assert.AnError)
+
+		result, err := service.ListTransfers(ctx, userID, 1, 20, "", "")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+
+	t.Run("count repository error propagates", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transferRepo.EXPECT().
+			ListByUser(ctx, userID, (*string)(nil), (*string)(nil), int32(20), int32(0)).
+			Return([]*entities.Transfer{}, nil)
+		transferRepo.EXPECT().
+			CountByUser(ctx, userID, (*string)(nil), (*string)(nil)).
+			Return(int64(0), assert.AnError)
+
+		result, err := service.ListTransfers(ctx, userID, 1, 20, "", "")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+}

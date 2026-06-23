@@ -70,3 +70,39 @@ type TransferResponse struct {
 type TransferEventPayload struct {
 	TransferID string `json:"transferId"`
 }
+
+// AccountListResponse is the paginated list of accounts returned to clients.
+type AccountListResponse struct {
+	Data     []AccountResponse `json:"data"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"pageSize"`
+	Total    int64             `json:"total"`
+}
+
+// TransferListResponse is the paginated list of transfers returned to clients.
+type TransferListResponse struct {
+	Data     []TransferResponse `json:"data"`
+	Page     int                `json:"page"`
+	PageSize int                `json:"pageSize"`
+	Total    int64              `json:"total"`
+}
+
+// ListAccountsQuery documents the GET /accounts query params for the OpenAPI
+// spec. Validation/clamp happens in the service, not via these tags. Fields
+// carry only the query tag (no json) so they render as query params, not a body.
+type ListAccountsQuery struct {
+	Page     int    `query:"page"`
+	PageSize int    `query:"pageSize"`
+	Currency string `query:"currency"`
+	Status   string `query:"status"`
+}
+
+// ListTransfersQuery documents the GET /transfers query params for the OpenAPI
+// spec. Validation/clamp happens in the service, not via these tags. Fields
+// carry only the query tag (no json) so they render as query params, not a body.
+type ListTransfersQuery struct {
+	Page       int    `query:"page"`
+	PageSize   int    `query:"pageSize"`
+	Status     string `query:"status"`
+	AccountRef string `query:"accountRef"`
+}

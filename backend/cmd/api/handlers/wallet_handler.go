@@ -110,3 +110,45 @@ func (h *WalletHandler) GetTransfer(c *fiber.Ctx) error {
 	}
 	return c.JSON(resp)
 }
+
+// ListAccounts handles GET /accounts: an owner-scoped, paginated list of the
+// caller's accounts with optional currency and status filters.
+func (h *WalletHandler) ListAccounts(c *fiber.Ctx) error {
+	userID, ok := middleware.UserIDFrom(c)
+	if !ok {
+		return apperror.NewUnauthorizedError("missing X-User-Id")
+	}
+	resp, err := h.accounts.ListAccounts(
+		c.Context(),
+		userID,
+		c.QueryInt("page", 1),
+		c.QueryInt("pageSize", 20),
+		c.Query("currency"),
+		c.Query("status"),
+	)
+	if err != nil {
+		return err
+	}
+	return c.JSON(resp)
+}
+
+// ListTransfers handles GET /transfers: an owner-scoped, paginated list of the
+// caller's transfers with optional status and accountRef filters.
+func (h *WalletHandler) ListTransfers(c *fiber.Ctx) error {
+	userID, ok := middleware.UserIDFrom(c)
+	if !ok {
+		return apperror.NewUnauthorizedError("missing X-User-Id")
+	}
+	resp, err := h.transfers.ListTransfers(
+		c.Context(),
+		userID,
+		c.QueryInt("page", 1),
+		c.QueryInt("pageSize", 20),
+		c.Query("status"),
+		c.Query("accountRef"),
+	)
+	if err != nil {
+		return err
+	}
+	return c.JSON(resp)
+}

@@ -679,4 +679,69 @@ func TestPostgresTransferRepository(t *testing.T) {
 		assert.NotZero(t, found.CreatedAt)
 		assert.NotZero(t, found.UpdatedAt)
 	})
+
+	t.Run("ListByUser and CountByUser paginate and filter owner-scoped", func(t *testing.T) {
+		repo := transferRepo
+
+		listUser := createTestUser(ctx, t, pool, "transfer-list-"+uuid.New().String()+"@example.com")
+		listFrom := createTestAccount(ctx, t, accountRepo, listUser, "USD", decimal.NewFromInt(1000))
+		listTo := createTestAccount(ctx, t, accountRepo, listUser, "USD", decimal.NewFromInt(0))
+
+		newTransfer := func(owner uuid.UUID, status entities.TransferStatus, from, to string) {
+			_, err := repo.Create(ctx, &entities.Transfer{
+				FromAccountRef:      from,
+				ToAccountRef:        to,
+				TransactionAmount:   decimal.NewFromInt(10),
+				TransactionCurrency: "USD",
+				FeeAmount:           decimal.Zero,
+				FeeCurrency:         "USD",
+				TransferType:        "INTERNAL",
+				Status:              status,
+				UserID:              owner,
+				IdempotencyKey:      "list-key-" + uuid.New().String(),
+				RequestHash:         "hash-" + uuid.New().String()[:8],
+				Reference:           walletservices.NewTransferReference("INTERNAL"),
+			})
+			require.NoError(t, err)
+		}
+
+		// Two SUCCEEDED out of listFrom, one PENDING into listTo for the list user;
+		// one for another user that must not leak.
+		newTransfer(listUser, entities.TransferStatusSucceeded, listFrom.Ref, listTo.Ref)
+		newTransfer(listUser, entities.TransferStatusSucceeded, listFrom.Ref, listTo.Ref)
+		newTransfer(listUser, entities.TransferStatusPending, listTo.Ref, listFrom.Ref)
+		newTransfer(userID, entities.TransferStatusSucceeded, fromAccount.Ref, toAccount.Ref)
+
+		// No filter: only the list user's three transfers, owner-scoped.
+		all, err := repo.ListByUser(ctx, listUser, nil, nil, 10, 0)
+		require.NoError(t, err)
+		assert.Len(t, all, 3)
+		total, err := repo.CountByUser(ctx, listUser, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(3), total)
+
+		// Status filter narrows to the two SUCCEEDED transfers.
+		succeeded := string(entities.TransferStatusSucceeded)
+		succeededRows, err := repo.ListByUser(ctx, listUser, &succeeded, nil, 10, 0)
+		require.NoError(t, err)
+		assert.Len(t, succeededRows, 2)
+		succeededTotal, err := repo.CountByUser(ctx, listUser, &succeeded, nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), succeededTotal)
+
+		// accountRef filter matches either from or to: all three reference listFrom.
+		fromRef := listFrom.Ref
+		refRows, err := repo.CountByUser(ctx, listUser, nil, &fromRef)
+		require.NoError(t, err)
+		assert.Equal(t, int64(3), refRows)
+
+		// Limit/offset paginate within the filtered set.
+		page1, err := repo.ListByUser(ctx, listUser, &succeeded, nil, 1, 0)
+		require.NoError(t, err)
+		assert.Len(t, page1, 1)
+		page2, err := repo.ListByUser(ctx, listUser, &succeeded, nil, 1, 1)
+		require.NoError(t, err)
+		assert.Len(t, page2, 1)
+		assert.NotEqual(t, page1[0].Reference, page2[0].Reference)
+	})
 }

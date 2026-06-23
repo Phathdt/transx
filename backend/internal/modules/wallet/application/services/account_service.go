@@ -14,6 +14,35 @@ import (
 	"transx/internal/modules/wallet/domain/interfaces"
 )
 
+const (
+	defaultPageSize = 20
+	maxPageSize     = 100
+	// maxOffset bounds the computed offset to the int32 range sqlc/Postgres
+	// accept, so an absurdly large page cannot overflow into a negative offset
+	// (which Postgres rejects, surfacing as a 500).
+	maxOffset = 1<<31 - 1
+)
+
+// clampPaging normalises page/pageSize and returns the effective page (echoed
+// back to the client so the response matches the data served) plus the
+// limit/offset for sqlc.
+func clampPaging(page, pageSize int) (effectivePage int, limit, offset int32) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = defaultPageSize
+	}
+	if pageSize > maxPageSize {
+		pageSize = maxPageSize
+	}
+	off := int64(page-1) * int64(pageSize)
+	if off > maxOffset {
+		off = maxOffset
+	}
+	return page, int32(pageSize), int32(off)
+}
+
 // NewAccountReference builds an account's external business id: ACC- + ULID.
 // The ULID is generated at the application layer (time + entropy), independent
 // of the DB-assigned UUID primary key, mirroring the transfer reference scheme.
@@ -164,4 +193,54 @@ func accountLookupToResponse(a *entities.AccountLookup) *dto.AccountLookupRespon
 		Status:     a.Status,
 		HolderName: a.HolderName,
 	}
+}
+
+// ListAccounts returns a paginated, owner-scoped list of accounts with optional
+// currency and status filters. Invalid filter values are rejected with 400.
+func (s *AccountService) ListAccounts(
+	ctx context.Context,
+	userID uuid.UUID,
+	page, pageSize int,
+	currency, status string,
+) (*dto.AccountListResponse, error) {
+	var currencyPtr *string
+	if currency != "" {
+		normalized := normalizeCurrency(currency)
+		if !isSupportedCurrency(normalized) {
+			return nil, apperror.NewBadRequestError("unsupported currency")
+		}
+		currencyPtr = &normalized
+	}
+
+	var statusPtr *string
+	if status != "" {
+		switch entities.AccountStatus(status) {
+		case entities.AccountStatusActive, entities.AccountStatusFrozen, entities.AccountStatusClosed:
+			statusPtr = &status
+		default:
+			return nil, apperror.NewBadRequestError("invalid status")
+		}
+	}
+
+	effectivePage, limit, offset := clampPaging(page, pageSize)
+
+	rows, err := s.accounts.ListByUser(ctx, userID, currencyPtr, statusPtr, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.accounts.CountByUser(ctx, userID, currencyPtr, statusPtr)
+	if err != nil {
+		return nil, err
+	}
+
+	data := make([]dto.AccountResponse, 0, len(rows))
+	for _, a := range rows {
+		data = append(data, *accountToResponse(a))
+	}
+	return &dto.AccountListResponse{
+		Data:     data,
+		Page:     effectivePage,
+		PageSize: int(limit),
+		Total:    total,
+	}, nil
 }

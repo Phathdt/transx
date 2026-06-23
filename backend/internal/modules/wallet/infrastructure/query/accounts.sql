@@ -157,3 +157,31 @@ RETURNING
     available_balance,
     hold_balance;
 
+-- name: ListAccountsByUser :many
+SELECT
+    *
+FROM
+    accounts
+WHERE
+    user_id = @user_id
+    AND (sqlc.narg ('currency')::text IS NULL
+        OR currency = sqlc.narg ('currency'))
+    AND (sqlc.narg ('status')::text IS NULL
+        OR status = sqlc.narg ('status'))
+ORDER BY
+    created_at DESC,
+    id DESC
+LIMIT sqlc.arg ('lim') OFFSET sqlc.arg ('off');
+
+-- name: CountAccountsByUser :one
+SELECT
+    count(*)
+FROM
+    accounts
+WHERE
+    user_id = @user_id
+    AND (sqlc.narg ('currency')::text IS NULL
+        OR currency = sqlc.narg ('currency'))
+    AND (sqlc.narg ('status')::text IS NULL
+        OR status = sqlc.narg ('status'));
+

@@ -335,3 +335,38 @@ func insertTransferOutbox(
 	})
 	return err
 }
+
+func (r *PostgresTransferRepository) ListByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+	status, accountRef *string,
+	limit, offset int32,
+) ([]*entities.Transfer, error) {
+	rows, err := r.q.ListTransfersByUser(ctx, gen.ListTransfersByUserParams{
+		UserID:     pgUUID(userID),
+		Status:     status,
+		AccountRef: accountRef,
+		Lim:        limit,
+		Off:        offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*entities.Transfer, len(rows))
+	for i, row := range rows {
+		result[i] = transferToEntity(row)
+	}
+	return result, nil
+}
+
+func (r *PostgresTransferRepository) CountByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+	status, accountRef *string,
+) (int64, error) {
+	return r.q.CountTransfersByUser(ctx, gen.CountTransfersByUserParams{
+		UserID:     pgUUID(userID),
+		Status:     status,
+		AccountRef: accountRef,
+	})
+}

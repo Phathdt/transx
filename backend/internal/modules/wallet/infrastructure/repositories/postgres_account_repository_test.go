@@ -4,6 +4,7 @@ package repositories_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -293,5 +294,68 @@ func TestPostgresAccountRepository(t *testing.T) {
 		assert.True(t, created.CreatedAt.Before(after.Add(1*time.Second)))
 		assert.True(t, created.UpdatedAt.After(before.Add(-1*time.Second)))
 		assert.True(t, created.UpdatedAt.Before(after.Add(1*time.Second)))
+	})
+
+	t.Run("ListByUser and CountByUser paginate and filter owner-scoped", func(t *testing.T) {
+		listUser := createTestUser(ctx, t, pool, "account-list-"+uuid.New().String()+"@example.com")
+
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer tx.Rollback(ctx) //nolint:errcheck
+
+		accountQueries := walletquery.New(tx)
+		accountRepo := walletrepos.NewPostgresAccountRepository(accountQueries)
+
+		// Two USD + one EUR for the list user; one for another user (must not leak).
+		for i, cur := range []string{"USD", "USD", "EUR"} {
+			_, err := accountRepo.Create(ctx, &walletentities.Account{
+				Ref:      walletservices.NewAccountReference(),
+				UserID:   listUser,
+				Name:     fmt.Sprintf("%s Account %d", cur, i),
+				Currency: cur,
+				Status:   walletentities.AccountStatusActive,
+			})
+			require.NoError(t, err)
+		}
+		_, err = accountRepo.Create(ctx, &walletentities.Account{
+			Ref:      walletservices.NewAccountReference(),
+			UserID:   userID,
+			Name:     "Other Owner",
+			Currency: "USD",
+			Status:   walletentities.AccountStatusActive,
+		})
+		require.NoError(t, err)
+
+		// No filter: all three of the list user's accounts, owner-scoped.
+		all, err := accountRepo.ListByUser(ctx, listUser, nil, nil, 10, 0)
+		require.NoError(t, err)
+		assert.Len(t, all, 3)
+		total, err := accountRepo.CountByUser(ctx, listUser, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(3), total)
+
+		// Currency filter narrows to the two USD accounts.
+		usd := "USD"
+		usdRows, err := accountRepo.ListByUser(ctx, listUser, &usd, nil, 10, 0)
+		require.NoError(t, err)
+		assert.Len(t, usdRows, 2)
+		usdTotal, err := accountRepo.CountByUser(ctx, listUser, &usd, nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), usdTotal)
+
+		// Limit/offset paginate within the filtered set.
+		page1, err := accountRepo.ListByUser(ctx, listUser, &usd, nil, 1, 0)
+		require.NoError(t, err)
+		assert.Len(t, page1, 1)
+		page2, err := accountRepo.ListByUser(ctx, listUser, &usd, nil, 1, 1)
+		require.NoError(t, err)
+		assert.Len(t, page2, 1)
+		assert.NotEqual(t, page1[0].Ref, page2[0].Ref)
+
+		// Status filter with no match yields an empty page.
+		frozen := string(walletentities.AccountStatusFrozen)
+		none, err := accountRepo.ListByUser(ctx, listUser, nil, &frozen, 10, 0)
+		require.NoError(t, err)
+		assert.Empty(t, none)
 	})
 }

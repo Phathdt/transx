@@ -86,3 +86,33 @@ SET
 WHERE
     id = @id;
 
+-- name: ListTransfersByUser :many
+SELECT
+    *
+FROM
+    transfers
+WHERE
+    user_id = @user_id
+    AND (sqlc.narg ('status')::text IS NULL
+        OR status = sqlc.narg ('status'))
+    AND (sqlc.narg ('account_ref')::text IS NULL
+        OR from_account_ref = sqlc.narg ('account_ref')
+        OR to_account_ref = sqlc.narg ('account_ref'))
+ORDER BY
+    created_at DESC,
+    id DESC
+LIMIT sqlc.arg ('lim') OFFSET sqlc.arg ('off');
+
+-- name: CountTransfersByUser :one
+SELECT
+    count(*)
+FROM
+    transfers
+WHERE
+    user_id = @user_id
+    AND (sqlc.narg ('status')::text IS NULL
+        OR status = sqlc.narg ('status'))
+    AND (sqlc.narg ('account_ref')::text IS NULL
+        OR from_account_ref = sqlc.narg ('account_ref')
+        OR to_account_ref = sqlc.narg ('account_ref'));
+
