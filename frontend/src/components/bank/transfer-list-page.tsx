@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Plus } from 'lucide-react'
+import { ArrowUpRight, ChevronRight, Plus } from 'lucide-react'
 import { useListTransfers } from '#/lib/api/generated/wallet/wallet'
 import type { DtoTransferListResponse } from '#/lib/api/generated/models'
 import type { ApiError } from '#/lib/api/api-error'
@@ -27,13 +27,14 @@ export function TransferListPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-7">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="display-title text-2xl font-bold text-[var(--sea-ink)]">
+          <p className="island-kicker mb-1">Activity</p>
+          <h1 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
             Transfers
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             Your transfer history, newest first.
           </p>
         </div>
@@ -46,9 +47,9 @@ export function TransferListPage() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full" />
+            <Skeleton key={i} className="h-[72px] w-full rounded-2xl" />
           ))}
         </div>
       ) : isError ? (
@@ -57,38 +58,49 @@ export function TransferListPage() {
           <AlertDescription>{error.message}</AlertDescription>
         </Alert>
       ) : transfers.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No transfers yet.{' '}
-            <Link to="/app/transfers/new" className="font-medium">
-              Create your first transfer
-            </Link>
-            .
+        <Card className="glass-card border-0 shadow-none">
+          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+            <span className="row-avatar size-12">
+              <ArrowUpRight className="size-5" />
+            </span>
+            <p className="text-sm text-muted-foreground">
+              No transfers yet.
+            </p>
+            <Button asChild size="sm">
+              <Link to="/app/transfers/new">
+                <Plus className="size-4" />
+                Create your first transfer
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {transfers.map((transfer) => (
             <li key={transfer.transferId}>
               <Link
                 to="/app/transfers/$transferId"
                 params={{ transferId: transfer.transferId ?? '' }}
-                className="block no-underline"
+                className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
               >
-                <Card className="transition hover:border-[var(--lagoon-deep)]">
-                  <CardContent className="flex items-center justify-between py-4">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-[var(--sea-ink)]">
-                        {transfer.transferId}
-                      </p>
-                      <p className="text-sm text-muted-foreground tabular-nums">
-                        {transfer.transactionAmount}{' '}
-                        {transfer.transactionCurrency}
-                      </p>
-                    </div>
-                    <TransferStatusBadge status={transfer.status} />
-                  </CardContent>
-                </Card>
+                <span className="row-avatar size-11 shrink-0">
+                  <ArrowUpRight className="size-5" strokeWidth={2.2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-[var(--sea-ink)]">
+                    {transfer.transferId}
+                  </p>
+                  <p className="mt-0.5 text-lg font-semibold tabular-nums text-[var(--sea-ink)]">
+                    {transfer.transactionAmount}{' '}
+                    <span className="text-sm font-medium text-muted-foreground">
+                      {transfer.transactionCurrency}
+                    </span>
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <TransferStatusBadge status={transfer.status} />
+                  <ChevronRight className="row-chevron size-5" />
+                </div>
               </Link>
             </li>
           ))}

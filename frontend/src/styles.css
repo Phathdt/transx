@@ -360,6 +360,136 @@ a {
   background: color-mix(in oklab, var(--header-bg) 84%, transparent 16%);
 }
 
+/* Frosted top header that floats over the gradient backdrop. */
+.app-header {
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--header-bg) 90%, transparent);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+}
+
+/* Lagoon→palm gradient mark used for the wordmark logo and accents. */
+.brand-mark {
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(150deg, var(--lagoon), var(--palm));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 8px 18px rgba(47, 106, 74, 0.28);
+}
+
+.brand-wordmark {
+  background: linear-gradient(
+    100deg,
+    var(--sea-ink),
+    color-mix(in oklab, var(--lagoon-deep) 70%, var(--sea-ink))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Glass surface for cards/rows — reuses the island shell language. */
+.glass-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(165deg, var(--surface-strong), var(--surface));
+  box-shadow:
+    0 1px 0 var(--inset-glint) inset,
+    0 18px 40px rgba(30, 90, 72, 0.1),
+    0 4px 14px rgba(23, 58, 64, 0.06);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Tappable list row with a clear lift + lagoon edge on hover. */
+.list-row {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(
+    165deg,
+    color-mix(in oklab, var(--surface-strong) 94%, white 6%),
+    var(--surface)
+  );
+  box-shadow:
+    0 1px 0 var(--inset-glint) inset,
+    0 10px 22px rgba(30, 90, 72, 0.07);
+}
+
+.list-row:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--lagoon-deep) 42%, var(--line));
+  box-shadow:
+    0 1px 0 var(--inset-glint) inset,
+    0 18px 34px rgba(30, 90, 72, 0.13);
+}
+
+.list-row .row-chevron {
+  color: var(--sea-ink-soft);
+  opacity: 0.5;
+  transition:
+    transform 180ms ease,
+    opacity 180ms ease;
+}
+
+.list-row:hover .row-chevron {
+  opacity: 1;
+  transform: translateX(3px);
+}
+
+/* Circular monogram avatar leading each list row. */
+.row-avatar {
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--lagoon-deep);
+  background: color-mix(in oklab, var(--lagoon) 16%, var(--surface-strong));
+  border: 1px solid var(--chip-line);
+}
+
+/* Big tabular money figure used on detail heroes. */
+.amount-display {
+  font-family: 'Fraunces', Georgia, serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: var(--sea-ink);
+}
+
+/* Soft chip for inline labels/units. */
+.unit-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--chip-line);
+  background: var(--chip-bg);
+  color: var(--sea-ink-soft);
+  font-weight: 600;
+}
+
+/* Detail hero band with a faint lagoon wash. */
+.hero-band {
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(
+      120% 140% at 0% 0%,
+      var(--hero-a),
+      transparent 60%
+    ),
+    linear-gradient(165deg, var(--surface-strong), var(--surface));
+  box-shadow:
+    0 1px 0 var(--inset-glint) inset,
+    0 18px 40px rgba(30, 90, 72, 0.1);
+}
+
+.divider-line {
+  border-top: 1px solid var(--line);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

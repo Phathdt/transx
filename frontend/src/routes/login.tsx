@@ -23,7 +23,7 @@ export const Route = createFileRoute('/login')({
 function LoginPage() {
   return (
     <PublicShell>
-      <Card className="w-full max-w-sm">
+      <Card className="glass-card border-0 shadow-none">
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
           <CardDescription>

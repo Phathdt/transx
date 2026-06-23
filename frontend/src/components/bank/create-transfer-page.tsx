@@ -21,7 +21,7 @@ import type { AccountType } from './account-lookup-field'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card'
+import { Card, CardContent } from '#/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -129,11 +129,17 @@ export function CreateTransferPage() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <Card>
-        <CardHeader>
-          <CardTitle>New Transfer</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="mb-6">
+        <p className="island-kicker mb-1">Move money</p>
+        <h1 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
+          New Transfer
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Send funds between wallets or to an external account.
+        </p>
+      </div>
+      <Card className="glass-card border-0 shadow-none">
+        <CardContent className="pt-6">
           <form
             onSubmit={handleSubmit(onSubmit)}
             className="space-y-5"

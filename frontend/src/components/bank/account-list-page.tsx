@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { ChevronRight, Wallet } from 'lucide-react'
 import { useListAccounts } from '#/lib/api/generated/wallet/wallet'
 import type { DtoAccountListResponse } from '#/lib/api/generated/models'
 import type { ApiError } from '#/lib/api/api-error'
@@ -26,20 +27,21 @@ export function AccountListPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <div>
-        <h1 className="display-title text-2xl font-bold text-[var(--sea-ink)]">
+        <p className="island-kicker mb-1">Wallets</p>
+        <h1 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
           Accounts
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Your wallet accounts and balances.
         </p>
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full" />
+            <Skeleton key={i} className="h-[72px] w-full rounded-2xl" />
           ))}
         </div>
       ) : isError ? (
@@ -48,33 +50,41 @@ export function AccountListPage() {
           <AlertDescription>{error.message}</AlertDescription>
         </Alert>
       ) : accounts.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No accounts found.
+        <Card className="glass-card border-0 shadow-none">
+          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+            <span className="row-avatar size-12">
+              <Wallet className="size-5" />
+            </span>
+            <p className="text-sm text-muted-foreground">No accounts found.</p>
           </CardContent>
         </Card>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {accounts.map((account) => (
             <li key={account.accountRef}>
               <Link
                 to="/app/accounts/$accountRef"
                 params={{ accountRef: account.accountRef ?? '' }}
-                className="block no-underline"
+                className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
               >
-                <Card className="transition hover:border-[var(--lagoon-deep)]">
-                  <CardContent className="flex items-center justify-between py-4">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-[var(--sea-ink)]">
-                        {account.accountRef}
-                      </p>
-                      <p className="text-sm text-muted-foreground tabular-nums">
-                        {account.availableBalance} {account.currency}
-                      </p>
-                    </div>
-                    <AccountStatusBadge status={account.status} />
-                  </CardContent>
-                </Card>
+                <span className="row-avatar size-11 shrink-0 text-sm font-bold uppercase">
+                  {(account.accountRef ?? '?').slice(0, 2)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-[var(--sea-ink)]">
+                    {account.accountRef}
+                  </p>
+                  <p className="mt-0.5 text-lg font-semibold tabular-nums text-[var(--sea-ink)]">
+                    {account.availableBalance}{' '}
+                    <span className="text-sm font-medium text-muted-foreground">
+                      {account.currency}
+                    </span>
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <AccountStatusBadge status={account.status} />
+                  <ChevronRight className="row-chevron size-5" />
+                </div>
               </Link>
             </li>
           ))}
