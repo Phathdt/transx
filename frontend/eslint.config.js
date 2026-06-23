@@ -15,6 +15,15 @@ export default [
     },
   },
   {
-    ignores: ['eslint.config.js', 'prettier.config.js'],
+    ignores: [
+      'eslint.config.js',
+      'prettier.config.js',
+      // Build output.
+      'dist/**',
+      // Generated artifacts: Orval API client and the router tree. Do not lint
+      // or hand-edit; regenerate via `yarn generate:api` / `yarn generate-routes`.
+      'src/lib/api/generated/**',
+      'src/routeTree.gen.ts',
+    ],
   },
 ]

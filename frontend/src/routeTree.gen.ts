@@ -9,13 +9,23 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AboutRouteImport } from './routes/about'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
+import { Route as AppTransfersIndexRouteImport } from './routes/app/transfers/index'
+import { Route as AppAccountsIndexRouteImport } from './routes/app/accounts/index'
+import { Route as AppTransfersNewRouteImport } from './routes/app/transfers/new'
+import { Route as AppTransfersTransferIdRouteImport } from './routes/app/transfers/$transferId'
+import { Route as AppAccountsAccountRefRouteImport } from './routes/app/accounts/$accountRef'
 
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/app',
+  path: '/app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -23,49 +33,116 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
-  id: '/demo/tanstack-query',
-  path: '/demo/tanstack-query',
-  getParentRoute: () => rootRouteImport,
+const AppTransfersIndexRoute = AppTransfersIndexRouteImport.update({
+  id: '/transfers/',
+  path: '/transfers/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountsIndexRoute = AppAccountsIndexRouteImport.update({
+  id: '/accounts/',
+  path: '/accounts/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTransfersNewRoute = AppTransfersNewRouteImport.update({
+  id: '/transfers/new',
+  path: '/transfers/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTransfersTransferIdRoute = AppTransfersTransferIdRouteImport.update({
+  id: '/transfers/$transferId',
+  path: '/transfers/$transferId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountsAccountRefRoute = AppAccountsAccountRefRouteImport.update({
+  id: '/accounts/$accountRef',
+  path: '/accounts/$accountRef',
+  getParentRoute: () => AppRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/app': typeof AppRouteWithChildren
+  '/login': typeof LoginRoute
+  '/app/accounts/$accountRef': typeof AppAccountsAccountRefRoute
+  '/app/transfers/$transferId': typeof AppTransfersTransferIdRoute
+  '/app/transfers/new': typeof AppTransfersNewRoute
+  '/app/accounts/': typeof AppAccountsIndexRoute
+  '/app/transfers/': typeof AppTransfersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/app': typeof AppRouteWithChildren
+  '/login': typeof LoginRoute
+  '/app/accounts/$accountRef': typeof AppAccountsAccountRefRoute
+  '/app/transfers/$transferId': typeof AppTransfersTransferIdRoute
+  '/app/transfers/new': typeof AppTransfersNewRoute
+  '/app/accounts': typeof AppAccountsIndexRoute
+  '/app/transfers': typeof AppTransfersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
+  '/app': typeof AppRouteWithChildren
+  '/login': typeof LoginRoute
+  '/app/accounts/$accountRef': typeof AppAccountsAccountRefRoute
+  '/app/transfers/$transferId': typeof AppTransfersTransferIdRoute
+  '/app/transfers/new': typeof AppTransfersNewRoute
+  '/app/accounts/': typeof AppAccountsIndexRoute
+  '/app/transfers/': typeof AppTransfersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/demo/tanstack-query'
+  fullPaths:
+    | '/'
+    | '/app'
+    | '/login'
+    | '/app/accounts/$accountRef'
+    | '/app/transfers/$transferId'
+    | '/app/transfers/new'
+    | '/app/accounts/'
+    | '/app/transfers/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/demo/tanstack-query'
-  id: '__root__' | '/' | '/about' | '/demo/tanstack-query'
+  to:
+    | '/'
+    | '/app'
+    | '/login'
+    | '/app/accounts/$accountRef'
+    | '/app/transfers/$transferId'
+    | '/app/transfers/new'
+    | '/app/accounts'
+    | '/app/transfers'
+  id:
+    | '__root__'
+    | '/'
+    | '/app'
+    | '/login'
+    | '/app/accounts/$accountRef'
+    | '/app/transfers/$transferId'
+    | '/app/transfers/new'
+    | '/app/accounts/'
+    | '/app/transfers/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AboutRoute: typeof AboutRoute
-  DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
+  AppRoute: typeof AppRouteWithChildren
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -75,30 +152,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/demo/tanstack-query': {
-      id: '/demo/tanstack-query'
-      path: '/demo/tanstack-query'
-      fullPath: '/demo/tanstack-query'
-      preLoaderRoute: typeof DemoTanstackQueryRouteImport
-      parentRoute: typeof rootRouteImport
+    '/app/transfers/': {
+      id: '/app/transfers/'
+      path: '/transfers'
+      fullPath: '/app/transfers/'
+      preLoaderRoute: typeof AppTransfersIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/accounts/': {
+      id: '/app/accounts/'
+      path: '/accounts'
+      fullPath: '/app/accounts/'
+      preLoaderRoute: typeof AppAccountsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/transfers/new': {
+      id: '/app/transfers/new'
+      path: '/transfers/new'
+      fullPath: '/app/transfers/new'
+      preLoaderRoute: typeof AppTransfersNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/transfers/$transferId': {
+      id: '/app/transfers/$transferId'
+      path: '/transfers/$transferId'
+      fullPath: '/app/transfers/$transferId'
+      preLoaderRoute: typeof AppTransfersTransferIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/accounts/$accountRef': {
+      id: '/app/accounts/$accountRef'
+      path: '/accounts/$accountRef'
+      fullPath: '/app/accounts/$accountRef'
+      preLoaderRoute: typeof AppAccountsAccountRefRouteImport
+      parentRoute: typeof AppRoute
     }
   }
 }
 
+interface AppRouteChildren {
+  AppAccountsAccountRefRoute: typeof AppAccountsAccountRefRoute
+  AppTransfersTransferIdRoute: typeof AppTransfersTransferIdRoute
+  AppTransfersNewRoute: typeof AppTransfersNewRoute
+  AppAccountsIndexRoute: typeof AppAccountsIndexRoute
+  AppTransfersIndexRoute: typeof AppTransfersIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppAccountsAccountRefRoute: AppAccountsAccountRefRoute,
+  AppTransfersTransferIdRoute: AppTransfersTransferIdRoute,
+  AppTransfersNewRoute: AppTransfersNewRoute,
+  AppAccountsIndexRoute: AppAccountsIndexRoute,
+  AppTransfersIndexRoute: AppTransfersIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
-  DemoTanstackQueryRoute: DemoTanstackQueryRoute,
+  AppRoute: AppRouteWithChildren,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
