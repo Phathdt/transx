@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -15,6 +15,7 @@ import type {
   DtoAccountLookupResponse,
 } from '#/lib/api/generated/models'
 import { toApiError } from '#/lib/api/api-error'
+import { useAuth } from '#/hooks/use-auth'
 import { useTransferIdempotencyKey } from '#/hooks/use-transfer-idempotency-key'
 import { AccountLookupField } from './account-lookup-field'
 import type { AccountType } from './account-lookup-field'
@@ -42,6 +43,7 @@ const formSchema = z.object({
     .regex(AMOUNT_RE, 'Enter a positive amount with up to 4 decimals')
     .refine((v) => Number(v) > 0, 'Amount must be greater than zero'),
   currency: z.string().min(1, 'Currency is required'),
+  message: z.string().min(1, 'Message is required').max(255, 'Message too long'),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -50,6 +52,7 @@ export function CreateTransferPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const idempotencyKey = useTransferIdempotencyKey()
+  const { userName } = useAuth()
 
   const [transferType, setTransferType] = useState<AccountType>('internal')
   const [toAccountRef, setToAccountRef] = useState('')
@@ -58,6 +61,9 @@ export function CreateTransferPage() {
   )
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Once the user edits the message, stop overwriting it with the template so a
+  // later re-lookup does not clobber their edit.
+  const messageDirty = useRef(false)
 
   const { data: accountsData, isLoading: accountsLoading } = useListAccounts({
     pageSize: 100,
@@ -72,7 +78,12 @@ export function CreateTransferPage() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { fromAccountRef: '', amount: '', currency: '' },
+    defaultValues: {
+      fromAccountRef: '',
+      amount: '',
+      currency: '',
+      message: '',
+    },
   })
 
   const fromAccountRef = watch('fromAccountRef')
@@ -80,6 +91,19 @@ export function CreateTransferPage() {
     () => accounts.find((a) => a.accountRef === fromAccountRef),
     [accounts, fromAccountRef],
   )
+
+  // Receiver display name for the template: the looked-up holder name, falling
+  // back to the entered destination ref/beneficiary when no name is resolved.
+  const receiverName = resolved?.holderName || toAccountRef
+
+  // Pre-fill the message with a "{sender} transfer to {receiver}" template until
+  // the user edits it. Recomputes as sender/receiver change.
+  useEffect(() => {
+    if (messageDirty.current) return
+    const sender = userName || 'You'
+    const receiver = receiverName || 'recipient'
+    setValue('message', `${sender} transfer to ${receiver}`)
+  }, [userName, receiverName, setValue])
 
   async function onSubmit(values: FormValues) {
     setSubmitError(null)
@@ -98,6 +122,7 @@ export function CreateTransferPage() {
       amount: values.amount,
       currency: values.currency,
       transferType: transferType.toUpperCase(),
+      message: values.message,
       ...(toAccountRef ? { toAccountRef } : {}),
     }
 
@@ -245,6 +270,25 @@ export function CreateTransferPage() {
                   </p>
                 ) : null}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="message">Message</Label>
+              <Input
+                id="message"
+                placeholder="Add a note for this transfer"
+                aria-invalid={Boolean(errors.message)}
+                {...register('message', {
+                  onChange: () => {
+                    messageDirty.current = true
+                  },
+                })}
+              />
+              {errors.message ? (
+                <p className="text-sm text-destructive">
+                  {errors.message.message}
+                </p>
+              ) : null}
             </div>
 
             <Button type="submit" className="w-full" disabled={isSubmitting}>

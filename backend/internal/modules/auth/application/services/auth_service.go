@@ -51,6 +51,7 @@ func (s *AuthService) Login(ctx context.Context, cmd dto.LoginCommand) (*dto.Log
 		AccessToken: token,
 		TokenType:   "Bearer",
 		UserID:      user.ID.String(),
+		UserName:    user.Name,
 	}, nil
 }
 

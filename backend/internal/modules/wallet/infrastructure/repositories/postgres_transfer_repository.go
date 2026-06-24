@@ -57,6 +57,8 @@ func (r *PostgresTransferRepository) Create(
 			Reference:           t.Reference,
 			FeeAmount:           t.FeeAmount,
 			FeeCurrency:         t.FeeCurrency,
+			ToAccountName:       textOrNull(t.ToAccountName),
+			Message:             textOrNull(t.Message),
 		})
 		if err != nil {
 			return err
@@ -91,7 +93,7 @@ func (r *PostgresTransferRepository) GetByReferenceForUser(
 ) (*entities.Transfer, error) {
 	row, err := r.q.GetTransferByReferenceForUser(ctx, gen.GetTransferByReferenceForUserParams{
 		Reference: reference,
-		UserID:    pgUUID(userID),
+		OwnerID:   pgUUID(userID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -343,7 +345,7 @@ func (r *PostgresTransferRepository) ListByUser(
 	limit, offset int32,
 ) ([]*entities.Transfer, error) {
 	rows, err := r.q.ListTransfersByUser(ctx, gen.ListTransfersByUserParams{
-		UserID:     pgUUID(userID),
+		OwnerID:    pgUUID(userID),
 		Status:     status,
 		AccountRef: accountRef,
 		Lim:        limit,
@@ -365,7 +367,7 @@ func (r *PostgresTransferRepository) CountByUser(
 	status, accountRef *string,
 ) (int64, error) {
 	return r.q.CountTransfersByUser(ctx, gen.CountTransfersByUserParams{
-		UserID:     pgUUID(userID),
+		OwnerID:    pgUUID(userID),
 		Status:     status,
 		AccountRef: accountRef,
 	})

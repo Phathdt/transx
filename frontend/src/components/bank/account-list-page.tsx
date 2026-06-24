@@ -6,20 +6,42 @@ import type { DtoAccountListResponse } from '#/lib/api/generated/models'
 import type { ApiError } from '#/lib/api/api-error'
 import { Card, CardContent } from '#/components/ui/card'
 import { Button } from '#/components/ui/button'
+import { Label } from '#/components/ui/label'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select'
 import { AccountStatusBadge } from './account-status-badge'
 
 const PAGE_SIZE = 20
 
+// Sentinel for the "all statuses" option; an empty string is not a valid
+// SelectItem value, so map it to/from "" before calling the API.
+const ALL = 'ALL'
+
+const ACCOUNT_STATUSES = ['ACTIVE', 'FROZEN', 'CLOSED']
+
+// ISO-4217 allow-list mirrored from the backend (services/currency.go).
+const CURRENCIES = ['USD', 'EUR', 'VND']
+
 export function AccountListPage() {
   const [page, setPage] = useState(1)
+  const [status, setStatus] = useState(ALL)
+  const [currency, setCurrency] = useState('')
+
   const { data, isLoading, isError, error } = useListAccounts<
     DtoAccountListResponse,
     ApiError
   >({
     page,
     pageSize: PAGE_SIZE,
+    ...(status !== ALL ? { status } : {}),
+    ...(currency ? { currency } : {}),
   })
 
   const accounts = data?.data ?? []
@@ -37,6 +59,68 @@ export function AccountListPage() {
           Your wallet accounts and balances.
         </p>
       </div>
+
+      <Card className="glass-card border-0 shadow-none">
+        <CardContent className="flex flex-wrap items-end gap-4 py-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="status-filter">Status</Label>
+            <Select
+              value={status}
+              onValueChange={(v) => {
+                setStatus(v)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger id="status-filter" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All statuses</SelectItem>
+                {ACCOUNT_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="currency-filter">Currency</Label>
+            <Select
+              value={currency || ALL}
+              onValueChange={(v) => {
+                setCurrency(v === ALL ? '' : v)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger id="currency-filter" className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All</SelectItem>
+                {CURRENCIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {status !== ALL || currency ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStatus(ALL)
+                setCurrency('')
+                setPage(1)
+              }}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <div className="space-y-3">

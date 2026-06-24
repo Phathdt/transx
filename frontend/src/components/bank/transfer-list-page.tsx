@@ -1,25 +1,71 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { ArrowUpRight, ChevronRight, Plus } from 'lucide-react'
-import { useListTransfers } from '#/lib/api/generated/wallet/wallet'
+import { ArrowDownLeft, ArrowUpRight, ChevronRight, Plus } from 'lucide-react'
+import {
+  useListAccounts,
+  useListTransfers,
+} from '#/lib/api/generated/wallet/wallet'
 import type { DtoTransferListResponse } from '#/lib/api/generated/models'
 import type { ApiError } from '#/lib/api/api-error'
+import {
+  transferCounterparty,
+  transferDirection,
+} from '#/lib/transfer/transfer-direction'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent } from '#/components/ui/card'
+import { Label } from '#/components/ui/label'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select'
 import { TransferStatusBadge } from './transfer-status-badge'
 
 const PAGE_SIZE = 20
 
+// Sentinel for the "all statuses" option; an empty string is not a valid
+// SelectItem value, so map it to/from "" before calling the API.
+const ALL = 'ALL'
+
+const TRANSFER_STATUSES = [
+  'PENDING',
+  'RESERVED',
+  'PROCESSING',
+  'SUBMITTED',
+  'SUCCEEDED',
+  'FAILED',
+  'REVERSED',
+  'UNKNOWN',
+]
+
 export function TransferListPage() {
   const [page, setPage] = useState(1)
+  const [status, setStatus] = useState(ALL)
+  const [accountRef, setAccountRef] = useState('')
+
+  // The caller's accounts populate the account filter options.
+  const { data: accountsData } = useListAccounts({ pageSize: 100 })
+  const accounts = accountsData?.data ?? []
+  const ownedRefs = useMemo(
+    () =>
+      new Set(
+        accounts.map((a) => a.accountRef).filter((r): r is string => Boolean(r)),
+      ),
+    [accounts],
+  )
+
   const { data, isLoading, isError, error } = useListTransfers<
     DtoTransferListResponse,
     ApiError
   >({
     page,
     pageSize: PAGE_SIZE,
+    ...(status !== ALL ? { status } : {}),
+    ...(accountRef ? { accountRef } : {}),
   })
 
   const transfers = data?.data ?? []
@@ -45,6 +91,68 @@ export function TransferListPage() {
           </Link>
         </Button>
       </div>
+
+      <Card className="glass-card border-0 shadow-none">
+        <CardContent className="flex flex-wrap items-end gap-4 py-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="status-filter">Status</Label>
+            <Select
+              value={status}
+              onValueChange={(v) => {
+                setStatus(v)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger id="status-filter" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All statuses</SelectItem>
+                {TRANSFER_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="account-filter">Account</Label>
+            <Select
+              value={accountRef || ALL}
+              onValueChange={(v) => {
+                setAccountRef(v === ALL ? '' : v)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger id="account-filter" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All accounts</SelectItem>
+                {accounts.map((acc) => (
+                  <SelectItem key={acc.accountRef} value={acc.accountRef ?? ''}>
+                    {acc.accountRef} · {acc.currency}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {status !== ALL || accountRef ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStatus(ALL)
+                setAccountRef('')
+                setPage(1)
+              }}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <div className="space-y-3">
@@ -76,34 +184,55 @@ export function TransferListPage() {
         </Card>
       ) : (
         <ul className="space-y-3">
-          {transfers.map((transfer) => (
-            <li key={transfer.transferId}>
-              <Link
-                to="/app/transfers/$transferId"
-                params={{ transferId: transfer.transferId ?? '' }}
-                className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
-              >
-                <span className="row-avatar size-11 shrink-0">
-                  <ArrowUpRight className="size-5" strokeWidth={2.2} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-[var(--sea-ink)]">
-                    {transfer.transferId}
-                  </p>
-                  <p className="mt-0.5 text-lg font-semibold tabular-nums text-[var(--sea-ink)]">
-                    {transfer.transactionAmount}{' '}
-                    <span className="text-sm font-medium text-muted-foreground">
-                      {transfer.transactionCurrency}
-                    </span>
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <TransferStatusBadge status={transfer.status} />
-                  <ChevronRight className="row-chevron size-5" />
-                </div>
-              </Link>
-            </li>
-          ))}
+          {transfers.map((transfer) => {
+            const direction = transferDirection(transfer, ownedRefs)
+            const counterparty = transferCounterparty(transfer, direction)
+            const received = direction === 'received'
+            const directionLabel =
+              direction === 'received'
+                ? 'Received'
+                : direction === 'self'
+                  ? 'Own transfer'
+                  : 'Sent'
+            return (
+              <li key={transfer.transferId}>
+                <Link
+                  to="/app/transfers/$transferId"
+                  params={{ transferId: transfer.transferId ?? '' }}
+                  className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
+                >
+                  <span className="row-avatar size-11 shrink-0">
+                    {received ? (
+                      <ArrowDownLeft className="size-5" strokeWidth={2.2} />
+                    ) : (
+                      <ArrowUpRight className="size-5" strokeWidth={2.2} />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-[var(--sea-ink)]">
+                      {directionLabel}
+                      {counterparty ? (
+                        <span className="text-muted-foreground">
+                          {' · '}
+                          {counterparty}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="mt-0.5 text-lg font-semibold tabular-nums text-[var(--sea-ink)]">
+                      {transfer.transactionAmount}{' '}
+                      <span className="text-sm font-medium text-muted-foreground">
+                        {transfer.transactionCurrency}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <TransferStatusBadge status={transfer.status} />
+                    <ChevronRight className="row-chevron size-5" />
+                  </div>
+                </Link>
+              </li>
+            )
+          })}
         </ul>
       )}
 

@@ -1,10 +1,13 @@
+import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft, Loader2 } from 'lucide-react'
+import { useListAccounts } from '#/lib/api/generated/wallet/wallet'
 import { useTransferStatusPolling } from '#/hooks/use-transfer-status-polling'
 import {
   formatFailureReason,
   isTerminalStatus,
 } from '#/lib/transfer/transfer-status'
+import { transferDirection } from '#/lib/transfer/transfer-direction'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent } from '#/components/ui/card'
 import { Skeleton } from '#/components/ui/skeleton'
@@ -15,6 +18,24 @@ import { TransferMoneySummary } from './transfer-money-summary'
 export function TransferDetailPage({ transferId }: { transferId: string }) {
   const { data, isLoading, isError, error } =
     useTransferStatusPolling(transferId)
+
+  const { data: accountsData } = useListAccounts({ pageSize: 100 })
+  const ownedRefs = useMemo(
+    () =>
+      new Set(
+        (accountsData?.data ?? [])
+          .map((a) => a.accountRef)
+          .filter((r): r is string => Boolean(r)),
+      ),
+    [accountsData],
+  )
+  const direction = data ? transferDirection(data, ownedRefs) : 'sent'
+  const directionLabel =
+    direction === 'received'
+      ? 'Received'
+      : direction === 'self'
+        ? 'Own transfer'
+        : 'Sent'
 
   const status = data?.status
   const polling = Boolean(status) && !isTerminalStatus(status)
@@ -40,7 +61,7 @@ export function TransferDetailPage({ transferId }: { transferId: string }) {
         <Card className="glass-card overflow-hidden border-0 p-0 shadow-none">
           <div className="hero-band rounded-none border-0 px-6 pt-6 pb-7">
             <div className="flex items-start justify-between gap-3">
-              <p className="island-kicker">Transfer</p>
+              <p className="island-kicker">{directionLabel}</p>
               <TransferStatusBadge status={status} />
             </div>
             <p className="amount-display mt-3 text-4xl font-bold sm:text-5xl">
@@ -78,7 +99,7 @@ export function TransferDetailPage({ transferId }: { transferId: string }) {
               </Alert>
             ) : null}
 
-            <TransferMoneySummary transfer={data} />
+            <TransferMoneySummary transfer={data} direction={direction} />
           </CardContent>
         </Card>
       ) : null}

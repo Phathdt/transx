@@ -44,6 +44,7 @@ type Transfer struct {
 	Reference           string
 	FromAccountRef      string
 	ToAccountRef        string
+	ToAccountName       string
 	TransactionAmount   decimal.Decimal
 	TransactionCurrency string
 	SourceAmount        decimal.NullDecimal
@@ -59,6 +60,7 @@ type Transfer struct {
 	ProviderReferenceID string
 	Status              TransferStatus
 	FailureReason       string
+	Message             string
 	UserID              uuid.UUID
 	IdempotencyKey      string
 	RequestHash         string

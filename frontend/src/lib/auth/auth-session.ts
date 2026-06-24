@@ -9,6 +9,7 @@ export interface AuthSession {
   accessToken: string
   tokenType: string
   userId: string
+  userName: string
 }
 
 function hasWindow(): boolean {

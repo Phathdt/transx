@@ -18,7 +18,20 @@ SELECT
 FROM
     transfers
 WHERE
-    user_id = $1
+    (from_account_ref IN (
+            SELECT
+                account_ref
+            FROM
+                accounts
+            WHERE
+                accounts.user_id = $1)
+        OR to_account_ref IN (
+            SELECT
+                account_ref
+            FROM
+                accounts
+            WHERE
+                accounts.user_id = $1))
     AND ($2::text IS NULL
         OR status = $2)
     AND ($3::text IS NULL
@@ -27,23 +40,23 @@ WHERE
 `
 
 type CountTransfersByUserParams struct {
-	UserID     pgtype.UUID `db:"user_id"`
+	OwnerID    pgtype.UUID `db:"owner_id"`
 	Status     *string     `db:"status"`
 	AccountRef *string     `db:"account_ref"`
 }
 
 func (q *Queries) CountTransfersByUser(ctx context.Context, arg CountTransfersByUserParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countTransfersByUser, arg.UserID, arg.Status, arg.AccountRef)
+	row := q.db.QueryRow(ctx, countTransfersByUser, arg.OwnerID, arg.Status, arg.AccountRef)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createTransfer = `-- name: CreateTransfer :one
-INSERT INTO transfers (from_account_ref, to_account_ref, transaction_amount, transaction_currency, transfer_type, provider, status, user_id, idempotency_key, request_hash, reference, fee_amount, fee_currency)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+INSERT INTO transfers (from_account_ref, to_account_ref, transaction_amount, transaction_currency, transfer_type, provider, status, user_id, idempotency_key, request_hash, reference, fee_amount, fee_currency, to_account_name, message)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING
-    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref
+    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref, to_account_name, message
 `
 
 type CreateTransferParams struct {
@@ -60,6 +73,8 @@ type CreateTransferParams struct {
 	Reference           string          `db:"reference"`
 	FeeAmount           decimal.Decimal `db:"fee_amount"`
 	FeeCurrency         string          `db:"fee_currency"`
+	ToAccountName       *string         `db:"to_account_name"`
+	Message             *string         `db:"message"`
 }
 
 func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) (*Transfer, error) {
@@ -77,6 +92,8 @@ func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) 
 		arg.Reference,
 		arg.FeeAmount,
 		arg.FeeCurrency,
+		arg.ToAccountName,
+		arg.Message,
 	)
 	var i Transfer
 	err := row.Scan(
@@ -104,6 +121,8 @@ func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) 
 		&i.FeeCurrency,
 		&i.FromAccountRef,
 		&i.ToAccountRef,
+		&i.ToAccountName,
+		&i.Message,
 	)
 	return &i, err
 }
@@ -131,7 +150,7 @@ func (q *Queries) FailTransfer(ctx context.Context, arg FailTransferParams) erro
 
 const getTransferByID = `-- name: GetTransferByID :one
 SELECT
-    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref
+    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref, to_account_name, message
 FROM
     transfers
 WHERE
@@ -166,27 +185,46 @@ func (q *Queries) GetTransferByID(ctx context.Context, id pgtype.UUID) (*Transfe
 		&i.FeeCurrency,
 		&i.FromAccountRef,
 		&i.ToAccountRef,
+		&i.ToAccountName,
+		&i.Message,
 	)
 	return &i, err
 }
 
 const getTransferByReferenceForUser = `-- name: GetTransferByReferenceForUser :one
 SELECT
-    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref
+    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref, to_account_name, message
 FROM
     transfers
 WHERE
     reference = $1
-    AND user_id = $2
+    AND (from_account_ref IN (
+            SELECT
+                account_ref
+            FROM
+                accounts
+            WHERE
+                accounts.user_id = $2)
+        OR to_account_ref IN (
+            SELECT
+                account_ref
+            FROM
+                accounts
+            WHERE
+                accounts.user_id = $2))
 `
 
 type GetTransferByReferenceForUserParams struct {
 	Reference string      `db:"reference"`
-	UserID    pgtype.UUID `db:"user_id"`
+	OwnerID   pgtype.UUID `db:"owner_id"`
 }
 
+// A transfer is visible to a caller who owns either end of it: the source
+// account (money sent) or the destination account (money received). Scoping by
+// the creator's user_id alone would hide an incoming transfer from its
+// recipient, so authorize by account ownership instead.
 func (q *Queries) GetTransferByReferenceForUser(ctx context.Context, arg GetTransferByReferenceForUserParams) (*Transfer, error) {
-	row := q.db.QueryRow(ctx, getTransferByReferenceForUser, arg.Reference, arg.UserID)
+	row := q.db.QueryRow(ctx, getTransferByReferenceForUser, arg.Reference, arg.OwnerID)
 	var i Transfer
 	err := row.Scan(
 		&i.ID,
@@ -213,13 +251,15 @@ func (q *Queries) GetTransferByReferenceForUser(ctx context.Context, arg GetTran
 		&i.FeeCurrency,
 		&i.FromAccountRef,
 		&i.ToAccountRef,
+		&i.ToAccountName,
+		&i.Message,
 	)
 	return &i, err
 }
 
 const getTransferByUserAndKey = `-- name: GetTransferByUserAndKey :one
 SELECT
-    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref
+    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref, to_account_name, message
 FROM
     transfers
 WHERE
@@ -260,17 +300,32 @@ func (q *Queries) GetTransferByUserAndKey(ctx context.Context, arg GetTransferBy
 		&i.FeeCurrency,
 		&i.FromAccountRef,
 		&i.ToAccountRef,
+		&i.ToAccountName,
+		&i.Message,
 	)
 	return &i, err
 }
 
 const listTransfersByUser = `-- name: ListTransfersByUser :many
 SELECT
-    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref
+    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref, to_account_name, message
 FROM
     transfers
 WHERE
-    user_id = $1
+    (from_account_ref IN (
+            SELECT
+                account_ref
+            FROM
+                accounts
+            WHERE
+                accounts.user_id = $1)
+        OR to_account_ref IN (
+            SELECT
+                account_ref
+            FROM
+                accounts
+            WHERE
+                accounts.user_id = $1))
     AND ($2::text IS NULL
         OR status = $2)
     AND ($3::text IS NULL
@@ -283,16 +338,19 @@ LIMIT $5 OFFSET $4
 `
 
 type ListTransfersByUserParams struct {
-	UserID     pgtype.UUID `db:"user_id"`
+	OwnerID    pgtype.UUID `db:"owner_id"`
 	Status     *string     `db:"status"`
 	AccountRef *string     `db:"account_ref"`
 	Off        int32       `db:"off"`
 	Lim        int32       `db:"lim"`
 }
 
+// Owner-scoped by account ownership (either end), not by the creator's user_id,
+// so a recipient sees incoming transfers too. The optional account_ref filter
+// further narrows to one specific account the caller owns.
 func (q *Queries) ListTransfersByUser(ctx context.Context, arg ListTransfersByUserParams) ([]*Transfer, error) {
 	rows, err := q.db.Query(ctx, listTransfersByUser,
-		arg.UserID,
+		arg.OwnerID,
 		arg.Status,
 		arg.AccountRef,
 		arg.Off,
@@ -330,6 +388,8 @@ func (q *Queries) ListTransfersByUser(ctx context.Context, arg ListTransfersByUs
 			&i.FeeCurrency,
 			&i.FromAccountRef,
 			&i.ToAccountRef,
+			&i.ToAccountName,
+			&i.Message,
 		); err != nil {
 			return nil, err
 		}
@@ -343,7 +403,7 @@ func (q *Queries) ListTransfersByUser(ctx context.Context, arg ListTransfersByUs
 
 const lockTransferByID = `-- name: LockTransferByID :one
 SELECT
-    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref
+    id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref, to_account_name, message
 FROM
     transfers
 WHERE
@@ -381,6 +441,8 @@ func (q *Queries) LockTransferByID(ctx context.Context, id pgtype.UUID) (*Transf
 		&i.FeeCurrency,
 		&i.FromAccountRef,
 		&i.ToAccountRef,
+		&i.ToAccountName,
+		&i.Message,
 	)
 	return &i, err
 }

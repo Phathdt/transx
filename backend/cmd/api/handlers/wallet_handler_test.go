@@ -93,6 +93,12 @@ func TestWalletHandlerCreateTransferAmountValidation(t *testing.T) {
 			Currency: "USD",
 			Status:   entities.AccountStatusActive,
 		}, nil)
+		accountRepo.EXPECT().GetLookupByRef(mock.Anything, toRef).Return(&entities.AccountLookup{
+			AccountRef: toRef,
+			Currency:   "USD",
+			Status:     string(entities.AccountStatusActive),
+			HolderName: "Bob",
+		}, nil)
 		transferRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(tr *entities.Transfer) bool {
 			return tr.FromAccountRef == fromRef &&
 				tr.ToAccountRef == toRef &&
@@ -107,7 +113,7 @@ func TestWalletHandlerCreateTransferAmountValidation(t *testing.T) {
 		app.Post("/api/v1/transfers", h.CreateTransfer)
 
 		body := []byte(
-			`{"fromAccountRef":"` + fromRef + `","toAccountRef":"` + toRef + `","amount":"1.00","currency":"USD","transferType":"INTERNAL"}`,
+			`{"fromAccountRef":"` + fromRef + `","toAccountRef":"` + toRef + `","amount":"1.00","currency":"USD","transferType":"INTERNAL","message":"Alice transfer to Bob"}`,
 		)
 		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/transfers", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -138,7 +144,7 @@ func TestWalletHandlerCreateTransferAmountValidation(t *testing.T) {
 		app.Post("/api/v1/transfers", h.CreateTransfer)
 
 		body := []byte(
-			`{"fromAccountRef":"` + fromRef + `","toAccountRef":"` + toRef + `","amount":"not-a-number","currency":"USD","transferType":"INTERNAL"}`,
+			`{"fromAccountRef":"` + fromRef + `","toAccountRef":"` + toRef + `","amount":"not-a-number","currency":"USD","transferType":"INTERNAL","message":"Alice transfer to Bob"}`,
 		)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/transfers", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

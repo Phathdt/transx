@@ -69,4 +69,6 @@ type Transfer struct {
 	FeeCurrency         string              `db:"fee_currency"`
 	FromAccountRef      string              `db:"from_account_ref"`
 	ToAccountRef        *string             `db:"to_account_ref"`
+	ToAccountName       *string             `db:"to_account_name"`
+	Message             *string             `db:"message"`
 }

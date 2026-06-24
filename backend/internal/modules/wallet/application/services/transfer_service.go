@@ -108,9 +108,9 @@ func (s *TransferService) CreateTransfer(
 	}
 
 	if tType == transferTypeExternal {
-		return s.createExternal(ctx, userID, key, fromRef, amount, currency, cmd.ToAccountRef)
+		return s.createExternal(ctx, userID, key, fromRef, amount, currency, cmd.ToAccountRef, cmd.Message)
 	}
-	return s.createInternal(ctx, userID, key, fromRef, cmd.ToAccountRef, amount, currency)
+	return s.createInternal(ctx, userID, key, fromRef, cmd.ToAccountRef, amount, currency, cmd.Message)
 }
 
 // createInternal handles an INTERNAL transfer: it requires a destination account
@@ -123,6 +123,7 @@ func (s *TransferService) createInternal(
 	toRef string,
 	amount decimal.Decimal,
 	currency string,
+	message string,
 ) (*dto.TransferResponse, error) {
 	// An INTERNAL destination must be an in-system account ref; a free-text id is
 	// only valid for EXTERNAL transfers.
@@ -161,9 +162,23 @@ func (s *TransferService) createInternal(
 	if !from.IsActive() || !to.IsActive() {
 		return nil, apperror.NewUnprocessableError("account not active")
 	}
+
+	// Snapshot the destination holder name at create time so the receiver shown
+	// on the transfer stays stable even if the account is later renamed. This is
+	// the same holder name the caller saw during beneficiary lookup.
+	var toName string
+	lookup, err := s.accounts.GetLookupByRef(ctx, toRef)
+	if err != nil {
+		return nil, err
+	}
+	if lookup != nil {
+		toName = lookup.HolderName
+	}
+
 	return s.persist(ctx, &entities.Transfer{
 		FromAccountRef:      fromRef,
 		ToAccountRef:        toRef,
+		ToAccountName:       toName,
 		TransactionAmount:   amount,
 		TransactionCurrency: currency,
 		FeeAmount:           decimal.Zero,
@@ -171,6 +186,7 @@ func (s *TransferService) createInternal(
 		TransferType:        transferTypeInternal,
 		Reference:           NewTransferReference(transferTypeInternal),
 		Status:              entities.TransferStatusPending,
+		Message:             message,
 		UserID:              userID,
 		IdempotencyKey:      key,
 		RequestHash:         hash,
@@ -189,6 +205,7 @@ func (s *TransferService) createExternal(
 	amount decimal.Decimal,
 	currency string,
 	toRef string,
+	message string,
 ) (*dto.TransferResponse, error) {
 	hash := requestHash(fromRef, toRef, amount, currency, transferTypeExternal, s.providerName)
 
@@ -223,6 +240,7 @@ func (s *TransferService) createExternal(
 		Reference:           NewTransferReference(transferTypeExternal),
 		Provider:            s.providerName,
 		Status:              entities.TransferStatusPending,
+		Message:             message,
 		UserID:              userID,
 		IdempotencyKey:      key,
 		RequestHash:         hash,
@@ -346,6 +364,9 @@ func transferToResponse(t *entities.Transfer) *dto.TransferResponse {
 	return &dto.TransferResponse{
 		TransferID:          t.Reference,
 		Status:              string(t.Status),
+		FromAccountRef:      t.FromAccountRef,
+		ToAccountRef:        t.ToAccountRef,
+		ToAccountName:       t.ToAccountName,
 		TransactionAmount:   t.TransactionAmount.String(),
 		TransactionCurrency: t.TransactionCurrency,
 		SourceAmount:        decimalString(t.SourceAmount),
@@ -356,6 +377,7 @@ func transferToResponse(t *entities.Transfer) *dto.TransferResponse {
 		DestinationFXRate:   decimalString(t.DestinationFXRate),
 		FeeAmount:           t.FeeAmount.String(),
 		FeeCurrency:         t.FeeCurrency,
+		Message:             t.Message,
 		FailureReason:       t.FailureReason,
 	}
 }

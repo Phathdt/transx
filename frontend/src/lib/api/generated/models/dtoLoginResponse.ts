@@ -10,4 +10,5 @@ export interface DtoLoginResponse {
   accessToken?: string;
   tokenType?: string;
   userId?: string;
+  userName?: string;
 }

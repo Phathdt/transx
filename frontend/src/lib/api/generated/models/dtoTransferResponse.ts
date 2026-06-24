@@ -13,10 +13,14 @@ export interface DtoTransferResponse {
   failureReason?: string;
   feeAmount?: string;
   feeCurrency?: string;
+  fromAccountRef?: string;
+  message?: string;
   sourceAmount?: string;
   sourceCurrency?: string;
   sourceFxRate?: string;
   status?: string;
+  toAccountName?: string;
+  toAccountRef?: string;
   transactionAmount?: string;
   transactionCurrency?: string;
   transferId?: string;

@@ -307,12 +307,15 @@ paths:
                 - fromAccountRef
                 - amount
                 - currency
+                - message
               properties:
                 amount:
                   type: string
                 currency:
                   type: string
                 fromAccountRef:
+                  type: string
+                message:
                   type: string
                 toAccountRef:
                   type: string
@@ -476,6 +479,8 @@ components:
           type: string
         userId:
           type: string
+        userName:
+          type: string
     DtoTransferListResponse:
       type: object
       properties:
@@ -507,6 +512,10 @@ components:
           type: string
         feeCurrency:
           type: string
+        fromAccountRef:
+          type: string
+        message:
+          type: string
         sourceAmount:
           type: string
         sourceCurrency:
@@ -514,6 +523,10 @@ components:
         sourceFxRate:
           type: string
         status:
+          type: string
+        toAccountName:
+          type: string
+        toAccountRef:
           type: string
         transactionAmount:
           type: string

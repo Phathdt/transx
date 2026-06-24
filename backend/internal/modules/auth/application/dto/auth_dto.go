@@ -11,4 +11,5 @@ type LoginResponse struct {
 	AccessToken string `json:"accessToken"`
 	TokenType   string `json:"tokenType"`
 	UserID      string `json:"userId"`
+	UserName    string `json:"userName"`
 }

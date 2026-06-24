@@ -26,6 +26,7 @@ export const LoginBody = zod.object({
 export const LoginResponse = zod.object({
   "accessToken": zod.string().optional(),
   "tokenType": zod.string().optional(),
-  "userId": zod.string().optional()
+  "userId": zod.string().optional(),
+  "userName": zod.string().optional()
 })
 

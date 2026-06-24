@@ -43,6 +43,10 @@ type CreateTransferCommand struct {
 	Amount       string `json:"amount"         validate:"required"`
 	Currency     string `json:"currency"       validate:"required,iso4217"`
 	TransferType string `json:"transferType"   validate:"omitempty,oneof=INTERNAL EXTERNAL"`
+	// Message is a user-supplied transfer note. The frontend pre-fills a template
+	// and the user may edit it, but it must not be empty. It is descriptive only:
+	// it does not feed the idempotency request hash.
+	Message string `json:"message"        validate:"required,max=255"`
 }
 
 // TransferResponse is the transfer view returned to clients.
@@ -51,6 +55,9 @@ type TransferResponse struct {
 	// followed by a ULID), not the internal UUID primary key.
 	TransferID          string `json:"transferId"`
 	Status              string `json:"status"`
+	FromAccountRef      string `json:"fromAccountRef,omitempty"`
+	ToAccountRef        string `json:"toAccountRef,omitempty"`
+	ToAccountName       string `json:"toAccountName,omitempty"`
 	TransactionAmount   string `json:"transactionAmount"`
 	TransactionCurrency string `json:"transactionCurrency"`
 	SourceAmount        string `json:"sourceAmount,omitempty"`
@@ -61,6 +68,7 @@ type TransferResponse struct {
 	DestinationFXRate   string `json:"destinationFxRate,omitempty"`
 	FeeAmount           string `json:"feeAmount"`
 	FeeCurrency         string `json:"feeCurrency"`
+	Message             string `json:"message,omitempty"`
 	FailureReason       string `json:"failureReason,omitempty"`
 }
 

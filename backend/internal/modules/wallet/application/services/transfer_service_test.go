@@ -345,6 +345,9 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 		accountRepo.EXPECT().
 			GetByRef(ctx, toRef).
 			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&entities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
 		transferRepo.EXPECT().
 			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
 				return tr.FromAccountRef == fromRef &&
@@ -505,6 +508,9 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 		accountRepo.EXPECT().
 			GetByRef(ctx, toRef).
 			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&entities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
 		transferRepo.EXPECT().Create(ctx, mock.Anything).Return(nil, &pgconn.PgError{Code: pgUniqueViolation})
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(&entities.Transfer{
 			Reference:           "ITN-01K00000000000000000000000",
@@ -538,6 +544,9 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 		accountRepo.EXPECT().
 			GetByRef(ctx, toRef).
 			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: entities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&entities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
 		transferRepo.EXPECT().Create(ctx, mock.Anything).Return(nil, wantErr)
 
 		_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
@@ -788,6 +797,9 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		accountRepo.EXPECT().
 			GetByRef(ctx, toRef).
 			Return(&entities.Account{Ref: toRef, UserID: uuid.New(), Currency: "EUR", Status: entities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&entities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
 		transferRepo.EXPECT().
 			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
 				return tr.FromAccountRef == fromRef &&

@@ -35,6 +35,7 @@ export function useAuth() {
         accessToken: data.accessToken ?? '',
         tokenType: data.tokenType ?? 'Bearer',
         userId: data.userId ?? '',
+        userName: data.userName ?? '',
       })
     },
   })
@@ -56,6 +57,7 @@ export function useAuth() {
     status,
     session,
     userId: session?.userId,
+    userName: session?.userName,
     isAuthenticated: status === 'authenticated',
     login: loginMutation,
     logout,
