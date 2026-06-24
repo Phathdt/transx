@@ -152,7 +152,7 @@ curl -X POST http://localhost:4000/api/v1/login \
   -d '{"email":"alice@transx.dev","password":"password123"}'
 
 # Authenticated request (Traefik verifies the token, injects X-User-Id)
-curl http://localhost:4000/api/v1/accounts/<id> -H "Authorization: Bearer <token>"
+curl http://localhost:4000/api/v1/accounts/<accountRef> -H "Authorization: Bearer <token>"
 ```
 
 ## Backend CLI
@@ -200,12 +200,16 @@ make run-fx             # FX gRPC service
 # Code generation / quality
 make sqlc           # regenerate sqlc query code after editing query/*.sql
 make proto          # regenerate gRPC code after editing proto/*.proto (buf)
+make mock           # regenerate mockery mocks into internal/testmocks
 make openapi        # regenerate openapi.yaml without Docker
 make format         # gofmt / goimports / golines / gofumpt
 make vet            # go vet ./...
 make lint           # golangci-lint (enforces module boundaries via depguard)
+make test           # unit tests (go test -short -p 1 ./...)
+make test-integration  # tagged integration tests (requires Docker)
+make coverage       # module + worker coverage gate (>= 90%)
 make build          # compile the transx binary
-make check          # sqlc + format + vet + lint
+make check          # sqlc + format + vet + lint + test + coverage
 ```
 
 ## Overview Architecture
@@ -276,9 +280,11 @@ All routes are under `/api/v1` and gated by ForwardAuth (the gateway injects
 | Method | Path                      | Description                              |
 | ------ | ------------------------- | ---------------------------------------- |
 | `POST` | `/accounts`                            | Create a wallet account for the caller               |
-| `GET`  | `/accounts/{accountId}`                | Get an account balance (owner-scoped)                |
+| `GET`  | `/accounts`                            | List the caller's accounts (paginated; currency/status filters) |
+| `GET`  | `/accounts/{accountRef}`               | Get an account balance (owner-scoped)                |
 | `GET`  | `/accounts/{accountType}/{accountRef}` | Look up internal/external beneficiary account info   |
 | `POST` | `/transfers`                           | Create a transfer (idempotent)                       |
+| `GET`  | `/transfers`                           | List the caller's transfers (paginated; status/accountRef filters) |
 | `GET`  | `/transfers/{transferId}`              | Get a transfer (owner-scoped)                        |
 
 `POST /transfers` requires an `Idempotency-Key` header — a client-generated UUID
@@ -288,15 +294,20 @@ reusing it with a different body returns `409`. The transfer is created
 final `SUCCEEDED`/`FAILED` status.
 
 `transferType` selects the flow. `INTERNAL` (default) moves funds to another
-in-ledger account and requires `toAccountId`. `EXTERNAL` sends funds out through
-the provider: omit `toAccountId` (there is no in-ledger destination) and the
-`provider` is set from server config — clients never send it.
+in-ledger account and requires `toAccountRef` (an `ACC-` account ref).
+`EXTERNAL` sends funds out through the provider: `toAccountRef` is an optional
+free-text beneficiary id and the `provider` is set from server config — clients
+never send it. A `message` is required on every transfer — a user-supplied note
+(the frontend pre-fills a template); it is descriptive only and does not feed the
+idempotency request hash.
 
 `amount`/`currency` are the **transaction intent** — what the client asked to
 move. The amounts actually posted to each account (the **settlement**) are
 computed server-side from configured FX rates and returned as a snapshot once
 the transfer settles (`sourceAmount`/`sourceCurrency`,
 `destinationAmount`/`destinationCurrency`, `sourceFxRate`/`destinationFxRate`).
+The response also echoes `fromAccountRef`/`toAccountRef`, the receiver's
+`toAccountName` (snapshot of the beneficiary holder name), and the `message`.
 `INTERNAL` supports cross-currency (the destination account may hold a different
 currency); `EXTERNAL` is single-currency — the request `currency` must match the
 source account's currency or the transfer fails `FX_RATE_UNAVAILABLE`. See
@@ -308,23 +319,27 @@ curl -X POST http://localhost:4000/api/v1/transfers \
   -H "Authorization: Bearer <token>" \
   -H 'Idempotency-Key: 0190bf3e-...' \
   -H 'Content-Type: application/json' \
-  -d '{"fromAccountId":"<a>","toAccountId":"<b>","amount":"100","currency":"USD","transferType":"INTERNAL"}'
+  -d '{"fromAccountRef":"ACC-...","toAccountRef":"ACC-...","amount":"100","currency":"USD","transferType":"INTERNAL","message":"rent"}'
 
-# External transfer (no toAccountId)
+# External transfer (no in-ledger destination)
 curl -X POST http://localhost:4000/api/v1/transfers \
   -H "Authorization: Bearer <token>" \
   -H 'Idempotency-Key: 0190bf3f-...' \
   -H 'Content-Type: application/json' \
-  -d '{"fromAccountId":"<a>","amount":"100","currency":"USD","transferType":"EXTERNAL"}'
+  -d '{"fromAccountRef":"ACC-...","amount":"100","currency":"USD","transferType":"EXTERNAL","message":"payout"}'
 ```
 
-Authorization is P2P: the `fromAccountId` must belong to the caller (otherwise
-`403`); the destination may be anyone's. Reads are owner-scoped — another user's
-account or transfer returns `404`. Typed account lookup returns only
-`accountRef`, `currency`, `status`, and `holderName`: `internal` lookups are
-authenticated and owner-scoped, while the narrow `/api/v1/accounts/external/`
-path is public provider-beneficiary validation and never returns balances or
-internal IDs. The full request/response schema is in the generated `openapi.yaml`
+Authorization is P2P: the `fromAccountRef` must belong to the caller (otherwise
+`403`); the destination may be anyone's. Reads are ownership-scoped by account —
+the sender and the receiver of an internal transfer both see it, but an unrelated
+user's account or transfer returns `404`. List endpoints (`GET /accounts`,
+`GET /transfers`) are paginated and owner-scoped, with optional filters
+(currency/status for accounts; status/accountRef for transfers). Typed account
+lookup returns only `accountRef`, `currency`, `status`, and `holderName`:
+`internal` lookups are authenticated and owner-scoped, while the narrow
+`/api/v1/accounts/external/` path is public provider-beneficiary validation and
+never returns balances or internal IDs. The full request/response schema is in
+the generated `openapi.yaml`
 (`make openapi`).
 
 ## Internal Transfer Flow
@@ -377,7 +392,7 @@ sequenceDiagram
     participant PC as Provider Consumer
     participant PV as Payment Provider
 
-    C->>API: POST /transfers (EXTERNAL, no toAccountId)
+    C->>API: POST /transfers (EXTERNAL, no toAccountRef)
     API->>DB: INSERT transfer(PENDING) + outbox(transfer.requested)
     API-->>C: 202 { transferId, status: PENDING }
 

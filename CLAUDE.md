@@ -14,9 +14,13 @@ Run from `backend/`:
 
 ```bash
 make build          # compile (run after code changes)
-make check          # sqlc + format + vet + lint — run before considering work done
+make check          # sqlc + format + vet + lint + test + coverage — run before considering work done
 make sqlc           # regenerate query code after editing internal/modules/*/infrastructure/query/*.sql
 make proto          # regenerate gRPC code after editing proto/*.proto (buf)
+make mock           # regenerate mockery mocks into internal/testmocks
+make test           # unit tests (go test -short -p 1 ./...)
+make test-integration  # tagged integration tests (requires Docker)
+make coverage       # module + worker coverage gate (>= 90%)
 make migrate        # apply goose migrations
 make seed           # insert dev users (idempotent)
 go run . --config config.yaml auth            # auth service (ForwardAuth backend)
@@ -38,8 +42,12 @@ background work lives in `outbox-replayer` (drains the outbox to Kafka) and
 over gRPC. `outbox-replayer` must stay single-instance (the publisher holds no
 row lock).
 
-There is no unit-test suite yet; verify by building and exercising endpoints
-with `curl` against a running service (Postgres must be up via `docker compose`).
+Tests live beside the code they cover (`*_test.go`). Unit tests run with
+`make test`; integration tests are behind the `integration` build tag
+(`make test-integration`, needs Postgres/Kafka via `docker compose`). Mocks are
+mockery-generated into `internal/testmocks` (`make mock`). `make check` runs the
+full gate (sqlc + format + vet + lint + test + coverage); module and worker
+coverage must stay >= 90%.
 
 ## Architecture conventions
 
