@@ -5,7 +5,12 @@ import { Button } from '#/components/ui/button'
 import { useAuth } from '#/hooks/use-auth'
 
 const NAV_ITEMS = [
-  { to: '/app/transfers', label: 'Transfers', icon: ArrowLeftRight, exact: true },
+  {
+    to: '/app/transfers',
+    label: 'Transfers',
+    icon: ArrowLeftRight,
+    exact: true,
+  },
   { to: '/app/transfers/new', label: 'New Transfer', icon: Plus, exact: false },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet, exact: true },
 ] as const

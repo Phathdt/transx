@@ -49,11 +49,13 @@ export function TransferListPage() {
 
   // The caller's accounts populate the account filter options.
   const { data: accountsData } = useListAccounts({ pageSize: 100 })
-  const accounts = accountsData?.data ?? []
+  const accounts = useMemo(() => accountsData?.data ?? [], [accountsData])
   const ownedRefs = useMemo(
     () =>
       new Set(
-        accounts.map((a) => a.accountRef).filter((r): r is string => Boolean(r)),
+        accounts
+          .map((a) => a.accountRef)
+          .filter((r): r is string => Boolean(r)),
       ),
     [accounts],
   )
@@ -171,9 +173,7 @@ export function TransferListPage() {
             <span className="row-avatar size-12">
               <ArrowUpRight className="size-5" />
             </span>
-            <p className="text-sm text-muted-foreground">
-              No transfers yet.
-            </p>
+            <p className="text-sm text-muted-foreground">No transfers yet.</p>
             <Button asChild size="sm">
               <Link to="/app/transfers/new">
                 <Plus className="size-4" />

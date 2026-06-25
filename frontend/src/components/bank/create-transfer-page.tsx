@@ -43,7 +43,10 @@ const formSchema = z.object({
     .regex(AMOUNT_RE, 'Enter a positive amount with up to 4 decimals')
     .refine((v) => Number(v) > 0, 'Amount must be greater than zero'),
   currency: z.string().min(1, 'Currency is required'),
-  message: z.string().min(1, 'Message is required').max(255, 'Message too long'),
+  message: z
+    .string()
+    .min(1, 'Message is required')
+    .max(255, 'Message too long'),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -68,7 +71,7 @@ export function CreateTransferPage() {
   const { data: accountsData, isLoading: accountsLoading } = useListAccounts({
     pageSize: 100,
   })
-  const accounts = accountsData?.data ?? []
+  const accounts = useMemo(() => accountsData?.data ?? [], [accountsData])
 
   const {
     register,

@@ -475,11 +475,7 @@ a {
   border-radius: 18px;
   border: 1px solid var(--line);
   background:
-    radial-gradient(
-      120% 140% at 0% 0%,
-      var(--hero-a),
-      transparent 60%
-    ),
+    radial-gradient(120% 140% at 0% 0%, var(--hero-a), transparent 60%),
     linear-gradient(165deg, var(--surface-strong), var(--surface));
   box-shadow:
     0 1px 0 var(--inset-glint) inset,
