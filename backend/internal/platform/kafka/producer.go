@@ -3,8 +3,9 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"time"
 
-	ckafka "github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
@@ -14,26 +15,24 @@ import (
 // Producer publishes messages to Kafka, injecting the active W3C trace into
 // each message's headers so downstream consumers can continue the trace.
 type Producer struct {
-	producer   *ckafka.Producer
+	client     *kgo.Client
 	propagator propagation.TextMapPropagator
 }
 
-// NewProducer creates a confluent-kafka-go producer. RequireAll acks keep the
-// at-least-once delivery guarantee the worker pipeline relies on.
+// NewProducer creates a franz-go producer. All-ISR acks plus franz-go's
+// default idempotent production keep the at-least-once, no-duplicate delivery
+// guarantee the worker pipeline relies on.
 func NewProducer(cfg config.Kafka) *Producer {
-	p, err := ckafka.NewProducer(&ckafka.ConfigMap{
-		"bootstrap.servers": joinBrokers(cfg.Brokers),
-		"acks":              "all",
-		// Idempotent producer dedups retries inside a single producer session so
-		// republished retries do not create duplicate records on the broker.
-		"enable.idempotence": true,
-	})
+	cl, err := kgo.NewClient(
+		kgo.SeedBrokers(cfg.Brokers...),
+		kgo.RequiredAcks(kgo.AllISRAcks()),
+	)
 	if err != nil {
 		// A misconfigured producer is a programmer/deploy error; fail loud at
 		// startup rather than returning an error every caller must thread.
 		panic(fmt.Sprintf("kafka: create producer: %v", err))
 	}
-	return &Producer{producer: p, propagator: otel.GetTextMapPropagator()}
+	return &Producer{client: cl, propagator: otel.GetTextMapPropagator()}
 }
 
 // Publish writes a message to topic, injecting the W3C traceparent header from
@@ -55,33 +54,20 @@ func (p *Producer) PublishWithHeaders(
 	copy(hdrs, headers)
 	p.propagator.Inject(ctx, headerCarrier{headers: &hdrs})
 
-	deliveryCh := make(chan ckafka.Event, 1)
-	msg := &ckafka.Message{
-		TopicPartition: ckafka.TopicPartition{Topic: &topic, Partition: ckafka.PartitionAny},
-		Key:            key,
-		Value:          value,
-		Headers:        toCKafkaHeaders(hdrs),
-	}
-	if err := p.producer.Produce(msg, deliveryCh); err != nil {
-		return fmt.Errorf("produce to %s: %w", topic, err)
+	rec := &kgo.Record{
+		Topic:   topic,
+		Key:     key,
+		Value:   value,
+		Headers: toKgoHeaders(hdrs),
 	}
 
 	// Synchronous publish: block until the broker acks (or ctx is cancelled) so
-	// callers can decide commit/redelivery on the result, matching the previous
-	// segmentio WriteMessages semantics.
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case ev := <-deliveryCh:
-		m, ok := ev.(*ckafka.Message)
-		if !ok {
-			return fmt.Errorf("produce to %s: unexpected delivery event %T", topic, ev)
-		}
-		if m.TopicPartition.Error != nil {
-			return fmt.Errorf("produce to %s: %w", topic, m.TopicPartition.Error)
-		}
-		return nil
+	// callers can decide commit/redelivery on the result.
+	results := p.client.ProduceSync(ctx, rec)
+	if err := results.FirstErr(); err != nil {
+		return fmt.Errorf("produce to %s: %w", topic, err)
 	}
+	return nil
 }
 
 // PublishDLQ writes a failed message to the given per-service DLQ topic.
@@ -91,18 +77,9 @@ func (p *Producer) PublishDLQ(ctx context.Context, dlqTopic string, key, value [
 
 // Close flushes pending messages and shuts down the producer.
 func (p *Producer) Close() error {
-	p.producer.Flush(5000)
-	p.producer.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = p.client.Flush(ctx)
+	p.client.Close()
 	return nil
-}
-
-func joinBrokers(brokers []string) string {
-	out := ""
-	for i, b := range brokers {
-		if i > 0 {
-			out += ","
-		}
-		out += b
-	}
-	return out
 }
