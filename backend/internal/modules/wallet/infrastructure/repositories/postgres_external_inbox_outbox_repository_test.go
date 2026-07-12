@@ -4,7 +4,6 @@ package repositories_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -44,43 +43,6 @@ func TestPostgresInboxAndOutboxRepositories(t *testing.T) {
 		processed, err = repo.IsProcessed(ctx, group, messageKey)
 		require.NoError(t, err)
 		assert.True(t, processed)
-	})
-
-	t.Run("outbox lists pending events and marks published idempotently", func(t *testing.T) {
-		repo := walletrepos.NewPostgresOutboxRepository(queries)
-		aggregateID := uuid.New()
-		payload := json.RawMessage(`{"transfer_id":"` + aggregateID.String() + `"}`)
-
-		first, err := queries.InsertOutboxEvent(ctx, walletquery.InsertOutboxEventParams{
-			AggregateType: entities.AggregateTypeTransfer,
-			AggregateID:   walletrepos.PgUUID(aggregateID),
-			EventType:     entities.EventTransferRequested,
-			Payload:       payload,
-		})
-		require.NoError(t, err)
-		second, err := queries.InsertOutboxEvent(ctx, walletquery.InsertOutboxEventParams{
-			AggregateType: entities.AggregateTypeTransfer,
-			AggregateID:   walletrepos.PgUUID(uuid.New()),
-			EventType:     entities.EventTransferCompleted,
-			Payload:       json.RawMessage(`{"ok":true}`),
-		})
-		require.NoError(t, err)
-
-		events, err := repo.ListPending(ctx, 10)
-		require.NoError(t, err)
-		require.GreaterOrEqual(t, len(events), 2)
-		assert.Equal(t, uuid.UUID(first.ID.Bytes), events[0].ID)
-		assert.Equal(t, entities.OutboxStatusPending, events[0].Status)
-		assert.Equal(t, uuid.UUID(second.ID.Bytes), events[1].ID)
-
-		require.NoError(t, repo.MarkPublished(ctx, first.ID.Bytes))
-		require.NoError(t, repo.MarkPublished(ctx, first.ID.Bytes))
-
-		events, err = repo.ListPending(ctx, 10)
-		require.NoError(t, err)
-		for _, event := range events {
-			assert.NotEqual(t, uuid.UUID(first.ID.Bytes), event.ID)
-		}
 	})
 }
 
@@ -339,7 +301,6 @@ func TestPostgresRepositoryErrorAndEdgeBranches(t *testing.T) {
 	accountRepo := walletrepos.NewPostgresAccountRepository(queries)
 	transferRepo := walletrepos.NewPostgresTransferRepository(queries, pool)
 	inboxRepo := walletrepos.NewPostgresInboxRepository(queries)
-	outboxRepo := walletrepos.NewPostgresOutboxRepository(queries)
 	userID := createTestUser(ctx, t, pool, "repo-edge-"+uuid.New().String()+"@example.com")
 
 	cancelled, cancel := context.WithCancel(ctx)
@@ -382,9 +343,6 @@ func TestPostgresRepositoryErrorAndEdgeBranches(t *testing.T) {
 		_, err := inboxRepo.IsProcessed(cancelled, "g", "k")
 		assert.Error(t, err)
 		assert.Error(t, inboxRepo.MarkProcessed(cancelled, "g", "k"))
-		_, err = outboxRepo.ListPending(cancelled, 1)
-		assert.Error(t, err)
-		assert.Error(t, outboxRepo.MarkPublished(cancelled, uuid.New()))
 	})
 
 	t.Run("mapper exported helpers cover null timestamp", func(t *testing.T) {

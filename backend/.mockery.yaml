@@ -25,12 +25,6 @@ packages:
           outpkg: testmocks
           filename: transfer_repository.go
           mockname: TransferRepository
-      OutboxRepository:
-        config:
-          dir: internal/testmocks
-          outpkg: testmocks
-          filename: outbox_repository.go
-          mockname: OutboxRepository
       InboxRepository:
         config:
           dir: internal/testmocks

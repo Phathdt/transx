@@ -39,9 +39,7 @@ type OutboxEvent struct {
 	AggregateID   pgtype.UUID        `db:"aggregate_id"`
 	EventType     string             `db:"event_type"`
 	Payload       []byte             `db:"payload"`
-	Status        string             `db:"status"`
 	CreatedAt     pgtype.Timestamptz `db:"created_at"`
-	PublishedAt   pgtype.Timestamptz `db:"published_at"`
 }
 
 type Transfer struct {

@@ -15,7 +15,7 @@ const insertOutboxEvent = `-- name: InsertOutboxEvent :one
 INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload)
     VALUES ($1, $2, $3, $4)
 RETURNING
-    id, aggregate_type, aggregate_id, event_type, payload, status, created_at, published_at
+    id, aggregate_type, aggregate_id, event_type, payload, created_at
 `
 
 type InsertOutboxEventParams struct {
@@ -25,6 +25,8 @@ type InsertOutboxEventParams struct {
 	Payload       []byte      `db:"payload"`
 }
 
+// Staged in the same transaction as the state change it describes; iris (CDC)
+// drains outbox_events to Kafka via logical replication (no application poll).
 func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventParams) (*OutboxEvent, error) {
 	row := q.db.QueryRow(ctx, insertOutboxEvent,
 		arg.AggregateType,
@@ -39,73 +41,7 @@ func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventPa
 		&i.AggregateID,
 		&i.EventType,
 		&i.Payload,
-		&i.Status,
 		&i.CreatedAt,
-		&i.PublishedAt,
 	)
 	return &i, err
-}
-
-const listPendingOutbox = `-- name: ListPendingOutbox :many
-SELECT
-    id, aggregate_type, aggregate_id, event_type, payload, status, created_at, published_at
-FROM
-    outbox_events
-WHERE
-    status = 'PENDING'
-ORDER BY
-    created_at
-LIMIT $1
-`
-
-// FIFO poll. No row lock: a single publisher owns this table (see plan RT#7), so
-// ordering is preserved by created_at and dedup by MarkOutboxPublished's guard.
-func (q *Queries) ListPendingOutbox(ctx context.Context, limit int32) ([]*OutboxEvent, error) {
-	rows, err := q.db.Query(ctx, listPendingOutbox, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []*OutboxEvent
-	for rows.Next() {
-		var i OutboxEvent
-		if err := rows.Scan(
-			&i.ID,
-			&i.AggregateType,
-			&i.AggregateID,
-			&i.EventType,
-			&i.Payload,
-			&i.Status,
-			&i.CreatedAt,
-			&i.PublishedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, &i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const markOutboxPublished = `-- name: MarkOutboxPublished :execrows
-UPDATE
-    outbox_events
-SET
-    status = 'PUBLISHED',
-    published_at = now()
-WHERE
-    id = $1
-    AND status = 'PENDING'
-`
-
-// The status='PENDING' guard makes a re-publish of an already-published row a
-// no-op (0 rows affected), so an at-least-once publisher cannot double-mark.
-func (q *Queries) MarkOutboxPublished(ctx context.Context, id pgtype.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, markOutboxPublished, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

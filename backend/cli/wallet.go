@@ -25,9 +25,9 @@ import (
 	"transx/internal/platform/postgres"
 )
 
-// RunWalletService starts the wallet HTTP API. Background work (outbox publishing
-// and transfer processing) runs in the separate outbox-replayer and consumer
-// commands, so this process only serves the wallet routes.
+// RunWalletService starts the wallet HTTP API. Background work (outbox draining
+// to Kafka via the iris CDC service and transfer processing in the consumer)
+// runs in separate processes, so this process only serves the wallet routes.
 func RunWalletService(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
