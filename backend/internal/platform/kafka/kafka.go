@@ -3,13 +3,13 @@ package kafka
 import (
 	"context"
 
-	ckafka "github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/propagation"
 )
 
 // Message is the transport-agnostic Kafka message surface the application code
-// works with. It deliberately hides the underlying confluent-kafka-go type so
-// handlers and tests do not depend on the client library directly.
+// works with. It deliberately hides the underlying franz-go type so handlers
+// and tests do not depend on the client library directly.
 type Message struct {
 	Topic     string
 	Partition int32
@@ -17,6 +17,12 @@ type Message struct {
 	Key       []byte
 	Value     []byte
 	Headers   []Header
+
+	// leaderEpoch carries the originating record's leader epoch so Commit can
+	// reconstruct a *kgo.Record precise enough for CommitRecords. It is zero for
+	// synthetic messages built outside of Fetch (e.g. in tests), which never
+	// reach the real *Consumer.Commit.
+	leaderEpoch int32
 }
 
 // Header is a single Kafka message header.
@@ -72,17 +78,17 @@ func (c headerCarrier) Keys() []string {
 
 var _ propagation.TextMapCarrier = headerCarrier{}
 
-// toCKafkaHeaders converts our transport-agnostic headers to confluent headers.
-func toCKafkaHeaders(headers []Header) []ckafka.Header {
-	out := make([]ckafka.Header, len(headers))
+// toKgoHeaders converts our transport-agnostic headers to franz-go headers.
+func toKgoHeaders(headers []Header) []kgo.RecordHeader {
+	out := make([]kgo.RecordHeader, len(headers))
 	for i, h := range headers {
-		out[i] = ckafka.Header{Key: h.Key, Value: h.Value}
+		out[i] = kgo.RecordHeader{Key: h.Key, Value: h.Value}
 	}
 	return out
 }
 
-// fromCKafkaHeaders converts confluent headers to our transport-agnostic ones.
-func fromCKafkaHeaders(headers []ckafka.Header) []Header {
+// fromKgoHeaders converts franz-go headers to our transport-agnostic ones.
+func fromKgoHeaders(headers []kgo.RecordHeader) []Header {
 	out := make([]Header, len(headers))
 	for i, h := range headers {
 		out[i] = Header{Key: h.Key, Value: h.Value}
