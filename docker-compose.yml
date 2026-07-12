@@ -33,6 +33,16 @@ services:
   postgres:
     image: postgres:18-alpine
     container_name: transx-postgres
+    # wal_level=logical (plus replication slots/senders) lets iris stream
+    # outbox_events via logical replication. These are startup GUCs.
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
     environment:
       POSTGRES_DB: transx
       POSTGRES_USER: transx
@@ -86,7 +96,7 @@ services:
     command:
       - |
         for topic in \
-          transfer.requested transfer.completed transfer.failed \
+          transfer.requested transfer.provider.requested transfer.completed transfer.failed \
           transx.wallet.retry-6s transx.wallet.retry-30s transx.wallet.retry-5m \
           transx.wallet.dlq \
           transx.notification.retry-6s transx.notification.retry-30s transx.notification.retry-5m \
@@ -140,7 +150,7 @@ services:
       - traefik.http.middlewares.forward-auth.forwardauth.authResponseHeaders=X-User-Id
 
   # API-only: serves wallet HTTP routes. Background work runs in the
-  # outbox-replayer and consumer services, so this needs no Kafka.
+  # iris (CDC) and consumer services, so this needs no Kafka.
   wallet:
     <<: *backend
     container_name: transx-wallet
@@ -166,7 +176,7 @@ services:
       - traefik.http.routers.wallet.service=wallet-svc
 
   # API-only: serves transfer HTTP routes. Background work runs in the
-  # outbox-replayer and consumer services, so this needs no Kafka.
+  # iris (CDC) and consumer services, so this needs no Kafka.
   transfer:
     <<: *backend
     container_name: transx-transfer
@@ -186,15 +196,16 @@ services:
       - traefik.http.routers.transfer.service=transfer-svc
       - traefik.http.services.transfer-svc.loadbalancer.server.port=4000
 
-  # Drains the outbox table to Kafka. Single instance by design: the publisher
-  # holds no row lock, so ordering relies on exactly one replayer running.
-  outbox-replayer:
-    <<: *backend
-    container_name: transx-outbox-replayer
-    command: ["outbox-replayer"]
-    environment:
-      <<: *backend-env
-      HTTP__ADDRESS: ":4001"
+  # Drains the outbox table to Kafka via Postgres logical replication (CDC).
+  # Replaces the in-house outbox-replayer. Single instance by design: one
+  # replication slot, so ordering relies on exactly one iris running.
+  iris:
+    image: phathdt379/iris:v0.1.0
+    container_name: transx-iris
+    volumes:
+      - ./iris/config.yaml:/etc/iris/config.yaml:ro
+    ports:
+      - "19090:9090"
     depends_on:
       postgres:
         condition: service_healthy

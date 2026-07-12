@@ -1,0 +1,37 @@
+# iris CDC pipeline: drains the wallet outbox_events table to Kafka.
+#
+# Outbox mode maps three columns of each inserted row onto the Kafka message so
+# the wire contract matches what the old outbox-replayer produced byte-for-byte:
+#   route_field:   event_type   -> topic (values equal the topic names)
+#   key_field:     aggregate_id -> message key (per-transfer partition ordering)
+#   payload_field: payload      -> message body (raw {"transferId": ...})
+#
+# iris auto-creates the replication slot but NOT the publication; the publication
+# "pglogrepl_publication" is created by a goose migration (see db/migrations).
+source:
+  type: postgres
+  # replication=database puts the connection in logical-replication mode so iris
+  # can run CREATE_REPLICATION_SLOT / START_REPLICATION (pgconn.Connect uses the
+  # DSN as-is; iris does not add this param itself).
+  dsn: postgres://transx:transx@postgres:5432/transx?sslmode=disable&replication=database
+  slot_name: iris_outbox
+  tables:
+    - outbox_events
+
+sink:
+  type: kafka
+  brokers:
+    - redpanda:29092
+  outbox:
+    key_field: aggregate_id
+    route_field: event_type
+    payload_field: payload
+
+logger:
+  format: json
+  level: info
+
+observability:
+  metrics:
+    enabled: true
+    port: 9090

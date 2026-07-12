@@ -25,8 +25,9 @@ import (
 )
 
 // RunTransferService starts the transfer HTTP API. Background work (outbox
-// publishing and transfer processing) runs in the separate outbox-replayer
-// and consumer commands, so this process only serves the transfer routes.
+// draining to Kafka via the iris CDC service and transfer processing in the
+// consumer) runs in separate processes, so this process only serves the
+// transfer routes.
 func RunTransferService(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

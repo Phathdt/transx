@@ -50,13 +50,12 @@ All identifiers use **UUID v7** (time-ordered, index-friendly).
 ```
 backend/
 ├── main.go                 # urfave/cli entrypoint; one subcommand per service
-├── cli/                    # service runners (auth, wallet, outbox-replayer,
-│                           #   consumer, stub-provider, fx), migrate, seed
+├── cli/                    # service runners (auth, wallet, consumer,
+│                           #   stub-provider, fx), migrate, seed
 ├── proto/                  # gRPC service definitions (buf source)
 ├── cmd/
 │   ├── api/                # HTTP handlers + OpenAPI route registration
 │   ├── consumer/           # transfer processor, provider consumer, retry tiers
-│   ├── replayer/           # outbox publisher
 │   ├── grpc/               # gRPC handler adapters (fx server)
 │   └── shared/             # OpenAPI router factory
 ├── internal/
@@ -110,7 +109,6 @@ binary so each scales and deploys separately:
 
 ```bash
 make run-wallet         # wallet: HTTP API only
-make run-replayer       # outbox-replayer: drain outbox table to Kafka
 make run-consumer       # consumer: transfer processor + provider + retries
 make run-notification   # notification: terminal transfer event notifications
 make run-stub-provider  # stub-provider: fake payment provider (POST /submit)
@@ -118,11 +116,12 @@ make run-fx             # fx: FX quoting service (gRPC Quote + QuoteFee)
 go run . --config config.yaml auth   # auth service (ForwardAuth backend)
 ```
 
-`consumer` and `outbox-replayer` need Redpanda up — Kafka is a hard dependency
+`consumer` and `notification` need Redpanda up — Kafka is a hard dependency
 and the process fails fast at startup if the brokers or topics are missing.
-`wallet` (API only) and `auth` do not touch Kafka. `outbox-replayer` must stay
-single-instance: the publisher holds no row lock, so ordering relies on exactly
-one replayer running.
+`wallet` (API only) and `auth` do not touch Kafka. Outbox events are drained
+to Kafka via the external `iris` CDC service (Postgres logical replication
+running in "outbox mode"), which must stay single-instance to preserve FIFO
+ordering.
 
 External transfers go through a pluggable provider reached over HTTP. The
 bundled `stub-provider` is mode-driven via `PROVIDER__MODE` (`always_success` |
@@ -138,7 +137,7 @@ delayed-retry tiers rather than failing the transfer.
 ### Full stack via Compose
 
 ```bash
-docker compose up -d        # traefik + auth + wallet + outbox-replayer + consumer + notification + stub-provider + fx + postgres + redpanda
+docker compose up -d        # traefik + auth + wallet + consumer + notification + stub-provider + fx + iris + postgres + redpanda
 ```
 
 A Traefik gateway fronts the backend on `http://localhost:4000`. Login is
@@ -162,8 +161,6 @@ transx [--config|-c config.yaml] <subcommand>
 
   auth      Start the auth service (POST /login + ForwardAuth /check)
   wallet    Start the wallet HTTP API (API only; workers run separately)
-  outbox-replayer
-            Drain the wallet outbox table to Kafka (single instance)
   consumer  Process the transfer lifecycle (processor + provider + retries)
   notification
             Consume terminal transfer events and dispatch notifications
@@ -191,7 +188,6 @@ docker compose down                       # stop everything
 make migrate        # apply goose migrations
 make seed           # insert dev users + accounts
 make run-wallet         # wallet HTTP API
-make run-replayer       # outbox-replayer
 make run-consumer       # transfer consumer
 make run-notification   # notification consumer
 make run-stub-provider  # stub payment provider
@@ -220,7 +216,7 @@ flowchart TD
     TR["Traefik\nGateway :4000"]
     AUTH["Auth Service\nFiber HTTP :4000\nJWT login + ForwardAuth check"]
     WALLET["Wallet API\nFiber HTTP :4000\n(API only)"]
-    REPLAYER["Outbox Replayer\ndrain outbox → Kafka\n(single instance)"]
+    IRIS["Iris\nPostgres CDC → Kafka\n(single instance, logical replication)"]
     CONSUMER["Consumer\ntransfer processor + provider consumer + retries"]
     NOTIF["Notification Service\nterminal transfer events → audit rows"]
     FX["FX Service\ngRPC :50051\nQuote + QuoteFee"]
@@ -237,8 +233,8 @@ flowchart TD
 
     AUTH --> PG
     WALLET -->|"stage transfer + outbox event"| PG
-    REPLAYER -->|"poll outbox"| PG
-    REPLAYER -->|"publish events"| RP
+    IRIS -->|"logical replication"| PG
+    IRIS -->|"publish events"| RP
     RP -->|"consume transfer.requested / provider.requested"| CONSUMER
     RP -->|"consume transfer.completed / transfer.failed"| NOTIF
     CONSUMER --> PG
@@ -258,8 +254,9 @@ flowchart TD
   commands on one binary so each scales/deploys on its own:
   - **`wallet`** (HTTP API only) stages a transfer plus an outbox event in one
     transaction and serves reads. It touches no Kafka.
-  - **`outbox-replayer`** relays outbox events to Redpanda in FIFO order. It is
-    single-instance (no row lock, so one publisher preserves ordering).
+  - **`iris`** (external CDC service, Postgres logical replication) drains outbox
+    events to Redpanda in FIFO order. It runs single-instance (one replication
+    slot preserves ordering).
   - **`consumer`** processes the transfer lifecycle: internal P2P transfers move
     money in one transaction; external transfers add a reserve→submit→settle
     lifecycle where the provider consumer submits to the payment provider over
@@ -491,10 +488,11 @@ and leaves the destination settlement empty. A mismatch fails the transfer with
 
 ## Worker Consumer Flow
 
-Several background workers process transfers, split across the `outbox-replayer`
-(the publisher) and `consumer` (processor, provider consumer, retry tiers)
-commands. Within each command they run as goroutines supervised by an errgroup
-so a fatal worker error brings the process down for a clean restart.
+Several background workers process transfers, split across the `consumer`
+(processor, provider consumer, retry tiers) command. Within the command they run
+as goroutines supervised by an errgroup so a fatal worker error brings the
+process down for a clean restart. Outbox events are drained via the external
+`iris` CDC service (Postgres logical replication, single-instance).
 
 ```mermaid
 flowchart TD
@@ -507,9 +505,9 @@ flowchart TD
     RETRY[("transx.wallet.retry-6s / 30s / 5m")]
     DLQ[("transx.wallet.dlq")]
 
-    subgraph Publisher["Outbox Publisher (single owner)"]
-        POLL["poll outbox_events\nstatus=PENDING, FIFO"]
-        MARK["mark PUBLISHED\nWHERE status=PENDING"]
+    subgraph CDC["Outbox CDC (iris — single instance)"]
+        POLL["read outbox_events\nlogical replication"]
+        PUSH["publish to Kafka"]
     end
 
     subgraph Processor["Transfer Processor — group: wallet-processor"]
@@ -529,9 +527,8 @@ flowchart TD
         HOLD["HoldUntil(retryAt)\nrepublish to source topic"]
     end
 
-    POLL -->|"transfer.requested / provider.requested"| RPREQ & RPPROV
-    POLL -.-> MARK
-    MARK --> DB
+    POLL -->|"outbox_events"| PUSH
+    PUSH -->|"transfer.requested / provider.requested"| RPREQ & RPPROV
 
     RPREQ --> ROUTE
     ROUTE -->|INTERNAL| EXEC
@@ -556,9 +553,8 @@ flowchart TD
     HOLD --> RPREQ & RPPROV
 ```
 
-- **Outbox publisher** drains `outbox_events` in FIFO order and marks each
-  `PUBLISHED` only after a successful publish (`WHERE status='PENDING'` guards
-  against double-marking). A single publisher owns the table.
+- **Outbox CDC** (iris, single-instance external service) drains `outbox_events`
+  via Postgres logical replication and publishes to Kafka in FIFO order.
 - **Transfer processor** (group `wallet-processor`) deduplicates via
   `inbox_events`, then routes by `transfer_type` read from the database.
   `INTERNAL` moves money in one transaction: it locks both accounts in a
@@ -639,7 +635,7 @@ cmd/
 ├── api/handlers/   HTTP handlers (transport layer)
 ├── api/routes.go   RegisterRoutes (auth) / RegisterWalletRoutes / RegisterAllRoutesForSpec
 └── shared/         OpenAPI-aware route generator
-cli/                CLI entry points (auth | wallet | outbox-replayer | consumer | stub-provider | seed | migrate | openapi-export)
+cli/                CLI entry points (auth | wallet | transfer | consumer | notification | stub-provider | fx | seed | migrate | openapi-export)
 ```
 
 Modules use `application/dto` for transport-facing commands and responses,

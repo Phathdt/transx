@@ -26,7 +26,6 @@ help:
 	@printf "  migrate      Apply database migrations\n"
 	@printf "  seed         Insert development users\n"
 	@printf "  run-wallet   Run wallet HTTP API (API only)\n"
-	@printf "  run-replayer Run outbox-replayer (drain outbox to Kafka)\n"
 	@printf "  run-consumer Run transfer consumer (processor + provider + retries)\n"
 	@printf "  run-notification Run notification consumer for terminal transfer events\n"
 	@printf "  run-stub-provider Run stub payment provider HTTP service\n"
@@ -77,7 +76,7 @@ test-integration:
 	go test -count=1 -tags=integration -p 1 ./... -timeout 120s
 
 coverage:
-	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/notification/... ./cmd/replayer/... ./internal/common/consumerretry/... | grep -Ev '(/query|/gen)' | xargs go test -coverprofile=$(COVERPROFILE)
+	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/notification/... ./internal/common/consumerretry/... | grep -Ev '(/query|/gen)' | xargs go test -coverprofile=$(COVERPROFILE)
 	@coverage="$$(go tool cover -func=$(COVERPROFILE) | awk '/^total:/ {gsub(/%/,"",$$3); print $$3}')"; \
 		echo "modules + workers coverage: $$coverage%"; \
 		awk -v coverage="$$coverage" -v min="$(COVERAGE_MIN)" 'BEGIN { if (coverage + 0 < min + 0) exit 1 }'
@@ -98,9 +97,6 @@ seed:
 
 run-wallet:
 	go run . --config config.yaml wallet
-
-run-replayer:
-	HTTP__ADDRESS=:4001 go run . --config config.yaml outbox-replayer
 
 run-consumer:
 	HTTP__ADDRESS=:4002 go run . --config config.yaml consumer

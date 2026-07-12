@@ -46,11 +46,6 @@ func TimePtr(ts pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
-// timePtr is the internal alias for backward compatibility.
-func timePtr(ts pgtype.Timestamptz) *time.Time {
-	return TimePtr(ts)
-}
-
 func accountToEntity(row *gen.Account) *entities.Account {
 	return &entities.Account{
 		ID:               row.ID.Bytes,
@@ -94,18 +89,5 @@ func transferToEntity(row *gen.Transfer) *entities.Transfer {
 		RequestHash:         row.RequestHash,
 		CreatedAt:           row.CreatedAt.Time,
 		UpdatedAt:           row.UpdatedAt.Time,
-	}
-}
-
-func outboxToEntity(row *gen.OutboxEvent) *entities.OutboxEvent {
-	return &entities.OutboxEvent{
-		ID:            row.ID.Bytes,
-		AggregateType: row.AggregateType,
-		AggregateID:   row.AggregateID.Bytes,
-		EventType:     row.EventType,
-		Payload:       row.Payload,
-		Status:        entities.OutboxStatus(row.Status),
-		CreatedAt:     row.CreatedAt.Time,
-		PublishedAt:   timePtr(row.PublishedAt),
 	}
 }

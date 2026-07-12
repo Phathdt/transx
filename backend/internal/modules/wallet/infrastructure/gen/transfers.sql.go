@@ -17,14 +17,13 @@ SELECT
     count(*)
 FROM
     transfers
-WHERE
-    (from_account_ref IN (
-            SELECT
-                account_ref
-            FROM
-                accounts
-            WHERE
-                accounts.user_id = $1)
+WHERE (from_account_ref IN (
+        SELECT
+            account_ref
+        FROM
+            accounts
+        WHERE
+            accounts.user_id = $1)
         OR to_account_ref IN (
             SELECT
                 account_ref
@@ -34,9 +33,9 @@ WHERE
                 accounts.user_id = $1))
     AND ($2::text IS NULL
         OR status = $2)
-    AND ($3::text IS NULL
-        OR from_account_ref = $3
-        OR to_account_ref = $3)
+AND ($3::text IS NULL
+    OR from_account_ref = $3
+    OR to_account_ref = $3)
 `
 
 type CountTransfersByUserParams struct {
@@ -205,13 +204,13 @@ WHERE
                 accounts
             WHERE
                 accounts.user_id = $2)
-        OR to_account_ref IN (
-            SELECT
-                account_ref
-            FROM
-                accounts
-            WHERE
-                accounts.user_id = $2))
+            OR to_account_ref IN (
+                SELECT
+                    account_ref
+                FROM
+                    accounts
+                WHERE
+                    accounts.user_id = $2))
 `
 
 type GetTransferByReferenceForUserParams struct {
@@ -311,14 +310,13 @@ SELECT
     id, transaction_amount, transaction_currency, transfer_type, provider, provider_reference_id, status, failure_reason, user_id, idempotency_key, request_hash, created_at, updated_at, reference, source_amount, source_currency, destination_amount, destination_currency, source_fx_rate, destination_fx_rate, fee_amount, fee_currency, from_account_ref, to_account_ref, to_account_name, message
 FROM
     transfers
-WHERE
-    (from_account_ref IN (
-            SELECT
-                account_ref
-            FROM
-                accounts
-            WHERE
-                accounts.user_id = $1)
+WHERE (from_account_ref IN (
+        SELECT
+            account_ref
+        FROM
+            accounts
+        WHERE
+            accounts.user_id = $1)
         OR to_account_ref IN (
             SELECT
                 account_ref
@@ -328,9 +326,9 @@ WHERE
                 accounts.user_id = $1))
     AND ($2::text IS NULL
         OR status = $2)
-    AND ($3::text IS NULL
-        OR from_account_ref = $3
-        OR to_account_ref = $3)
+AND ($3::text IS NULL
+    OR from_account_ref = $3
+    OR to_account_ref = $3)
 ORDER BY
     created_at DESC,
     id DESC
