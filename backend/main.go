@@ -29,6 +29,11 @@ func main() {
 				Action: mycli.RunWalletService,
 			},
 			{
+				Name:   "transfer",
+				Usage:  "Start the transfer HTTP API (API only; workers run separately)",
+				Action: mycli.RunTransferService,
+			},
+			{
 				Name:   "outbox-replayer",
 				Usage:  "Drain the wallet outbox table to Kafka (single instance)",
 				Action: mycli.RunOutboxReplayer,

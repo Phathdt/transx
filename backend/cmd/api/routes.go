@@ -24,12 +24,21 @@ func RegisterWalletRoutes(app *fiber.App, walletH *handlers.WalletHandler) {
 	registerWalletRoutes(fiberopenapi.NewRouter(app), walletH)
 }
 
+// RegisterTransferRoutes wires the transfer handlers onto the Fiber app for the
+// running transfer service. Kept separate from RegisterWalletRoutes so each
+// binary only registers the routes it actually serves (a shared registrar
+// would force a nil handler for the other service and panic at request time).
+func RegisterTransferRoutes(app *fiber.App, transferH *handlers.TransferHandler) {
+	registerTransferRoutes(fiberopenapi.NewRouter(app), transferH)
+}
+
 // RegisterAllRoutesForSpec registers every route with nil handlers so the
 // OpenAPI exporter can emit the full spec without wiring real dependencies. Nil
 // handlers are safe here because the exporter never invokes them.
 func RegisterAllRoutesForSpec(r fiberopenapi.Router) {
 	RegisterAuthRoutes(r, nil)
 	registerWalletRoutes(r, nil)
+	registerTransferRoutes(r, nil)
 }
 
 // RegisterAuthRoutes wires the auth-service routes: login + the ForwardAuth
@@ -71,15 +80,12 @@ func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler) {
 	v1 := r.Group("/api/v1")
 
-	var createAccount, getAccount, lookupAccount, listAccounts, createTransfer, getTransfer, listTransfers fiber.Handler
+	var createAccount, getAccount, lookupAccount, listAccounts fiber.Handler
 	if walletH != nil {
 		createAccount = walletH.CreateAccount
 		getAccount = walletH.GetAccount
 		lookupAccount = walletH.LookupAccount
 		listAccounts = walletH.ListAccounts
-		createTransfer = walletH.CreateTransfer
-		getTransfer = walletH.GetTransfer
-		listTransfers = walletH.ListTransfers
 	}
 
 	v1.Post("/accounts", createAccount).With(
@@ -124,6 +130,19 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
 	)
+}
+
+// registerTransferRoutes wires the transfer-service routes onto the spec
+// router. A nil handler registers the route for spec export only.
+func registerTransferRoutes(r fiberopenapi.Router, transferH *handlers.TransferHandler) {
+	v1 := r.Group("/api/v1")
+
+	var createTransfer, getTransfer, listTransfers fiber.Handler
+	if transferH != nil {
+		createTransfer = transferH.CreateTransfer
+		getTransfer = transferH.GetTransfer
+		listTransfers = transferH.ListTransfers
+	}
 
 	v1.Post("/transfers", createTransfer).With(
 		option.Tags("wallet"),

@@ -165,6 +165,27 @@ services:
       - traefik.http.services.wallet-svc.loadbalancer.server.port=4000
       - traefik.http.routers.wallet.service=wallet-svc
 
+  # API-only: serves transfer HTTP routes. Background work runs in the
+  # outbox-replayer and consumer services, so this needs no Kafka.
+  transfer:
+    <<: *backend
+    container_name: transx-transfer
+    command: ["transfer"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.transfer.rule=PathPrefix(`/api/v1/transfers`)
+      - traefik.http.routers.transfer.entrypoints=web
+      - traefik.http.routers.transfer.priority=90
+      - traefik.http.routers.transfer.middlewares=forward-auth
+      - traefik.http.routers.transfer.service=transfer-svc
+      - traefik.http.services.transfer-svc.loadbalancer.server.port=4000
+
   # Drains the outbox table to Kafka. Single instance by design: the publisher
   # holds no row lock, so ordering relies on exactly one replayer running.
   outbox-replayer:

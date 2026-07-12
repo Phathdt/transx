@@ -16,7 +16,6 @@ import (
 	"transx/cmd/api/handlers"
 	walletservices "transx/internal/modules/wallet/application/services"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
-	walletprovider "transx/internal/modules/wallet/infrastructure/provider"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
 	"transx/internal/platform/httpserver"
@@ -25,21 +24,21 @@ import (
 	"transx/internal/platform/postgres"
 )
 
-// RunWalletService starts the wallet HTTP API. Background work (outbox publishing
-// and transfer processing) runs in the separate outbox-replayer and consumer
-// commands, so this process only serves the wallet routes.
-func RunWalletService(c *cli.Context) error {
+// RunTransferService starts the transfer HTTP API. Background work (outbox
+// publishing and transfer processing) runs in the separate outbox-replayer
+// and consumer commands, so this process only serves the transfer routes.
+func RunTransferService(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := runWallet(ctx, c.String("config")); err != nil {
-		slog.Error("wallet service stopped", "error", err)
+	if err := runTransfer(ctx, c.String("config")); err != nil {
+		slog.Error("transfer service stopped", "error", err)
 		os.Exit(1)
 	}
 	return nil
 }
 
-func runWallet(ctx context.Context, configPath string) error {
+func runTransfer(ctx context.Context, configPath string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -57,9 +56,9 @@ func runWallet(ctx context.Context, configPath string) error {
 
 	q := walletgen.New(db)
 	accountRepo := walletrepos.NewPostgresAccountRepository(q)
-	providerLookup := walletprovider.NewHTTPProviderClient(cfg.Provider.BaseURL, 0)
-	accountSvc := walletservices.NewAccountService(accountRepo, providerLookup)
-	walletH := handlers.NewWalletHandler(accountSvc)
+	transferRepo := walletrepos.NewPostgresTransferRepository(q, db)
+	transferSvc := walletservices.NewTransferService(transferRepo, accountRepo, cfg.Provider.Name)
+	transferH := handlers.NewTransferHandler(transferSvc)
 
 	server := httpserver.New(httpserver.Config{
 		Address:            cfg.HTTP.Address,
@@ -68,7 +67,7 @@ func runWallet(ctx context.Context, configPath string) error {
 		ErrorHandler:       handlers.DomainErrorHandler,
 		Middlewares: []fiber.Handler{
 			middleware.RequestID(),
-			middleware.UserIDExcept("/api/v1/accounts/external/"),
+			middleware.UserID(),
 		},
 		Ready: func(ctx context.Context) error {
 			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -76,12 +75,12 @@ func runWallet(ctx context.Context, configPath string) error {
 			return db.Ping(pingCtx)
 		},
 	})
-	cmdapi.RegisterWalletRoutes(server.App(), walletH)
+	cmdapi.RegisterTransferRoutes(server.App(), transferH)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.Listen() }()
 
-	log.Info("wallet service started", "address", cfg.HTTP.Address)
+	log.Info("transfer service started", "address", cfg.HTTP.Address)
 
 	select {
 	case <-ctx.Done():
