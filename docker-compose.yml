@@ -200,7 +200,7 @@ services:
   # Replaces the in-house outbox-replayer. Single instance by design: one
   # replication slot, so ordering relies on exactly one iris running.
   iris:
-    image: phathdt379/iris:v0.1.0
+    image: phathdt379/iris:v0.2.0
     container_name: transx-iris
     volumes:
       - ./iris/config.yaml:/etc/iris/config.yaml:ro

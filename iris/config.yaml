@@ -6,8 +6,8 @@
 #   key_field:     aggregate_id -> message key (per-transfer partition ordering)
 #   payload_field: payload      -> message body (raw {"transferId": ...})
 #
-# iris auto-creates the replication slot but NOT the publication; the publication
-# "pglogrepl_publication" is created by a goose migration (see db/migrations).
+# iris auto-creates both the replication slot and the publication (from
+# source.tables below) on start.
 source:
   type: postgres
   # replication=database puts the connection in logical-replication mode so iris
@@ -17,6 +17,10 @@ source:
   slot_name: iris_outbox
   tables:
     - outbox_events
+  # v0.2.0 auto-creates/alters the publication from `tables` above on start,
+  # scoped to just outbox_events.
+  publication: pglogrepl_publication
+  ensure_publication: true
 
 sink:
   type: kafka
