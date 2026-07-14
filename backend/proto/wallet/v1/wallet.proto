@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package wallet.v1;
+
+option go_package = "transx/internal/platform/grpc/gen/wallet/v1;walletv1";
+
+// WalletService exposes idempotent money-movement operations over accounts and
+// holds. Every RPC carries transfer_id + operation as an idempotency key: a
+// repeated call with the same pair applies the money movement at most once.
+// Money and rate values cross the wire as decimal strings, never float/double.
+service WalletService {
+  // Move debits the source account and credits the destination account
+  // (an optional fee is debited from the source alongside the principal),
+  // writing the matching ledger entries, all in one transaction.
+  rpc Move(MoveRequest) returns (MoveResponse);
+  // Hold moves an amount from available to hold on one account.
+  rpc Hold(HoldRequest) returns (HoldResponse);
+  // SettleHold permanently drops a previously placed hold (the funds left the
+  // system through the destination side of the flow).
+  rpc SettleHold(SettleHoldRequest) returns (SettleHoldResponse);
+  // ReleaseHold returns a previously placed hold back to available balance.
+  rpc ReleaseHold(ReleaseHoldRequest) returns (ReleaseHoldResponse);
+}
+
+message MoveRequest {
+  string transfer_id = 1;
+  string operation = 2;
+  string from_account_ref = 3;
+  string to_account_ref = 4;
+  string source_amount = 5;
+  string source_currency = 6;
+  string destination_amount = 7;
+  string destination_currency = 8;
+  // fee_amount is charged against the source account alongside source_amount.
+  // Empty or zero means no fee.
+  string fee_amount = 9;
+  string fee_currency = 10;
+}
+
+message MoveResponse {
+  string from_available_balance = 1;
+  string to_available_balance = 2;
+}
+
+message HoldRequest {
+  string transfer_id = 1;
+  string operation = 2;
+  string account_ref = 3;
+  string amount = 4;
+  string currency = 5;
+}
+
+message HoldResponse {
+  string available_balance = 1;
+  string hold_balance = 2;
+}
+
+message SettleHoldRequest {
+  string transfer_id = 1;
+  string operation = 2;
+  string account_ref = 3;
+  string amount = 4;
+  string currency = 5;
+}
+
+message SettleHoldResponse {
+  string available_balance = 1;
+  string hold_balance = 2;
+}
+
+message ReleaseHoldRequest {
+  string transfer_id = 1;
+  string operation = 2;
+  string account_ref = 3;
+  string amount = 4;
+  string currency = 5;
+}
+
+message ReleaseHoldResponse {
+  string available_balance = 1;
+  string hold_balance = 2;
+}

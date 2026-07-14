@@ -11,14 +11,18 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/urfave/cli/v2"
+	"google.golang.org/grpc"
 
 	cmdapi "transx/cmd/api"
 	"transx/cmd/api/handlers"
+	cmdgrpc "transx/cmd/grpc"
+	"transx/internal/common/provider"
 	walletservices "transx/internal/modules/wallet/application/services"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
-	walletprovider "transx/internal/modules/wallet/infrastructure/provider"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
+	platformgrpc "transx/internal/platform/grpc"
+	walletv1 "transx/internal/platform/grpc/gen/wallet/v1"
 	"transx/internal/platform/httpserver"
 	"transx/internal/platform/logger"
 	"transx/internal/platform/middleware"
@@ -57,7 +61,7 @@ func runWallet(ctx context.Context, configPath string) error {
 
 	q := walletgen.New(db)
 	accountRepo := walletrepos.NewPostgresAccountRepository(q)
-	providerLookup := walletprovider.NewHTTPProviderClient(cfg.Provider.BaseURL, 0)
+	providerLookup := provider.NewHTTPProviderClient(cfg.Provider.BaseURL, 0)
 	accountSvc := walletservices.NewAccountService(accountRepo, providerLookup)
 	walletH := handlers.NewWalletHandler(accountSvc)
 
@@ -94,4 +98,43 @@ func runWallet(ctx context.Context, configPath string) error {
 		}
 		return err
 	}
+}
+
+// RunWalletGRPCService starts the Wallet gRPC service exposing the idempotent
+// money-movement RPCs (Move/Hold/SettleHold/ReleaseHold). It is an internal
+// service reached by other services (the transfer worker) inside the network
+// at wallet.listen_address.
+func RunWalletGRPCService(c *cli.Context) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := runWalletGRPCService(ctx, c.String("config")); err != nil {
+		slog.Error("wallet-grpc stopped", "error", err)
+		os.Exit(1)
+	}
+	return nil
+}
+
+func runWalletGRPCService(ctx context.Context, configPath string) error {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+
+	log := logger.New(logFormat(cfg.App.Environment), cfg.App.LogLevel)
+	logger.SetDefault(log)
+
+	// Connect eagerly so a bad database URL fails the process at startup.
+	db, err := postgres.Connect(ctx, cfg.Postgres)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	q := walletgen.New(db)
+	money := walletrepos.NewPostgresMoneyRepository(q, db)
+
+	return platformgrpc.Serve(ctx, cfg.Wallet.ListenAddress, log, func(s *grpc.Server) {
+		walletv1.RegisterWalletServiceServer(s, cmdgrpc.NewWalletServer(money))
+	})
 }

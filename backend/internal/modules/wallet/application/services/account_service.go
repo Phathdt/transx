@@ -6,53 +6,22 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/oklog/ulid/v2"
 
+	"transx/internal/common/accountref"
 	"transx/internal/common/apperror"
+	"transx/internal/common/currency"
+	"transx/internal/common/pagination"
 	"transx/internal/modules/wallet/application/dto"
 	"transx/internal/modules/wallet/domain/entities"
 	"transx/internal/modules/wallet/domain/interfaces"
 )
 
-const (
-	defaultPageSize = 20
-	maxPageSize     = 100
-	// maxOffset bounds the computed offset to the int32 range sqlc/Postgres
-	// accept, so an absurdly large page cannot overflow into a negative offset
-	// (which Postgres rejects, surfacing as a 500).
-	maxOffset = 1<<31 - 1
-)
-
-// clampPaging normalises page/pageSize and returns the effective page (echoed
-// back to the client so the response matches the data served) plus the
-// limit/offset for sqlc.
-func clampPaging(page, pageSize int) (effectivePage int, limit, offset int32) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = defaultPageSize
-	}
-	if pageSize > maxPageSize {
-		pageSize = maxPageSize
-	}
-	off := int64(page-1) * int64(pageSize)
-	if off > maxOffset {
-		off = maxOffset
-	}
-	return page, int32(pageSize), int32(off)
-}
-
 // NewAccountReference builds an account's external business id: ACC- + ULID.
-// The ULID is generated at the application layer (time + entropy), independent
-// of the DB-assigned UUID primary key, mirroring the transfer reference scheme.
+// Delegates to the shared accountref package so the transfer module (which
+// validates but does not own account refs) uses the identical format.
 func NewAccountReference() string {
-	return "ACC-" + ulid.Make().String()
+	return accountref.New()
 }
-
-// accountReferencePattern matches an account ref: an ACC- prefix followed by a
-// 26-char Crockford base32 ULID (the alphabet excludes I, L, O, U).
-var accountReferencePattern = regexp.MustCompile(`^ACC-[0-9A-HJKMNP-TV-Z]{26}$`)
 
 // externalReferencePattern bounds an external beneficiary ref before it is
 // concatenated into the unauthenticated outbound provider lookup path, so a
@@ -82,7 +51,7 @@ func (s *AccountService) CreateAccount(
 	userID uuid.UUID,
 	cmd dto.CreateAccountCommand,
 ) (*dto.AccountResponse, error) {
-	if !isSupportedCurrency(cmd.Currency) {
+	if !currency.IsSupported(cmd.Currency) {
 		return nil, apperror.NewBadRequestError("unsupported currency")
 	}
 
@@ -90,7 +59,7 @@ func (s *AccountService) CreateAccount(
 		Ref:      NewAccountReference(),
 		UserID:   userID,
 		Name:     cmd.Name,
-		Currency: normalizeCurrency(cmd.Currency),
+		Currency: currency.Normalize(cmd.Currency),
 		Status:   entities.AccountStatusActive,
 	})
 	if err != nil {
@@ -108,7 +77,7 @@ func (s *AccountService) GetAccount(
 	ref string,
 	userID uuid.UUID,
 ) (*dto.AccountResponse, error) {
-	if !accountReferencePattern.MatchString(ref) {
+	if !accountref.Valid(ref) {
 		return nil, apperror.NewBadRequestError("invalid accountRef")
 	}
 	account, err := s.accounts.GetByRefForUser(ctx, ref, userID)
@@ -143,7 +112,7 @@ func (s *AccountService) LookupInternalAccount(
 	ctx context.Context,
 	ref string,
 ) (*dto.AccountLookupResponse, error) {
-	if !accountReferencePattern.MatchString(ref) {
+	if !accountref.Valid(ref) {
 		return nil, apperror.NewBadRequestError("invalid accountRef")
 	}
 	lookup, err := s.accounts.GetLookupByRef(ctx, ref)
@@ -201,12 +170,12 @@ func (s *AccountService) ListAccounts(
 	ctx context.Context,
 	userID uuid.UUID,
 	page, pageSize int,
-	currency, status string,
+	currencyCode, status string,
 ) (*dto.AccountListResponse, error) {
 	var currencyPtr *string
-	if currency != "" {
-		normalized := normalizeCurrency(currency)
-		if !isSupportedCurrency(normalized) {
+	if currencyCode != "" {
+		normalized := currency.Normalize(currencyCode)
+		if !currency.IsSupported(normalized) {
 			return nil, apperror.NewBadRequestError("unsupported currency")
 		}
 		currencyPtr = &normalized
@@ -222,7 +191,7 @@ func (s *AccountService) ListAccounts(
 		}
 	}
 
-	effectivePage, limit, offset := clampPaging(page, pageSize)
+	effectivePage, limit, offset := pagination.Clamp(page, pageSize)
 
 	rows, err := s.accounts.ListByUser(ctx, userID, currencyPtr, statusPtr, limit, offset)
 	if err != nil {

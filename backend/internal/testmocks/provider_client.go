@@ -4,7 +4,7 @@ package testmocks
 
 import (
 	context "context"
-	entities "transx/internal/modules/wallet/domain/entities"
+	entities "transx/internal/modules/transfer/domain/entities"
 
 	decimal "github.com/shopspring/decimal"
 

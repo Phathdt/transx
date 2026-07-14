@@ -27,20 +27,15 @@ const (
 	// SettlementDLQ is the settlement service's dead-letter queue.
 	SettlementDLQ = "transx.settlement.dlq"
 
-	// Transfer carries the transfer lifecycle events the wallet service emits via
-	// its outbox. The transfer processor consumes TransferRequested; Completed and
-	// Failed are published for downstream consumers (none in this scope).
+	// Transfer lifecycle topics. TransferRequested is consumed by the
+	// Kafka→Temporal bridge; Completed/Failed feed the notification service.
 	TransferRequested = "transfer.requested"
 	TransferCompleted = "transfer.completed"
 	TransferFailed    = "transfer.failed"
 
-	// TransferProviderRequested drives the external-transfer provider worker: it
-	// is staged when a transfer is RESERVED and consumed by the provider consumer,
-	// which submits to the provider and settles the outcome.
-	TransferProviderRequested = "transfer.provider.requested"
-
-	// WalletDLQ is the wallet service's dead-letter queue.
-	WalletDLQ = "transx.wallet.dlq"
+	// TransferDLQ is the transfer bridge's dead-letter queue (poison /
+	// exhausted start-workflow retries).
+	TransferDLQ = "transx.transfer.dlq"
 
 	// NotificationDLQ is the notification service's dead-letter queue.
 	NotificationDLQ = "transx.notification.dlq"
@@ -64,9 +59,9 @@ const (
 	SettlementRetry30s = "transx.settlement.retry-30s"
 	SettlementRetry5m  = "transx.settlement.retry-5m"
 
-	WalletRetry6s  = "transx.wallet.retry-6s"
-	WalletRetry30s = "transx.wallet.retry-30s"
-	WalletRetry5m  = "transx.wallet.retry-5m"
+	TransferRetry6s  = "transx.transfer.retry-6s"
+	TransferRetry30s = "transx.transfer.retry-30s"
+	TransferRetry5m  = "transx.transfer.retry-5m"
 
 	NotificationRetry6s  = "transx.notification.retry-6s"
 	NotificationRetry30s = "transx.notification.retry-30s"
@@ -117,10 +112,10 @@ var (
 		{Topic: SettlementRetry5m, Delay: 5 * time.Minute},
 	}
 
-	walletRetryStages = []RetryStage{
-		{Topic: WalletRetry6s, Delay: 6 * time.Second},
-		{Topic: WalletRetry30s, Delay: 30 * time.Second},
-		{Topic: WalletRetry5m, Delay: 5 * time.Minute},
+	transferRetryStages = []RetryStage{
+		{Topic: TransferRetry6s, Delay: 6 * time.Second},
+		{Topic: TransferRetry30s, Delay: 30 * time.Second},
+		{Topic: TransferRetry5m, Delay: 5 * time.Minute},
 	}
 
 	notificationRetryStages = []RetryStage{
@@ -136,8 +131,8 @@ func OrderRetryStages() []RetryStage { return orderRetryStages }
 // SettlementRetryStages returns the settlement service's retry escalation tiers.
 func SettlementRetryStages() []RetryStage { return settlementRetryStages }
 
-// WalletRetryStages returns the wallet service's retry escalation tiers.
-func WalletRetryStages() []RetryStage { return walletRetryStages }
+// TransferRetryStages returns the transfer bridge's retry escalation tiers.
+func TransferRetryStages() []RetryStage { return transferRetryStages }
 
 // NotificationRetryStages returns the notification service's retry escalation tiers.
 func NotificationRetryStages() []RetryStage { return notificationRetryStages }

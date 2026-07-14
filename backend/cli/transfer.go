@@ -11,13 +11,26 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/urfave/cli/v2"
+	"go.temporal.io/sdk/client"
+	temporallog "go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/worker"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	cmdapi "transx/cmd/api"
 	"transx/cmd/api/handlers"
-	walletservices "transx/internal/modules/wallet/application/services"
+	transferworker "transx/cmd/worker"
+	transferservices "transx/internal/modules/transfer/application/services"
+	transferfx "transx/internal/modules/transfer/infrastructure/fx"
+	transfergen "transx/internal/modules/transfer/infrastructure/gen"
+	transferrepos "transx/internal/modules/transfer/infrastructure/repositories"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
 	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
+	bankv1 "transx/internal/platform/grpc/gen/bank/v1"
+	fxv1 "transx/internal/platform/grpc/gen/fx/v1"
+	walletv1 "transx/internal/platform/grpc/gen/wallet/v1"
 	"transx/internal/platform/httpserver"
 	"transx/internal/platform/logger"
 	"transx/internal/platform/middleware"
@@ -55,10 +68,11 @@ func runTransfer(ctx context.Context, configPath string) error {
 	}
 	defer db.Close()
 
-	q := walletgen.New(db)
-	accountRepo := walletrepos.NewPostgresAccountRepository(q)
-	transferRepo := walletrepos.NewPostgresTransferRepository(q, db)
-	transferSvc := walletservices.NewTransferService(transferRepo, accountRepo, cfg.Provider.Name)
+	walletQ := walletgen.New(db)
+	accountRepo := walletrepos.NewPostgresAccountRepository(walletQ)
+	q := transfergen.New(db)
+	transferRepo := transferrepos.NewPostgresTransferRepository(q, walletQ, db)
+	transferSvc := transferservices.NewTransferService(transferRepo, accountRepo, cfg.Provider.Name)
 	transferH := handlers.NewTransferHandler(transferSvc)
 
 	server := httpserver.New(httpserver.Config{
@@ -94,4 +108,140 @@ func runTransfer(ctx context.Context, configPath string) error {
 		}
 		return err
 	}
+}
+
+// RunTransferWorker starts the Transfer service's Temporal worker: it
+// registers TransferWorkflow + its activity implementations and polls
+// temporal.task_queue. It also serves a health-only HTTP endpoint so
+// Compose/k8s can probe /healthz + /readyz, mirroring the other background
+// services (consumer, notification).
+func RunTransferWorker(c *cli.Context) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := runTransferWorker(ctx, c.String("config")); err != nil {
+		slog.Error("transfer-worker stopped", "error", err)
+		os.Exit(1)
+	}
+	return nil
+}
+
+func runTransferWorker(ctx context.Context, configPath string) error {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+
+	log := logger.New(logFormat(cfg.App.Environment), cfg.App.LogLevel)
+	logger.SetDefault(log)
+
+	// Connect eagerly so a bad database URL fails the process at startup.
+	// Transfer repository + account reads back MarkTerminal, LoadTransfer and
+	// Prepare* activities in-process (money still moves over Wallet gRPC).
+	db, err := postgres.Connect(ctx, cfg.Postgres)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	q := transfergen.New(db)
+	walletQ := walletgen.New(db)
+	transferRepo := transferrepos.NewPostgresTransferRepository(q, walletQ, db)
+	accountRepo := walletrepos.NewPostgresAccountRepository(walletQ)
+
+	// Dial Wallet/Bank/FX lazily (the connection establishes on first RPC) so
+	// the worker still starts if one of them is briefly unavailable.
+	walletConn, err := grpc.NewClient(cfg.Wallet.GRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	bankConn, err := grpc.NewClient(cfg.Bank.GRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		_ = walletConn.Close()
+		return err
+	}
+	fxConn, err := grpc.NewClient(cfg.FX.GRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		_ = walletConn.Close()
+		_ = bankConn.Close()
+		return err
+	}
+
+	walletClient := walletv1.NewWalletServiceClient(walletConn)
+	bankClient := bankv1.NewBankServiceClient(bankConn)
+	fxService := transferfx.NewGRPCClient(fxv1.NewFXServiceClient(fxConn))
+
+	// SlogLogger is the only Logger implementation in this codebase, so the
+	// type assertion below always succeeds; the fallback keeps this call site
+	// safe if that ever changes rather than panicking on a bad assertion.
+	temporalLogger := temporallog.NewStructuredLogger(slog.Default())
+	if sl, ok := log.(*logger.SlogLogger); ok {
+		temporalLogger = temporallog.NewStructuredLogger(sl.Slog())
+	}
+
+	temporalClient, err := client.Dial(client.Options{
+		HostPort:  cfg.Temporal.HostPort,
+		Namespace: cfg.Temporal.Namespace,
+		Logger:    temporalLogger,
+	})
+	if err != nil {
+		_ = walletConn.Close()
+		_ = bankConn.Close()
+		_ = fxConn.Close()
+		return err
+	}
+
+	activities := transferworker.NewActivities(walletClient, bankClient, fxService, transferRepo, accountRepo)
+
+	w := worker.New(temporalClient, cfg.Temporal.TaskQueue, worker.Options{})
+	w.RegisterWorkflow(transferworker.TransferWorkflow)
+	w.RegisterActivity(activities)
+
+	// Health-only HTTP server so Compose/k8s can probe /healthz + /readyz.
+	server := httpserver.New(httpserver.Config{
+		Address: cfg.HTTP.Address,
+		Logger:  log,
+		Ready: func(ctx context.Context) error {
+			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			return db.Ping(pingCtx)
+		},
+	})
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		if err := server.Listen(); err != nil && err != httpserver.ErrServerClosed {
+			return err
+		}
+		return nil
+	})
+	g.Go(func() error {
+		if err := w.Run(worker.InterruptCh()); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	// Shutdown coordinator: drain HTTP, stop the Temporal worker, close every
+	// gRPC connection and the Temporal client.
+	g.Go(func() error {
+		<-gctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+		w.Stop()
+		temporalClient.Close()
+		_ = walletConn.Close()
+		_ = bankConn.Close()
+		_ = fxConn.Close()
+		return nil
+	})
+
+	log.Info("transfer worker started", "address", cfg.HTTP.Address, "taskQueue", cfg.Temporal.TaskQueue)
+
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }

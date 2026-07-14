@@ -11,15 +11,15 @@ import (
 
 	cmdgrpc "transx/cmd/grpc"
 	fxservices "transx/internal/modules/fx/application/services"
-	"transx/internal/modules/wallet/domain/interfaces"
-	walletfx "transx/internal/modules/wallet/infrastructure/fx"
+	"transx/internal/modules/transfer/domain/interfaces"
+	transferfx "transx/internal/modules/transfer/infrastructure/fx"
 	"transx/internal/platform/config"
 	fxv1 "transx/internal/platform/grpc/gen/fx/v1"
 )
 
 // NewInProcessFXService starts the FX gRPC server over an in-memory bufconn
-// listener and returns a wallet FXService client wired to it. This exercises the
-// real server adapter, wire serialization, and client without a TCP port.
+// listener and returns a transfer FXService client wired to it. This exercises
+// the real server adapter, wire serialization, and client without a TCP port.
 func NewInProcessFXService(t *testing.T, cfg config.FX) interfaces.FXService {
 	t.Helper()
 
@@ -42,5 +42,5 @@ func NewInProcessFXService(t *testing.T, cfg config.FX) interfaces.FXService {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 
-	return walletfx.NewGRPCClient(fxv1.NewFXServiceClient(conn))
+	return transferfx.NewGRPCClient(fxv1.NewFXServiceClient(conn))
 }

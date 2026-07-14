@@ -33,21 +33,35 @@ func main() {
 				Usage:  "Start the transfer HTTP API (API only; workers run separately)",
 				Action: mycli.RunTransferService,
 			},
-			{Name: "consumer", Usage: "Process transfer lifecycle events + retries", Action: mycli.RunConsumer},
+			{
+				Name:   "consumer",
+				Usage:  "Kafka→Temporal bridge for transfer.requested (+ start retries)",
+				Action: mycli.RunConsumer,
+			},
 			{
 				Name:   "notification",
 				Usage:  "Consume terminal transfer events and dispatch notifications",
 				Action: mycli.RunNotificationService,
 			},
 			{
-				Name:   "stub-provider",
-				Usage:  "Run the stub payment provider HTTP service (POST /submit)",
-				Action: mycli.RunStubProvider,
-			},
-			{
 				Name:   "fx",
 				Usage:  "Run the FX service (gRPC Quote + QuoteFee)",
 				Action: mycli.RunFXService,
+			},
+			{
+				Name:   "wallet-grpc",
+				Usage:  "Run the Wallet gRPC service (Move/Hold/SettleHold/ReleaseHold)",
+				Action: mycli.RunWalletGRPCService,
+			},
+			{
+				Name:   "bank-grpc",
+				Usage:  "Run the Bank gRPC service (Submit/Query, mode-driven, stateless)",
+				Action: mycli.RunBankGRPCService,
+			},
+			{
+				Name:   "transfer-worker",
+				Usage:  "Run the Transfer service's Temporal worker (TransferWorkflow + activities)",
+				Action: mycli.RunTransferWorker,
 			},
 			{Name: "seed", Usage: "Insert development users (idempotent)", Action: mycli.Seed},
 			{

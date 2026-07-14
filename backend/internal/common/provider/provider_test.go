@@ -1,0 +1,340 @@
+package provider
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"transx/internal/common/apperror"
+	"transx/internal/modules/transfer/domain/entities"
+)
+
+func TestFakeProviderClient(t *testing.T) {
+	ctx := context.Background()
+	transferID := uuid.New()
+	amount := decimal.NewFromInt(100)
+
+	t.Run("defaults to success", func(t *testing.T) {
+		client := NewFakeProviderClient("")
+
+		result, err := client.Submit(ctx, transferID, amount, "USD")
+
+		require.NoError(t, err)
+		assert.Equal(t, entities.ProviderSuccess, result.Outcome)
+		assert.Equal(t, "stub-"+transferID.String(), result.ReferenceID)
+	})
+
+	t.Run("returns business failure", func(t *testing.T) {
+		client := NewFakeProviderClient(ModeAlwaysFailure)
+
+		result, err := client.Submit(ctx, transferID, amount, "USD")
+
+		require.NoError(t, err)
+		assert.Equal(t, entities.ProviderFailure, result.Outcome)
+		assert.Equal(t, entities.FailureProviderRejected, result.Reason)
+	})
+
+	t.Run("returns transient timeout error", func(t *testing.T) {
+		client := NewFakeProviderClient(ModeAlwaysTimeout)
+
+		result, err := client.Submit(ctx, transferID, amount, "USD")
+
+		require.Error(t, err)
+		assert.Empty(t, result.Outcome)
+	})
+
+	t.Run("random is deterministic for the same transfer id", func(t *testing.T) {
+		client := NewFakeProviderClient(ModeRandom)
+
+		first, err := client.Submit(ctx, transferID, amount, "USD")
+		require.NoError(t, err)
+		second, err := client.Submit(ctx, transferID, amount, "USD")
+		require.NoError(t, err)
+		assert.Equal(t, first.Outcome, second.Outcome)
+		assert.Equal(t, first.ReferenceID, second.ReferenceID)
+		assert.Equal(t, first.Reason, second.Reason)
+		assert.True(t,
+			first.Outcome == entities.ProviderSuccess || first.Outcome == entities.ProviderFailure,
+			"outcome=%s", first.Outcome,
+		)
+	})
+
+	t.Run("random can produce both outcomes across ids", func(t *testing.T) {
+		client := NewFakeProviderClient(ModeRandom)
+		var sawSuccess, sawFailure bool
+		for i := 0; i < 64 && !(sawSuccess && sawFailure); i++ {
+			result, err := client.Submit(ctx, uuid.New(), amount, "USD")
+			require.NoError(t, err)
+			switch result.Outcome {
+			case entities.ProviderSuccess:
+				sawSuccess = true
+			case entities.ProviderFailure:
+				sawFailure = true
+			}
+		}
+		assert.True(t, sawSuccess, "expected at least one SUCCESS")
+		assert.True(t, sawFailure, "expected at least one FAILURE")
+	})
+
+}
+
+func TestHTTPProviderClient(t *testing.T) {
+	ctx := context.Background()
+	transferID := uuid.New()
+
+	t.Run("maps successful response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, submitPath, r.URL.Path)
+			assert.Equal(t, http.MethodPost, r.Method)
+
+			var req SubmitRequest
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+			assert.Equal(t, transferID.String(), req.TransferID)
+			assert.Equal(t, "10.5", req.Amount)
+			assert.Equal(t, "USD", req.Currency)
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"outcome":"SUCCESS","reference_id":"provider-ref"}`))
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		result, err := client.Submit(ctx, transferID, decimal.RequireFromString("10.5"), "USD")
+
+		require.NoError(t, err)
+		assert.Equal(t, entities.ProviderSuccess, result.Outcome)
+		assert.Equal(t, "provider-ref", result.ReferenceID)
+	})
+
+	t.Run("maps failure response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"outcome":"FAILURE","reason":"PROVIDER_REJECTED"}`))
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, 0)
+
+		result, err := client.Submit(ctx, transferID, decimal.NewFromInt(1), "USD")
+
+		require.NoError(t, err)
+		assert.Equal(t, entities.ProviderFailure, result.Outcome)
+		assert.Equal(t, entities.FailureProviderRejected, result.Reason)
+	})
+
+	t.Run("returns error for non success status", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "timeout", http.StatusGatewayTimeout)
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		_, err := client.Submit(ctx, transferID, decimal.NewFromInt(1), "USD")
+
+		require.Error(t, err)
+	})
+
+	t.Run("lookup maps successful response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, accountLookupPathPrefix+"EXT-ACME-USD-001", r.URL.Path)
+			assert.Equal(t, http.MethodGet, r.Method)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(
+				[]byte(
+					`{"account_ref":"EXT-ACME-USD-001","currency":"USD","status":"ACTIVE","holder_name":"Acme Treasury"}`,
+				),
+			)
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-ACME-USD-001")
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, "EXT-ACME-USD-001", result.AccountRef)
+		assert.Equal(t, "Acme Treasury", result.HolderName)
+	})
+
+	t.Run("lookup maps not found to nil result", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.NotFound(w, nil)
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-MISSING")
+
+		require.NoError(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("lookup maps server error to bad gateway", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client := NewHTTPProviderClient(server.URL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-ACME-USD-001")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusBadGateway, appErr.Status)
+	})
+
+	t.Run("lookup maps transport error to bad gateway", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		baseURL := server.URL
+		server.Close()
+
+		client := NewHTTPProviderClient(baseURL, time.Second)
+
+		result, err := client.LookupAccount(ctx, "EXT-ACME-USD-001")
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		appErr, ok := err.(*apperror.AppError)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusBadGateway, appErr.Status)
+	})
+}
+
+func TestStubHandlerLookupAccount(t *testing.T) {
+	t.Run("returns hardcoded external account", func(t *testing.T) {
+		app := fiber.New()
+		app.Get(AccountLookupPath(), NewStubHandler(ModeAlwaysSuccess).LookupAccount)
+
+		req := httptest.NewRequest(http.MethodGet, "/accounts/EXT-ACME-USD-001", nil)
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+		var out AccountLookupResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		assert.Equal(t, "EXT-ACME-USD-001", out.AccountRef)
+		assert.Equal(t, "USD", out.Currency)
+		assert.Equal(t, "ACTIVE", out.Status)
+		assert.Equal(t, "Acme Treasury", out.HolderName)
+	})
+
+	t.Run("unknown external account returns not found", func(t *testing.T) {
+		app := fiber.New()
+		app.Get(AccountLookupPath(), NewStubHandler(ModeAlwaysSuccess).LookupAccount)
+
+		req := httptest.NewRequest(http.MethodGet, "/accounts/EXT-MISSING", nil)
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
+}
+
+func TestStubHandlerSubmit(t *testing.T) {
+	transferID := uuid.New()
+
+	t.Run("success mode returns success body", func(t *testing.T) {
+		app := fiber.New()
+		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysSuccess).Submit)
+
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+		var out SubmitResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		assert.Equal(t, string(entities.ProviderSuccess), out.Outcome)
+		assert.Equal(t, "stub-"+transferID.String(), out.ReferenceID)
+	})
+
+	t.Run("failure mode returns failure body", func(t *testing.T) {
+		app := fiber.New()
+		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysFailure).Submit)
+
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+		var out SubmitResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		assert.Equal(t, string(entities.ProviderFailure), out.Outcome)
+		assert.Equal(t, entities.FailureProviderRejected, out.Reason)
+	})
+
+	t.Run("timeout mode returns gateway timeout", func(t *testing.T) {
+		app := fiber.New()
+		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysTimeout).Submit)
+
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"12.34","currency":"USD"}`),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusGatewayTimeout, resp.StatusCode)
+	})
+
+	t.Run("rejects invalid transfer id", func(t *testing.T) {
+		app := fiber.New()
+		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysSuccess).Submit)
+
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"bad","amount":"12.34","currency":"USD"}`),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("rejects invalid amount", func(t *testing.T) {
+		app := fiber.New()
+		app.Post(SubmitPath(), NewStubHandler(ModeAlwaysSuccess).Submit)
+
+		req := httptest.NewRequest(
+			http.MethodPost,
+			SubmitPath(),
+			strings.NewReader(`{"transfer_id":"`+transferID.String()+`","amount":"bad","currency":"USD"}`),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}

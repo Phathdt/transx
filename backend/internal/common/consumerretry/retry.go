@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.temporal.io/api/serviceerror"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -102,8 +103,8 @@ func retryAtMillis(delay time.Duration) int64 {
 }
 
 // IsTransient reports whether an error is worth a delayed retry (a PostgreSQL
-// serialization failure or deadlock, or a briefly unavailable/timed-out gRPC
-// dependency) rather than a permanent failure.
+// serialization failure or deadlock, a briefly unavailable/timed-out gRPC
+// dependency, or a Temporal service error) rather than a permanent failure.
 func IsTransient(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -114,6 +115,21 @@ func IsTransient(err error) bool {
 	}
 	switch status.Code(err) {
 	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	}
+	// Temporal service errors that indicate the server is temporarily
+	// unavailable or overloaded. These are safe to retry through the Kafka
+	// delayed-retry tiers.
+	var unavailable *serviceerror.Unavailable
+	if errors.As(err, &unavailable) {
+		return true
+	}
+	var deadlineExceeded *serviceerror.DeadlineExceeded
+	if errors.As(err, &deadlineExceeded) {
+		return true
+	}
+	var resourceExhausted *serviceerror.ResourceExhausted
+	if errors.As(err, &resourceExhausted) {
 		return true
 	}
 	return false

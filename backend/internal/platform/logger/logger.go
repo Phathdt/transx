@@ -73,6 +73,11 @@ func NewWithWriter(format, level string, w io.Writer) Logger {
 	return &SlogLogger{slog: slog.New(handler)}
 }
 
+// Slog returns the underlying *slog.Logger, for adapting to third-party
+// logging interfaces (e.g. Temporal's client/worker options) that expect a
+// stdlib slog.Logger rather than this package's Logger interface.
+func (l *SlogLogger) Slog() *slog.Logger { return l.slog }
+
 func (l *SlogLogger) With(args ...any) Logger       { return &SlogLogger{slog: l.slog.With(args...)} }
 func (l *SlogLogger) WithGroup(name string) Logger  { return &SlogLogger{slog: l.slog.WithGroup(name)} }
 func (l *SlogLogger) Debug(msg string, args ...any) { l.slog.Debug(msg, args...) }
