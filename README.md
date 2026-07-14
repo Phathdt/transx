@@ -22,7 +22,9 @@ the full product spec.
   - [Wallet API](#wallet-api)
   - [Internal Transfer Flow](#internal-transfer-flow)
   - [External Transfer Flow](#external-transfer-flow)
-  - [Multi-Currency & FX Settlement](#multi-currency--fx-settlement)
+  - [Multi-Currency \& FX Settlement](#multi-currency--fx-settlement)
+    - [Internal transfers (cross-currency capable)](#internal-transfers-cross-currency-capable)
+    - [External transfers (single-currency only)](#external-transfers-single-currency-only)
   - [Worker / Temporal Flow](#worker--temporal-flow)
   - [Idempotency](#idempotency)
   - [Backend Architecture](#backend-architecture)
@@ -30,19 +32,19 @@ the full product spec.
 
 ## Tech Stack
 
-| Concern        | Choice                                      |
-| -------------- | ------------------------------------------- |
-| Language       | Go 1.26                                     |
-| Database       | PostgreSQL 18 (native `uuidv7()`)           |
-| Messaging      | Kafka (Redpanda only in local demo)         |
-| Orchestration  | Temporal (TransferWorkflow saga)            |
-| Gateway        | Traefik + ForwardAuth                       |
-| HTTP framework | Fiber v2                                    |
-| DB access      | pgx v5 + sqlc-generated queries             |
-| Migrations     | goose                                       |
-| External bank  | Bank gRPC (mode-driven fake)                |
-| FX             | standalone gRPC service (buf-generated)     |
-| Config         | viper + `.env` (env override: `A__B`)       |
+| Concern        | Choice                                  |
+| -------------- | --------------------------------------- |
+| Language       | Go 1.26                                 |
+| Database       | PostgreSQL 18 (native `uuidv7()`)       |
+| Messaging      | Kafka (Redpanda only in local demo)     |
+| Orchestration  | Temporal (TransferWorkflow saga)        |
+| Gateway        | Traefik + ForwardAuth                   |
+| HTTP framework | Fiber v2                                |
+| DB access      | pgx v5 + sqlc-generated queries         |
+| Migrations     | goose                                   |
+| External bank  | Bank gRPC (mode-driven fake)            |
+| FX             | standalone gRPC service (buf-generated) |
+| Config         | viper + `.env` (env override: `A__B`)   |
 
 All identifiers use **UUID v7** (time-ordered, index-friendly).
 
@@ -285,15 +287,15 @@ flowchart TD
 All routes are under `/api/v1` and gated by ForwardAuth (the gateway injects
 `X-User-Id` after verifying the bearer token).
 
-| Method | Path                      | Description                              |
-| ------ | ------------------------- | ---------------------------------------- |
-| `POST` | `/accounts`                            | Create a wallet account for the caller               |
-| `GET`  | `/accounts`                            | List the caller's accounts (paginated; currency/status filters) |
-| `GET`  | `/accounts/{accountRef}`               | Get an account balance (owner-scoped)                |
-| `GET`  | `/accounts/{accountType}/{accountRef}` | Look up internal/external beneficiary account info   |
-| `POST` | `/transfers`                           | Create a transfer (idempotent)                       |
+| Method | Path                                   | Description                                                        |
+| ------ | -------------------------------------- | ------------------------------------------------------------------ |
+| `POST` | `/accounts`                            | Create a wallet account for the caller                             |
+| `GET`  | `/accounts`                            | List the caller's accounts (paginated; currency/status filters)    |
+| `GET`  | `/accounts/{accountRef}`               | Get an account balance (owner-scoped)                              |
+| `GET`  | `/accounts/{accountType}/{accountRef}` | Look up internal/external beneficiary account info                 |
+| `POST` | `/transfers`                           | Create a transfer (idempotent)                                     |
 | `GET`  | `/transfers`                           | List the caller's transfers (paginated; status/accountRef filters) |
-| `GET`  | `/transfers/{transferId}`              | Get a transfer (owner-scoped)                        |
+| `GET`  | `/transfers/{transferId}`              | Get a transfer (owner-scoped)                                      |
 
 `POST /transfers` requires an `Idempotency-Key` header — a client-generated UUID
 (uuidv7 recommended). Retrying with the same key replays the original transfer;
@@ -445,11 +447,11 @@ fx:
 
 ### Internal transfers (cross-currency capable)
 
-| Case | Example | Ledger entries (on success) |
-| ---- | ------- | --------------------------- |
-| Same currency | 100 USD, both accounts USD | `DEBIT 100 USD` + `CREDIT 100 USD` |
-| Destination converts | 100 USD → VND @ `25484.20` | `DEBIT 100 USD` + `CREDIT 2548420 VND` |
-| Source converts | 10 USD into USD acct from VND + fee | `DEBIT 254842 VND` + `FEE 10000 VND` + `CREDIT 10 USD` |
+| Case                 | Example                             | Ledger entries (on success)                            |
+| -------------------- | ----------------------------------- | ------------------------------------------------------ |
+| Same currency        | 100 USD, both accounts USD          | `DEBIT 100 USD` + `CREDIT 100 USD`                     |
+| Destination converts | 100 USD → VND @ `25484.20`          | `DEBIT 100 USD` + `CREDIT 2548420 VND`                 |
+| Source converts      | 10 USD into USD acct from VND + fee | `DEBIT 254842 VND` + `FEE 10000 VND` + `CREDIT 10 USD` |
 
 Cross-currency postings are balanced **per currency**, not by absolute value.
 
@@ -459,12 +461,12 @@ External transfers do **not** convert. Prepare requires source account currency
 == transaction currency (`source_fx_rate = 1`). Mismatch →
 `FX_RATE_UNAVAILABLE` before any hold.
 
-| Step / outcome | Ledger entry |
-| -------------- | ------------ |
-| Hold | `HOLD` |
-| Settle success | `DEBIT` (drops hold) |
+| Step / outcome | Ledger entry                          |
+| -------------- | ------------------------------------- |
+| Hold           | `HOLD`                                |
+| Settle success | `DEBIT` (drops hold)                  |
 | Settle failure | `RELEASE` (returns hold to available) |
-| UNKNOWN | hold retained |
+| UNKNOWN        | hold retained                         |
 
 ## Worker / Temporal Flow
 
@@ -520,13 +522,13 @@ flowchart TD
 
 ## Idempotency
 
-| Layer | Mechanism | Location |
-| ----- | --------- | -------- |
-| **API** | Unique `(user_id, idempotency_key)` + `request_hash` | transfer application service |
-| **Kafka bridge** | `inbox_events` `(wallet-processor, transferId)` before StartWorkflow | `cmd/consumer` |
-| **Temporal** | WorkflowID `transfer-{id}` + `AlreadyStarted` = success | consumer + Temporal |
-| **Wallet money** | `wallet_operation_guards (transfer_id, operation)` | `PostgresMoneyRepository` |
-| **Status** | MarkTerminal no-op when already terminal | transfer repository |
+| Layer            | Mechanism                                                            | Location                     |
+| ---------------- | -------------------------------------------------------------------- | ---------------------------- |
+| **API**          | Unique `(user_id, idempotency_key)` + `request_hash`                 | transfer application service |
+| **Kafka bridge** | `inbox_events` `(wallet-processor, transferId)` before StartWorkflow | `cmd/consumer`               |
+| **Temporal**     | WorkflowID `transfer-{id}` + `AlreadyStarted` = success              | consumer + Temporal          |
+| **Wallet money** | `wallet_operation_guards (transfer_id, operation)`                   | `PostgresMoneyRepository`    |
+| **Status**       | MarkTerminal no-op when already terminal                             | transfer repository          |
 
 ```mermaid
 flowchart LR
