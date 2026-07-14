@@ -34,7 +34,7 @@ the full product spec.
 | -------------- | ------------------------------------------- |
 | Language       | Go 1.26                                     |
 | Database       | PostgreSQL 18 (native `uuidv7()`)           |
-| Messaging      | Redpanda (Kafka API compatible)             |
+| Messaging      | Kafka (Redpanda only in local demo)         |
 | Orchestration  | Temporal (TransferWorkflow saga)            |
 | Gateway        | Traefik + ForwardAuth                       |
 | HTTP framework | Fiber v2                                    |
@@ -84,6 +84,7 @@ Requires Go 1.26, Docker, and (for codegen) `sqlc` + `goose`.
 ### 1. Start infrastructure
 
 ```bash
+# Local demo stack: Redpanda stands in for Kafka (not a production choice).
 docker compose up -d postgres redpanda temporal temporal-postgres
 ```
 
@@ -122,11 +123,12 @@ go run . --config config.yaml auth
 go run . --config config.yaml transfer
 ```
 
-`consumer`, `notification`, and `transfer-worker` need Redpanda/Temporal as
+`consumer`, `notification`, and `transfer-worker` need Kafka/Temporal as
 applicable — they fail fast at startup if hard dependencies are missing.
 `wallet`/`transfer` (API only) and `auth` do not start workflows themselves.
 Outbox events are drained to Kafka via the external `iris` CDC service (Postgres
-logical replication, single-instance for FIFO ordering).
+logical replication, single-instance for FIFO ordering). Local compose uses
+**Redpanda only as a demo Kafka broker**, not as the production messaging product.
 
 External transfers go through **Bank gRPC** (`bank-grpc`), mode-driven via
 `BANK__MODE` (`always_success` | `always_failure` | `always_timeout`). The Temporal
@@ -141,7 +143,7 @@ the transfer worker during prepare activities.
 docker compose up -d
 # traefik + auth + wallet + transfer + consumer + notification + fx
 # + wallet-grpc + bank-grpc + transfer-worker + temporal (+ ui)
-# + iris + postgres + redpanda
+# + iris + postgres + redpanda (Kafka-compatible demo broker only)
 ```
 
 A Traefik gateway fronts the backend on `http://localhost:4000`. Login is
@@ -185,6 +187,7 @@ transx [--config|-c config.yaml] <subcommand>
 
 ```bash
 # Infrastructure
+# Redpanda = local Kafka stand-in for demos only
 docker compose up -d postgres redpanda temporal temporal-postgres
 docker compose down
 
@@ -232,7 +235,9 @@ flowchart TD
     BGRPC["bank-grpc\nSubmit/Query"]
     FX["fx gRPC\nQuote + QuoteFee"]
     PG[("PostgreSQL")]
-    RP[("Redpanda\ntransfer.requested\ncompleted / failed")]
+    KREQ[("Kafka\ntransfer.requested")]
+    KOK[("Kafka\ntransfer.completed")]
+    KFAIL[("Kafka\ntransfer.failed")]
     TDLQ[("transx.transfer.dlq")]
     NDLQ[("transx.notification.dlq")]
 
@@ -246,8 +251,10 @@ flowchart TD
     WALLET --> PG
     TRANSFER -->|"PENDING + outbox"| PG
     IRIS -->|"logical replication"| PG
-    IRIS -->|"publish"| RP
-    RP -->|"transfer.requested"| BRIDGE
+    IRIS -->|"event_type topic"| KREQ
+    IRIS -->|"event_type topic"| KOK
+    IRIS -->|"event_type topic"| KFAIL
+    KREQ --> BRIDGE
     BRIDGE -->|"StartWorkflow transfer-{id}"| TEMP
     TEMP --> WORKER
     WORKER --> WGRPC
@@ -255,7 +262,8 @@ flowchart TD
     WORKER --> FX
     WORKER -->|"MarkTerminal status+outbox"| PG
     WGRPC --> PG
-    RP -->|"completed / failed"| NOTIF
+    KOK --> NOTIF
+    KFAIL --> NOTIF
     NOTIF --> PG
     BRIDGE -.->|"poison / start retries exhausted"| TDLQ
     NOTIF -.->|"poison / exhausted retries"| NDLQ
@@ -266,7 +274,7 @@ flowchart TD
 - **Auth**: issues JWTs and verifies them for the gateway (`X-User-Id`).
 - **Transfer API**: stages `PENDING` transfer + `transfer.requested` outbox in
   one transaction; does not move money.
-- **iris**: CDC drain of outbox → Redpanda (single-instance FIFO).
+- **iris**: CDC drain of outbox → Kafka topics named by `event_type` (single-instance FIFO). Local demo compose uses Redpanda as a Kafka-compatible broker only.
 - **consumer**: only the Kafka→Temporal bridge (inbox dedup + `ExecuteWorkflow`).
 - **transfer-worker**: runs the Temporal saga (INTERNAL/EXTERNAL activities).
 - **wallet-grpc / bank-grpc / fx**: money, bank outcomes, and FX quotes over gRPC.
@@ -332,7 +340,7 @@ sequenceDiagram
     participant API as Transfer API
     participant DB as PostgreSQL
     participant IRIS as iris CDC
-    participant RP as Redpanda
+    participant K as Kafka
     participant BR as consumer bridge
     participant T as Temporal
     participant W as transfer-worker
@@ -345,8 +353,8 @@ sequenceDiagram
     API-->>C: 202 { transferId, status: PENDING }
 
     IRIS->>DB: logical replication
-    IRIS->>RP: publish transfer.requested
-    BR->>RP: consume transfer.requested
+    IRIS->>K: publish transfer.requested
+    BR->>K: consume transfer.requested
     Note over BR: inbox dedup
     BR->>T: StartWorkflow(transfer-{id})
     T->>W: TransferWorkflow INTERNAL
@@ -462,9 +470,9 @@ External transfers do **not** convert. Prepare requires source account currency
 
 ```mermaid
 flowchart TD
-    RPREQ[("transfer.requested")]
-    RPDONE[("transfer.completed")]
-    RPFAIL[("transfer.failed")]
+    RPREQ[("Kafka topic\ntransfer.requested")]
+    RPDONE[("Kafka topic\ntransfer.completed")]
+    RPFAIL[("Kafka topic\ntransfer.failed")]
     TDLQ[("transx.transfer.dlq")]
     TRETRY[("transx.transfer.retry-*")]
 
@@ -488,17 +496,19 @@ flowchart TD
     LOAD --> TYPE
     TYPE -->|INTERNAL| INT
     TYPE -->|EXTERNAL| EXT
-    INT --> RPDONE
-    INT --> RPFAIL
-    EXT --> RPDONE
-    EXT --> RPFAIL
+    INT -->|MarkTerminal success outbox| RPDONE
+    INT -->|MarkTerminal failure outbox| RPFAIL
+    EXT -->|MarkTerminal success outbox| RPDONE
+    EXT -->|MarkTerminal failure outbox| RPFAIL
+    RPDONE --> NOTIF["notification"]
+    RPFAIL --> NOTIF
     START --> ESCALATE
     ESCALATE -->|transient| TRETRY
     ESCALATE -->|poison / exhausted| TDLQ
     TRETRY -->|delay elapsed| RPREQ
 ```
 
-- **iris** publishes every outbox `event_type` as a Kafka topic of the same name.
+- **iris** publishes every outbox `event_type` as a **separate Kafka topic** of the same name (`transfer.requested` vs `transfer.completed` / `transfer.failed`).
 - **consumer** is only the bridge: inbox dedup, Temporal start, delayed-retry
   tiers for transient Temporal/start failures (`transx.transfer.retry-*`), DLQ
   for poison/exhausted starts.
