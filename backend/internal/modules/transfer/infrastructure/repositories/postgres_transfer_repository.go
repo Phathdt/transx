@@ -355,6 +355,111 @@ func insertTransferOutbox(
 	return err
 }
 
+// MarkTerminal advances the transfer status and outbox only (no wallet
+// mutation). On success the transfer is set SUCCEEDED with a
+// transfer.completed outbox event; on failure it is set FAILED with the
+// given reason and a transfer.failed outbox event. It is idempotent: a
+// transfer already in a terminal status (SUCCEEDED, FAILED) is a no-op.
+// Only PENDING or PROCESSING transfers are actionable.
+//
+// This is the INTERNAL Temporal path's terminal step — money has already
+// moved via Wallet gRPC Move, so this method only touches transfer's own
+// tables (transfers, outbox_events), not wallet tables.
+func (r *PostgresTransferRepository) MarkTerminal(
+	ctx context.Context,
+	transferID uuid.UUID,
+	succeeded bool,
+	reason, providerReferenceID string,
+) error {
+	return postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+
+		t, err := q.LockTransferByID(ctx, pgUUID(transferID))
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		// Guard: only non-terminal in-flight statuses are actionable. RESERVED is
+		// included for the EXTERNAL Temporal path (hold already placed via Wallet
+		// gRPC). Terminal statuses are no-ops so activity retries are safe.
+		switch t.Status {
+		case string(entities.TransferStatusPending),
+			string(entities.TransferStatusProcessing),
+			string(entities.TransferStatusReserved):
+			// actionable
+		default:
+			return nil
+		}
+
+		if succeeded {
+			if providerReferenceID != "" {
+				if err := q.SetProviderReference(ctx, gen.SetProviderReferenceParams{
+					ProviderReferenceID: providerReferenceID,
+					ID:                  pgUUID(transferID),
+				}); err != nil {
+					return err
+				}
+			}
+			if err := q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
+				Status: string(entities.TransferStatusSucceeded),
+				ID:     pgUUID(transferID),
+			}); err != nil {
+				return err
+			}
+			return insertTransferOutbox(ctx, q, transferID, entities.EventTransferCompleted)
+		}
+		return r.failTx(ctx, q, transferID, reason)
+	})
+}
+
+// SetSettlementSnapshot freezes quoted source/destination amounts, FX rates and
+// fee on the transfer, and advances PENDING → PROCESSING. Used by the Temporal
+// INTERNAL path before Wallet.Move so the transfer row matches the legacy
+// ExecuteInternalTransfer audit fields. Idempotent: non-PENDING is a no-op.
+func (r *PostgresTransferRepository) SetSettlementSnapshot(
+	ctx context.Context,
+	transferID uuid.UUID,
+	sourceAmount, destinationAmount, sourceRate, destinationRate decimal.Decimal,
+	sourceCurrency, destinationCurrency string,
+	feeAmount decimal.Decimal,
+	feeCurrency string,
+) error {
+	return postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+
+		t, err := q.LockTransferByID(ctx, pgUUID(transferID))
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		if t.Status != string(entities.TransferStatusPending) {
+			return nil
+		}
+
+		if err := q.SetTransferSettlementSnapshot(ctx, gen.SetTransferSettlementSnapshotParams{
+			SourceAmount:        decimal.NewNullDecimal(sourceAmount),
+			SourceCurrency:      sourceCurrency,
+			DestinationAmount:   decimal.NewNullDecimal(destinationAmount),
+			DestinationCurrency: destinationCurrency,
+			SourceFxRate:        decimal.NewNullDecimal(sourceRate),
+			DestinationFxRate:   decimal.NewNullDecimal(destinationRate),
+			FeeAmount:           feeAmount,
+			FeeCurrency:         feeCurrency,
+			ID:                  pgUUID(transferID),
+		}); err != nil {
+			return err
+		}
+		return q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
+			Status: string(entities.TransferStatusProcessing),
+			ID:     pgUUID(transferID),
+		})
+	})
+}
+
 func (r *PostgresTransferRepository) ListByUser(
 	ctx context.Context,
 	userID uuid.UUID,

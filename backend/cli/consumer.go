@@ -10,28 +10,24 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v2"
+	"go.temporal.io/sdk/client"
+	temporallog "go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"transx/cmd/consumer"
 	"transx/internal/common/kafkatopic"
-	"transx/internal/common/provider"
-	transferfx "transx/internal/modules/transfer/infrastructure/fx"
 	transfergen "transx/internal/modules/transfer/infrastructure/gen"
 	transferrepos "transx/internal/modules/transfer/infrastructure/repositories"
-	walletgen "transx/internal/modules/wallet/infrastructure/gen"
 	"transx/internal/platform/config"
-	fxv1 "transx/internal/platform/grpc/gen/fx/v1"
 	"transx/internal/platform/httpserver"
 	"transx/internal/platform/kafka"
 	"transx/internal/platform/logger"
 	"transx/internal/platform/postgres"
 )
 
-// RunConsumer starts the transfer consumer: the main transfer.requested
-// processor, the provider consumer (submitting external transfers to the
-// provider over HTTP) and one retry consumer per delayed-retry tier.
+// RunConsumer starts the Kafka→Temporal bridge for transfer.requested: inbox
+// dedup, StartWorkflow, and delayed-retry tiers for transient Temporal/start
+// failures. Money movement lives in the transfer-worker, not here.
 func RunConsumer(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -59,13 +55,7 @@ func runConsumer(ctx context.Context, configPath string) error {
 	defer db.Close()
 
 	q := transfergen.New(db)
-	walletQ := walletgen.New(db)
-	transferRepo := transferrepos.NewPostgresTransferRepository(q, walletQ, db)
 	inboxRepo := transferrepos.NewPostgresInboxRepository(q)
-
-	// External transfers reach the provider over HTTP; a transient HTTP failure
-	// is retried through the delayed-retry tiers.
-	providerClient := provider.NewHTTPProviderClient(cfg.Provider.BaseURL, 0)
 
 	// Kafka is a hard dependency. NewProducer/NewConsumer panic on construction
 	// failure, so build them here on the main goroutine to fail loud at startup.
@@ -74,32 +64,35 @@ func runConsumer(ctx context.Context, configPath string) error {
 		Topic: kafkatopic.TransferRequested,
 		Group: "wallet-processor",
 	})
-	providerRequestConsumer := kafka.NewConsumer(cfg.Kafka, kafka.ConsumerOptions{
-		Topic: kafkatopic.TransferProviderRequested,
-		Group: "wallet-provider",
-	})
 
-	retryStages := kafkatopic.WalletRetryStages()
+	retryStages := kafkatopic.TransferRetryStages()
 	retryConsumers := make([]*kafka.Consumer, 0, len(retryStages))
 	for _, stage := range retryStages {
 		retryConsumers = append(retryConsumers, kafka.NewConsumer(cfg.Kafka, kafka.ConsumerOptions{
 			Topic: stage.Topic,
-			Group: "wallet-retry-" + stage.Topic,
+			Group: "transfer-retry-" + stage.Topic,
 		}))
 	}
 
-	// FX quoting lives in a separate gRPC service; dial it lazily (the
-	// connection establishes on first RPC) so the consumer still starts if FX
-	// is briefly unavailable.
-	fxConn, err := grpc.NewClient(cfg.FX.GRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Temporal client for the starter bridge. Dial eagerly so a bad address
+	// fails the process at startup.
+	temporalLogger := temporallog.NewStructuredLogger(slog.Default())
+	if sl, ok := log.(*logger.SlogLogger); ok {
+		temporalLogger = temporallog.NewStructuredLogger(sl.Slog())
+	}
+	temporalClient, err := client.Dial(client.Options{
+		HostPort:  cfg.Temporal.HostPort,
+		Namespace: cfg.Temporal.Namespace,
+		Logger:    temporalLogger,
+	})
 	if err != nil {
 		return err
 	}
-	fxService := transferfx.NewGRPCClient(fxv1.NewFXServiceClient(fxConn))
-	transferProcessor := consumer.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, fxService, log)
-	providerConsumer := consumer.NewProviderConsumer(
-		providerRequestConsumer, producer, providerClient, transferRepo, inboxRepo, log,
-	)
+
+	transferProcessor := consumer.NewProcessor(mainConsumer, producer, inboxRepo, log, consumer.ProcessorOptions{
+		Temporal:      temporalClient,
+		TemporalQueue: cfg.Temporal.TaskQueue,
+	})
 
 	// Health-only HTTP server so Compose/k8s can probe /healthz + /readyz.
 	server := httpserver.New(httpserver.Config{
@@ -121,25 +114,23 @@ func runConsumer(ctx context.Context, configPath string) error {
 		return nil
 	})
 	g.Go(func() error { return transferProcessor.Run(gctx) })
-	g.Go(func() error { return providerConsumer.Run(gctx) })
 	for i := range retryStages {
 		rc := consumer.NewRetryConsumer(retryConsumers[i], producer, log)
 		g.Go(func() error { return rc.Run(gctx) })
 	}
 
-	// Shutdown coordinator: drain HTTP, then close every Kafka client.
+	// Shutdown coordinator: drain HTTP, close Kafka clients and Temporal.
 	g.Go(func() error {
 		<-gctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 		_ = mainConsumer.Close()
-		_ = providerRequestConsumer.Close()
 		for _, rc := range retryConsumers {
 			_ = rc.Close()
 		}
 		_ = producer.Close()
-		_ = fxConn.Close()
+		temporalClient.Close()
 		return nil
 	})
 

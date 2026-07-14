@@ -26,24 +26,30 @@ make seed           # insert dev users (idempotent)
 go run . --config config.yaml auth            # auth service (ForwardAuth backend)
 go run . --config config.yaml wallet          # wallet HTTP API (API only)
 go run . --config config.yaml transfer        # transfer HTTP API (API only)
-go run . --config config.yaml consumer        # transfer processor + provider + retries
+go run . --config config.yaml consumer        # Kafka→Temporal bridge for transfer.requested
 go run . --config config.yaml notification    # terminal transfer event notifications
-go run . --config config.yaml stub-provider   # stub payment provider (POST /submit)
 go run . --config config.yaml fx              # FX service (gRPC Quote + QuoteFee)
 go run . --config config.yaml wallet-grpc     # Wallet gRPC service (Move/Hold/SettleHold/ReleaseHold)
 go run . --config config.yaml bank-grpc       # Bank gRPC service (Submit/Query, mode-driven, stateless)
+go run . --config config.yaml transfer-worker # Temporal TransferWorkflow + activities
 ```
 
 The wallet workload is split across independent commands on the one `transx`
-binary so each scales/deploys separately: `wallet` serves only the `/accounts`
-HTTP routes, `transfer` serves only the `/transfers` HTTP routes, the
-background work lives in `consumer` (processes the transfer lifecycle +
-retries) and `notification` (consumes terminal transfer events and records
-notification audit rows). Outbox events drain to Kafka via the external `iris`
-CDC service (Postgres logical replication), which must run single-instance to
-preserve FIFO ordering. `consumer` reaches the payment provider over HTTP via
-`stub-provider`. FX quoting (rates + fees) lives in the standalone `fx`
-service, which `consumer` reaches over gRPC.
+binary so each scales/deploys separately:
+
+- `wallet` — `/accounts` HTTP API only
+- `transfer` — `/transfers` HTTP API only (stages `PENDING` + outbox)
+- `consumer` — Kafka→Temporal bridge for `transfer.requested` (inbox dedup +
+  `StartWorkflow` + start-failure retry tiers); does **not** move money
+- `transfer-worker` — Temporal worker: TransferWorkflow + activities (FX, Wallet
+  gRPC, Bank gRPC, MarkTerminal)
+- `notification` — consumes terminal transfer events and records notification
+  audit rows
+
+Outbox events drain to Kafka via the external `iris` CDC service (Postgres
+logical replication), which must run single-instance to preserve FIFO ordering.
+FX quoting lives in the standalone `fx` service. External payment outcomes come
+from `bank-grpc` (mode-driven fake), not an HTTP stub-provider.
 
 `wallet` and `transfer` are two DDD modules (`internal/modules/wallet`,
 `internal/modules/transfer`) sharing one Postgres schema and one Go module —
@@ -56,50 +62,75 @@ mockery-generated into `internal/testmocks` (`make mock`). `make check` runs the
 full gate (sqlc + format + vet + lint + test + coverage); module and worker
 coverage must stay >= 90%.
 
+## Transfer orchestration (Temporal)
+
+```mermaid
+flowchart LR
+  Client --> Traefik
+  Traefik --> TransferAPI["transfer HTTP"]
+  Traefik --> WalletAPI["wallet HTTP"]
+  TransferAPI --> PG[("Postgres\ntransfers + outbox")]
+  PG --> Iris["iris CDC"]
+  Iris --> Kafka[("Redpanda\ntransfer.requested")]
+  Kafka --> Bridge["consumer\nKafka→Temporal bridge"]
+  Bridge --> Temporal["Temporal\ntransfer-{id}"]
+  Temporal --> Worker["transfer-worker"]
+  Worker --> WalletGRPC["wallet-grpc"]
+  Worker --> BankGRPC["bank-grpc"]
+  Worker --> FX["fx gRPC"]
+  Worker --> PG
+  PG --> Iris
+  Iris --> TermKafka[("completed / failed")]
+  TermKafka --> Notif["notification"]
+```
+
+- **WorkflowID** = `transfer-{transferID}`; duplicate start = success
+  (`AlreadyStarted`).
+- **INTERNAL:** prepare (Quote + settlement snapshot) → `Wallet.Move` (atomic
+  debit+credit+ledger+fee) → `MarkTerminal(SUCCEEDED|FAILED)`.
+- **EXTERNAL:** currency check → `Wallet.Hold` → `Bank.Submit` → SUCCESS
+  `SettleHold+MarkTerminal` / FAILURE `ReleaseHold+MarkTerminal` / UNKNOWN keep
+  hold + poll `Bank.Query` (no auto-release).
+- Money (Wallet) and status (Transfer) are separate transactions; retries
+  converge via wallet operation guards + transfer status guards. `MarkTerminal`
+  uses a long Temporal retry budget after money has moved.
+
 ## Architecture conventions
 
 - **Service runners** live in `cli/` (`runAuth`, `runWallet`, `runTransfer`,
-  `runConsumer`, `runNotificationService`, `runStubProvider`, `runFXService`,
-  `runWalletGRPCService`, `runBankGRPCService`). Each runner is self-contained:
-  load config → init logger → connect Postgres eagerly (if the service needs a
-  DB — Bank does not) → build module wiring → start `httpserver`/gRPC and/or
-  workers → block on signal/errgroup. Mirror an existing runner.
+  `runConsumer`, `runNotificationService`, `runFXService`,
+  `runWalletGRPCService`, `runBankGRPCService`, `runTransferWorker`). Each
+  runner is self-contained: load config → init logger → connect Postgres eagerly
+  (if the service needs a DB — Bank does not) → build module wiring → start
+  `httpserver`/gRPC and/or workers → block on signal/errgroup. Mirror an
+  existing runner.
 - **DDD modules** under `internal/modules/<domain>/`:
   - `domain/entities`, `domain/interfaces` — no infra imports.
   - `application/services`, `application/dto` — use cases.
   - `infrastructure/repositories` — implement domain interfaces using sqlc
     `gen/` code; `infrastructure/query/*.sql` is the sqlc source.
 - **Shared provider client** lives in `internal/common/provider` (not inside a
-  module): the external payment-provider HTTP client (a domain-port adapter
-  implementing both wallet's `ProviderAccountLookupClient` and transfer's
-  `ProviderClient`), the shared wire contract, the stub HTTP server's handler,
-  and `FakeProviderClient` (the mode-driven always_success/always_failure/
-  always_timeout fake reused by both the HTTP stub-provider and the Bank gRPC
-  service). Client and server share `http_contract.go` so they cannot drift.
-- **Worker logic** lives under `cmd/<worker>/` (`cmd/consumer` — transfer
-  processor, provider consumer, retry tiers). These are Kafka consume/drain
-  orchestration loops, not domain adapters, so they sit beside `cmd/api` rather
-  than inside a module. They import a module's `domain/interfaces` and are wired
-  up by the matching `cli/` runner.
+  module): wire contract helpers and `FakeProviderClient` (mode-driven
+  always_success/always_failure/always_timeout) used by Bank gRPC. The HTTP
+  stub-provider path is removed; Bank gRPC is the external payment surface.
+- **Worker logic** lives under `cmd/<worker>/`:
+  - `cmd/consumer` — Kafka→Temporal bridge for `transfer.requested`
+  - `cmd/worker` — TransferWorkflow + activities for `transfer-worker`
+  These are orchestration loops, not domain adapters, so they sit beside
+  `cmd/api` rather than inside a module. They import a module's
+  `domain/interfaces` and are wired up by the matching `cli/` runner.
 - **gRPC handlers** live under `cmd/grpc/`:
-  - `fx_grpc_handler.go` — the FX server adapter. The `fx` module owns
-    rate/fee logic; the wallet module reaches it through a gRPC client adapter
-    (`wallet/infrastructure/fx/grpc_fx_client.go`) implementing `FXService`.
-  - `wallet_grpc_handler.go` — adapts `interfaces.MoneyRepository`
-    (`wallet/domain/interfaces`) to the generated `WalletService`
-    (Move/Hold/SettleHold/ReleaseHold). Every RPC carries `transfer_id` +
-    `operation`; idempotency is enforced by
-    `PostgresMoneyRepository` checking/writing a `wallet_operation_guards`
-    row `(transfer_id, operation)` inside the same transaction as the money
-    movement, so a retried call is a no-op that returns the current balance.
-  - `bank_grpc_handler.go` — the Bank server adapter, replacing the HTTP
-    stub-provider. It is stateless and mode-driven: `Submit` and `Query` both
-    derive their outcome from `provider.FakeProviderClient`, so `Query` on any
-    `transfer_id` recomputes the same result `Submit` would return right now —
-    no operation/callback state is persisted.
-  - All handlers translate generated proto types to/from a module's
-    application service or repository; money/rate values cross the wire as
-    decimal strings, never float/double.
+  - `fx_grpc_handler.go` — FX server adapter. Transfer worker reaches it through
+    the transfer FX gRPC client adapter implementing `FXService`.
+  - `wallet_grpc_handler.go` — adapts `interfaces.MoneyRepository` to
+    `WalletService` (Move/Hold/SettleHold/ReleaseHold). Every RPC carries
+    `transfer_id` + `operation`; idempotency is enforced by
+    `PostgresMoneyRepository` checking/writing a `wallet_operation_guards` row
+    `(transfer_id, operation)` inside the same transaction as the money
+    movement.
+  - `bank_grpc_handler.go` — Bank server adapter (stateless, mode-driven
+    Submit/Query via `FakeProviderClient`).
+  - Money/rate values cross the wire as decimal strings, never float/double.
 - **Protos** live in `proto/`; `make proto` (buf) regenerates Go code into
   `internal/platform/grpc/gen/`. Reuse `platform/grpc.Serve` to run a server;
   do not hand-roll the gRPC lifecycle.
@@ -120,8 +151,8 @@ and the same Postgres `public` schema:
   and holds), plus `wallet_operation_guards` (the `(transfer_id, operation)`
   idempotency guard for the Wallet gRPC service — see `PostgresMoneyRepository`).
 - `internal/modules/transfer/...` owns `transfers` and `outbox_events` (plus
-  `inbox_events` for consumer dedup, held here temporarily until a future
-  gRPC/service split moves inbox ownership).
+  `inbox_events` for consumer/notification dedup, held here temporarily until a
+  future gRPC/service split moves inbox ownership).
 
 A package only calls its own `infrastructure/gen` (sqlc) queries directly.
 `transfer` reads wallet's `AccountRepository` (`domain/interfaces`) to
@@ -131,15 +162,13 @@ lint rule enforcing this (no golangci-lint config is tracked in this repo);
 the boundary is enforced by convention and code review, so keep new code on
 the right side of it and flag any new cross-module import in review.
 
-`PostgresTransferRepository.ExecuteInternalTransfer`,
-`ReserveExternalTransfer` and `SettleExternalTransfer` are the one sanctioned
-exception: each opens a single Postgres transaction and, inside it, calls
-both transfer's own queries (status/outbox) and wallet's queries
-(debit/credit/hold/ledger) via a second `*gen.Queries` bound to the same
-`pgx.Tx`. This keeps money movement and status/outbox advancement atomic. A
-future split (separate services/DBs) will need to break this into a proper
-saga; until then it stays as the one place transfer directly touches wallet's
-tables, and it is commented in the code as intentional.
+**Primary money path is Temporal + Wallet gRPC** (no cross-module wallet writes
+from the worker). The older
+`PostgresTransferRepository.ExecuteInternalTransfer` /
+`ReserveExternalTransfer` / `SettleExternalTransfer` helpers still exist as
+in-process single-tx implementations (and tests); they are not on the live
+Kafka→Temporal path. A future cleanup can remove them once integration proves
+Temporal-only production traffic.
 
 ## Rules
 
@@ -150,8 +179,8 @@ tables, and it is commented in the code as intentional.
   source currency as a third `FEE` ledger entry. A missing/non-positive entry =
   no fee. Not a percentage; don't reintroduce a rate-based fee.
 - **Config**: add fields to `internal/platform/config/config.go`. Env override
-  format is `SECTION__KEY` (e.g. `AUTH__JWT_SECRET`). Secrets stay in `.env` /
-  env vars, never committed.
+  format is `SECTION__KEY` (e.g. `AUTH__JWT_SECRET`, `TEMPORAL__HOST_PORT`).
+  Secrets stay in `.env` / env vars, never committed.
 - **sqlc**: after changing a migration schema or `query/*.sql`, run `make sqlc`.
   A module's sqlc block stays commented in `sqlc.yaml` until its `query/*.sql`
   exists (sqlc fails on empty query globs).

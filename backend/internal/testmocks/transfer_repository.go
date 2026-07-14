@@ -5,6 +5,9 @@ package testmocks
 import (
 	context "context"
 	entities "transx/internal/modules/transfer/domain/entities"
+
+	decimal "github.com/shopspring/decimal"
+
 	interfaces "transx/internal/modules/transfer/domain/interfaces"
 
 	mock "github.com/stretchr/testify/mock"
@@ -433,6 +436,56 @@ func (_c *TransferRepository_ListByUser_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// MarkTerminal provides a mock function with given fields: ctx, transferID, succeeded, reason, providerReferenceID
+func (_m *TransferRepository) MarkTerminal(ctx context.Context, transferID uuid.UUID, succeeded bool, reason string, providerReferenceID string) error {
+	ret := _m.Called(ctx, transferID, succeeded, reason, providerReferenceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkTerminal")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, bool, string, string) error); ok {
+		r0 = rf(ctx, transferID, succeeded, reason, providerReferenceID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// TransferRepository_MarkTerminal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkTerminal'
+type TransferRepository_MarkTerminal_Call struct {
+	*mock.Call
+}
+
+// MarkTerminal is a helper method to define mock.On call
+//   - ctx context.Context
+//   - transferID uuid.UUID
+//   - succeeded bool
+//   - reason string
+//   - providerReferenceID string
+func (_e *TransferRepository_Expecter) MarkTerminal(ctx interface{}, transferID interface{}, succeeded interface{}, reason interface{}, providerReferenceID interface{}) *TransferRepository_MarkTerminal_Call {
+	return &TransferRepository_MarkTerminal_Call{Call: _e.mock.On("MarkTerminal", ctx, transferID, succeeded, reason, providerReferenceID)}
+}
+
+func (_c *TransferRepository_MarkTerminal_Call) Run(run func(ctx context.Context, transferID uuid.UUID, succeeded bool, reason string, providerReferenceID string)) *TransferRepository_MarkTerminal_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(bool), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *TransferRepository_MarkTerminal_Call) Return(_a0 error) *TransferRepository_MarkTerminal_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *TransferRepository_MarkTerminal_Call) RunAndReturn(run func(context.Context, uuid.UUID, bool, string, string) error) *TransferRepository_MarkTerminal_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReserveExternalTransfer provides a mock function with given fields: ctx, transferID
 func (_m *TransferRepository) ReserveExternalTransfer(ctx context.Context, transferID uuid.UUID) error {
 	ret := _m.Called(ctx, transferID)
@@ -476,6 +529,61 @@ func (_c *TransferRepository_ReserveExternalTransfer_Call) Return(_a0 error) *Tr
 }
 
 func (_c *TransferRepository_ReserveExternalTransfer_Call) RunAndReturn(run func(context.Context, uuid.UUID) error) *TransferRepository_ReserveExternalTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetSettlementSnapshot provides a mock function with given fields: ctx, transferID, sourceAmount, destinationAmount, sourceRate, destinationRate, sourceCurrency, destinationCurrency, feeAmount, feeCurrency
+func (_m *TransferRepository) SetSettlementSnapshot(ctx context.Context, transferID uuid.UUID, sourceAmount decimal.Decimal, destinationAmount decimal.Decimal, sourceRate decimal.Decimal, destinationRate decimal.Decimal, sourceCurrency string, destinationCurrency string, feeAmount decimal.Decimal, feeCurrency string) error {
+	ret := _m.Called(ctx, transferID, sourceAmount, destinationAmount, sourceRate, destinationRate, sourceCurrency, destinationCurrency, feeAmount, feeCurrency)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetSettlementSnapshot")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, decimal.Decimal, decimal.Decimal, decimal.Decimal, decimal.Decimal, string, string, decimal.Decimal, string) error); ok {
+		r0 = rf(ctx, transferID, sourceAmount, destinationAmount, sourceRate, destinationRate, sourceCurrency, destinationCurrency, feeAmount, feeCurrency)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// TransferRepository_SetSettlementSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSettlementSnapshot'
+type TransferRepository_SetSettlementSnapshot_Call struct {
+	*mock.Call
+}
+
+// SetSettlementSnapshot is a helper method to define mock.On call
+//   - ctx context.Context
+//   - transferID uuid.UUID
+//   - sourceAmount decimal.Decimal
+//   - destinationAmount decimal.Decimal
+//   - sourceRate decimal.Decimal
+//   - destinationRate decimal.Decimal
+//   - sourceCurrency string
+//   - destinationCurrency string
+//   - feeAmount decimal.Decimal
+//   - feeCurrency string
+func (_e *TransferRepository_Expecter) SetSettlementSnapshot(ctx interface{}, transferID interface{}, sourceAmount interface{}, destinationAmount interface{}, sourceRate interface{}, destinationRate interface{}, sourceCurrency interface{}, destinationCurrency interface{}, feeAmount interface{}, feeCurrency interface{}) *TransferRepository_SetSettlementSnapshot_Call {
+	return &TransferRepository_SetSettlementSnapshot_Call{Call: _e.mock.On("SetSettlementSnapshot", ctx, transferID, sourceAmount, destinationAmount, sourceRate, destinationRate, sourceCurrency, destinationCurrency, feeAmount, feeCurrency)}
+}
+
+func (_c *TransferRepository_SetSettlementSnapshot_Call) Run(run func(ctx context.Context, transferID uuid.UUID, sourceAmount decimal.Decimal, destinationAmount decimal.Decimal, sourceRate decimal.Decimal, destinationRate decimal.Decimal, sourceCurrency string, destinationCurrency string, feeAmount decimal.Decimal, feeCurrency string)) *TransferRepository_SetSettlementSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID), args[2].(decimal.Decimal), args[3].(decimal.Decimal), args[4].(decimal.Decimal), args[5].(decimal.Decimal), args[6].(string), args[7].(string), args[8].(decimal.Decimal), args[9].(string))
+	})
+	return _c
+}
+
+func (_c *TransferRepository_SetSettlementSnapshot_Call) Return(_a0 error) *TransferRepository_SetSettlementSnapshot_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *TransferRepository_SetSettlementSnapshot_Call) RunAndReturn(run func(context.Context, uuid.UUID, decimal.Decimal, decimal.Decimal, decimal.Decimal, decimal.Decimal, string, string, decimal.Decimal, string) error) *TransferRepository_SetSettlementSnapshot_Call {
 	_c.Call.Return(run)
 	return _c
 }

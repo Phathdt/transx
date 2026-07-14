@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"transx/internal/modules/transfer/domain/entities"
 )
@@ -31,6 +32,27 @@ type TransferRepository interface {
 	// (RESERVED → SUCCEEDED on success, → FAILED with hold released on failure).
 	// Idempotent: a transfer not in RESERVED is skipped.
 	SettleExternalTransfer(ctx context.Context, transferID uuid.UUID, result entities.ProviderResult) error
+	// MarkTerminal advances the transfer status and outbox only (no wallet
+	// mutation). On success the transfer is set SUCCEEDED with a
+	// transfer.completed outbox event; on failure it is set FAILED with the
+	// given reason and a transfer.failed outbox event. It is idempotent: a
+	// transfer already in a terminal status (SUCCEEDED, FAILED) is a no-op.
+	// PENDING, PROCESSING and RESERVED are actionable (INTERNAL uses
+	// PENDING/PROCESSING; EXTERNAL Temporal uses PROCESSING after hold).
+	// providerReferenceID is stored on success when non-empty.
+	MarkTerminal(ctx context.Context, transferID uuid.UUID, succeeded bool, reason, providerReferenceID string) error
+	// SetSettlementSnapshot freezes quoted source/destination amounts, FX rates
+	// and fee on the transfer, and advances PENDING → PROCESSING. Used by the
+	// Temporal INTERNAL path before Wallet.Move so the transfer row matches the
+	// legacy ExecuteInternalTransfer audit fields. Idempotent for non-PENDING.
+	SetSettlementSnapshot(
+		ctx context.Context,
+		transferID uuid.UUID,
+		sourceAmount, destinationAmount, sourceRate, destinationRate decimal.Decimal,
+		sourceCurrency, destinationCurrency string,
+		feeAmount decimal.Decimal,
+		feeCurrency string,
+	) error
 	// ListByUser returns a page of transfers owned by userID, optionally filtered
 	// by status and accountRef (nil = no filter). accountRef matches either
 	// from_account_ref or to_account_ref.

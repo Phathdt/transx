@@ -136,8 +136,8 @@ func runTransferWorker(ctx context.Context, configPath string) error {
 	logger.SetDefault(log)
 
 	// Connect eagerly so a bad database URL fails the process at startup.
-	// The transfer repository is only needed for MarkTerminal, which settles
-	// the external-transfer outcome in-process (no gRPC hop).
+	// Transfer repository + account reads back MarkTerminal, LoadTransfer and
+	// Prepare* activities in-process (money still moves over Wallet gRPC).
 	db, err := postgres.Connect(ctx, cfg.Postgres)
 	if err != nil {
 		return err
@@ -147,6 +147,7 @@ func runTransferWorker(ctx context.Context, configPath string) error {
 	q := transfergen.New(db)
 	walletQ := walletgen.New(db)
 	transferRepo := transferrepos.NewPostgresTransferRepository(q, walletQ, db)
+	accountRepo := walletrepos.NewPostgresAccountRepository(walletQ)
 
 	// Dial Wallet/Bank/FX lazily (the connection establishes on first RPC) so
 	// the worker still starts if one of them is briefly unavailable.
@@ -190,7 +191,7 @@ func runTransferWorker(ctx context.Context, configPath string) error {
 		return err
 	}
 
-	activities := transferworker.NewActivities(walletClient, bankClient, fxService, transferRepo)
+	activities := transferworker.NewActivities(walletClient, bankClient, fxService, transferRepo, accountRepo)
 
 	w := worker.New(temporalClient, cfg.Temporal.TaskQueue, worker.Options{})
 	w.RegisterWorkflow(transferworker.TransferWorkflow)

@@ -33,16 +33,15 @@ func main() {
 				Usage:  "Start the transfer HTTP API (API only; workers run separately)",
 				Action: mycli.RunTransferService,
 			},
-			{Name: "consumer", Usage: "Process transfer lifecycle events + retries", Action: mycli.RunConsumer},
+			{
+				Name:   "consumer",
+				Usage:  "Kafka→Temporal bridge for transfer.requested (+ start retries)",
+				Action: mycli.RunConsumer,
+			},
 			{
 				Name:   "notification",
 				Usage:  "Consume terminal transfer events and dispatch notifications",
 				Action: mycli.RunNotificationService,
-			},
-			{
-				Name:   "stub-provider",
-				Usage:  "Run the stub payment provider HTTP service (POST /submit)",
-				Action: mycli.RunStubProvider,
 			},
 			{
 				Name:   "fx",

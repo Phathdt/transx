@@ -5,34 +5,59 @@
 Each backend service is a subcommand of the single `transx` binary
 (`backend/main.go`, urfave/cli). See `CLAUDE.md` for the run commands and the
 process-level responsibilities of each subcommand (`auth`, `wallet`,
-`transfer`, `consumer`, `notification`, `stub-provider`, `fx`, `wallet-grpc`,
-`bank-grpc`).
+`transfer`, `consumer`, `notification`, `fx`, `wallet-grpc`, `bank-grpc`,
+`transfer-worker`).
+
+## Transfer orchestration (Temporal)
+
+Transfer lifecycle is orchestrated by **Temporal**, not by the old Kafka
+provider/retry processors:
+
+```text
+HTTP transfer API
+  → transfers(PENDING) + outbox(transfer.requested)
+iris CDC
+  → Kafka topic transfer.requested
+consumer (bridge only)
+  → Temporal StartWorkflow(WorkflowID=transfer-{id})
+transfer-worker
+  → activities: FX Quote, Wallet gRPC (Move/Hold/Settle/Release),
+                Bank gRPC (Submit/Query), MarkTerminal (status+outbox)
+iris
+  → transfer.completed / transfer.failed → notification
+```
+
+- **INTERNAL:** prepare (quote + settlement snapshot) → `Wallet.Move` (1 tx) →
+  `MarkTerminal(SUCCEEDED|FAILED)`.
+- **EXTERNAL:** currency check → `Wallet.Hold` → `Bank.Submit` → SUCCESS
+  `SettleHold+MarkTerminal` / FAILURE `ReleaseHold+MarkTerminal` / UNKNOWN
+  keep hold + poll `Bank.Query` (no auto-release).
+- Money (Wallet) and status (Transfer) are separate transactions; activities
+  are idempotent via wallet operation guards and transfer status guards.
+  `MarkTerminal` uses a long Temporal retry budget so status converges after
+  money movement.
+
+`consumer` is only the Kafka→Temporal bridge (inbox dedup + `ExecuteWorkflow` +
+start-failure retry tiers). It does not move money. The HTTP `stub-provider`
+and the provider/retry Kafka consumers are removed; Bank gRPC replaces them.
 
 ## gRPC services
 
-Two internal gRPC services sit alongside the existing `fx` service, both under
-`cmd/grpc/` with protos in `proto/`:
+Internal gRPC services under `cmd/grpc/` with protos in `proto/`:
 
 - **Wallet** (`wallet-grpc`, `proto/wallet/v1/wallet.proto`) exposes
-  `Move`/`Hold`/`SettleHold`/`ReleaseHold` — the same account/ledger/hold
-  movements `PostgresTransferRepository` performs inline today, wrapped for a
-  future caller outside the transfer process (e.g. a Temporal activity). Every
-  RPC carries `transfer_id` + `operation`; `PostgresMoneyRepository` checks a
-  `wallet_operation_guards` row for that pair before applying the movement and
-  writes it after, in the same transaction as the movement, so a repeated
-  call with the same pair is a no-op that returns the current balance instead
-  of reapplying it. Money crosses the wire as decimal strings.
-- **Bank** (`bank-grpc`, `proto/bank/v1/bank.proto`) exposes `Submit`/`Query`,
-  replacing the HTTP stub-provider. It is stateless and mode-driven
-  (`always_success` / `always_failure` / `always_timeout`, from `bank.mode`):
-  both RPCs derive their outcome from the shared `provider.FakeProviderClient`,
-  so `Query` on any `transfer_id` recomputes the same result `Submit` would
-  return right now rather than looking up a recorded outcome. No
-  operation/callback state is persisted.
-
-Neither service is called from the transfer/consumer processing path yet —
-that wiring is a later phase. This phase only stands the servers up and proves
-each RPC behaves correctly in isolation.
+  `Move`/`Hold`/`SettleHold`/`ReleaseHold`. Every RPC carries `transfer_id` +
+  `operation`; `PostgresMoneyRepository` checks a `wallet_operation_guards` row
+  for that pair before applying the movement and writes it after, in the same
+  transaction as the movement, so a repeated call with the same pair is a
+  no-op that returns the current balance. Money crosses the wire as decimal
+  strings. Called from Temporal activities in `transfer-worker`.
+- **Bank** (`bank-grpc`, `proto/bank/v1/bank.proto`) exposes `Submit`/`Query`.
+  It is stateless and mode-driven (`always_success` / `always_failure` /
+  `always_timeout`, from `bank.mode`): both RPCs derive their outcome from the
+  shared `provider.FakeProviderClient`, so `Query` recomputes the same result
+  `Submit` would return. Called from Temporal EXTERNAL saga activities.
+- **FX** (`fx`) exposes `Quote`/`QuoteFee`; called from prepare activities.
 
 ## Module ownership boundary
 

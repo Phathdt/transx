@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/api/serviceerror"
 
 	"transx/internal/common/consumerretry"
 	"transx/internal/common/kafkatopic"
@@ -69,7 +70,7 @@ func makeMessage(transferID string) kafka.Message {
 func newHelper(producer kafka.MessageProducer) consumerretry.RetryHelper {
 	return consumerretry.NewRetryHelper(
 		producer, logger.New("plain", "error"),
-		kafkatopic.TransferRequested, kafkatopic.WalletRetryStages(), kafkatopic.WalletDLQ,
+		kafkatopic.TransferRequested, kafkatopic.TransferRetryStages(), kafkatopic.TransferDLQ,
 	)
 }
 
@@ -129,7 +130,7 @@ func TestEscalateOrDLQPublishesToRetryTier(t *testing.T) {
 	h.EscalateOrDLQ(context.Background(), makeMessage(uuid.New().String()), fmt.Errorf("test error"))
 
 	require.Len(t, producer.published, 1)
-	assert.Equal(t, kafkatopic.WalletRetry6s, producer.published[0].Topic)
+	assert.Equal(t, kafkatopic.TransferRetry6s, producer.published[0].Topic)
 }
 
 func TestEscalateOrDLQSendsToDLQWhenExhausted(t *testing.T) {
@@ -143,7 +144,7 @@ func TestEscalateOrDLQSendsToDLQWhenExhausted(t *testing.T) {
 	h.EscalateOrDLQ(context.Background(), msg, fmt.Errorf("test error"))
 
 	require.Len(t, producer.published, 1)
-	assert.Equal(t, kafkatopic.WalletDLQ, producer.published[0].Topic)
+	assert.Equal(t, kafkatopic.TransferDLQ, producer.published[0].Topic)
 }
 
 func TestToDLQPublishesWithErrorHeader(t *testing.T) {
@@ -153,7 +154,7 @@ func TestToDLQPublishesWithErrorHeader(t *testing.T) {
 	h.ToDLQ(context.Background(), makeMessage(uuid.New().String()), fmt.Errorf("invalid amount"))
 
 	require.Len(t, producer.published, 1)
-	assert.Equal(t, kafkatopic.WalletDLQ, producer.published[0].Topic)
+	assert.Equal(t, kafkatopic.TransferDLQ, producer.published[0].Topic)
 
 	found := false
 	for _, header := range producer.published[0].Headers {
@@ -174,4 +175,21 @@ func TestPublishErrorsAreNonFatal(t *testing.T) {
 	h.ToDLQ(context.Background(), msg, errors.New("poison"))
 
 	assert.Empty(t, producer.published)
+}
+
+func TestIsTransientTemporalUnavailable(t *testing.T) {
+	assert.True(t, consumerretry.IsTransient(&serviceerror.Unavailable{Message: "temporal down"}))
+}
+
+func TestIsTransientTemporalDeadlineExceeded(t *testing.T) {
+	assert.True(t, consumerretry.IsTransient(&serviceerror.DeadlineExceeded{Message: "timeout"}))
+}
+
+func TestIsTransientTemporalResourceExhausted(t *testing.T) {
+	assert.True(t, consumerretry.IsTransient(&serviceerror.ResourceExhausted{Message: "too many requests"}))
+}
+
+func TestIsTransientTemporalOtherError(t *testing.T) {
+	// NotFound is not transient — it indicates a permanent configuration issue.
+	assert.False(t, consumerretry.IsTransient(&serviceerror.NotFound{Message: "namespace not found"}))
 }

@@ -2,9 +2,15 @@ package consumer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
+	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/sdk/client"
 
+	"transx/cmd/worker"
 	"transx/internal/common/consumerretry"
 	"transx/internal/common/kafkatopic"
 	"transx/internal/modules/transfer/domain/interfaces"
@@ -12,41 +18,49 @@ import (
 	"transx/internal/platform/logger"
 )
 
-// consumerGroup is the group id for the main transfer.requested consumer and the
-// key namespace used for inbox deduplication.
+// consumerGroup is the group id for the transfer.requested bridge consumer and
+// the key namespace used for inbox deduplication.
 const consumerGroup = "wallet-processor"
 
-// transferTypeExternal routes a transfer to the reserve/settle external flow.
-const transferTypeExternal = "EXTERNAL"
+// TemporalStarter starts a TransferWorkflow run. client.Client satisfies this;
+// tests inject a stub so unit tests never dial Temporal.
+type TemporalStarter interface {
+	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow any, args ...any) (client.WorkflowRun, error)
+}
 
-// Processor consumes transfer.requested and routes each transfer by type:
-// INTERNAL moves funds in a single tx; EXTERNAL reserves a hold and stages the
-// provider-request event. It is idempotent via the inbox table plus the
-// status-guard inside each repository step, so a redelivery never double-acts.
+// Processor is the Kafka→Temporal bridge for transfer.requested: inbox dedup,
+// then StartWorkflow(transfer-{id}). It does not move money or reserve holds;
+// the Temporal worker owns orchestration. Temporal WorkflowID uniqueness is the
+// second idempotency layer after inbox.
 type Processor struct {
-	consumer  kafka.MessageConsumer
-	transfers interfaces.TransferRepository
-	inbox     interfaces.InboxRepository
-	fx        interfaces.FXService
-	retry     consumerretry.RetryHelper
-	log       logger.Logger
+	consumer      kafka.MessageConsumer
+	inbox         interfaces.InboxRepository
+	temporal      TemporalStarter
+	temporalQueue string
+	retry         consumerretry.RetryHelper
+	log           logger.Logger
+}
+
+// ProcessorOptions carries Temporal wiring for the bridge.
+type ProcessorOptions struct {
+	Temporal      TemporalStarter
+	TemporalQueue string
 }
 
 func NewProcessor(
 	consumer kafka.MessageConsumer,
 	producer kafka.MessageProducer,
-	transfers interfaces.TransferRepository,
 	inbox interfaces.InboxRepository,
-	fx interfaces.FXService,
 	log logger.Logger,
+	opts ProcessorOptions,
 ) *Processor {
 	return &Processor{
-		consumer:  consumer,
-		transfers: transfers,
-		inbox:     inbox,
-		fx:        fx,
+		consumer:      consumer,
+		inbox:         inbox,
+		temporal:      opts.Temporal,
+		temporalQueue: opts.TemporalQueue,
 		retry: consumerretry.NewRetryHelper(
-			producer, log, kafkatopic.TransferRequested, kafkatopic.WalletRetryStages(), kafkatopic.WalletDLQ,
+			producer, log, kafkatopic.TransferRequested, kafkatopic.TransferRetryStages(), kafkatopic.TransferDLQ,
 		),
 		log: log,
 	}
@@ -61,7 +75,6 @@ func (p *Processor) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			// Transient fetch error: do not parse or commit, just retry the poll.
 			p.log.Error("processor: fetch failed", "error", err)
 			continue
 		}
@@ -69,13 +82,11 @@ func (p *Processor) Run(ctx context.Context) error {
 	}
 }
 
-// Handle processes one message: parse → dedup → execute → commit/escalate.
+// Handle processes one message: parse → dedup → start workflow → commit/escalate.
 // Exported for testing.
 func (p *Processor) Handle(ctx context.Context, msg kafka.Message) {
 	key, err := consumerretry.ParseTransferID(msg.Value)
 	if err != nil {
-		// Poison message: cannot ever succeed. Park in the DLQ and commit so it
-		// does not wedge the partition.
 		p.retry.ToDLQ(ctx, msg, err)
 		p.commit(ctx, msg)
 		return
@@ -83,26 +94,22 @@ func (p *Processor) Handle(ctx context.Context, msg kafka.Message) {
 
 	processed, err := p.inbox.IsProcessed(ctx, consumerGroup, key)
 	if err != nil {
-		// Treat an inbox read failure as transient and retry the whole message.
 		p.retry.EscalateOrDLQ(ctx, msg, err)
 		p.commit(ctx, msg)
 		return
 	}
 	if processed {
-		// Already handled: redelivery is a no-op.
 		p.commit(ctx, msg)
 		return
 	}
 
-	transferID, _ := uuid.Parse(key) // key already validated by ParseTransferID.
-	if err := p.execute(ctx, transferID); err != nil {
+	transferID, _ := uuid.Parse(key)
+	if err := p.startTransferWorkflow(ctx, transferID); err != nil {
 		if consumerretry.IsTransient(err) {
 			p.retry.EscalateOrDLQ(ctx, msg, err)
 			p.commit(ctx, msg)
 			return
 		}
-		// Permanent error: the transfer was set FAILED in its own tx (or is
-		// unrecoverable). Record dedup and commit; do not retry.
 		p.log.Error("processor: permanent error", "error", err, "transfer_id", key)
 		p.markProcessed(ctx, key)
 		p.commit(ctx, msg)
@@ -113,31 +120,33 @@ func (p *Processor) Handle(ctx context.Context, msg kafka.Message) {
 	p.commit(ctx, msg)
 }
 
-// execute routes one transfer by its type, read from the database as the source
-// of truth rather than trusting the message payload. INTERNAL moves funds
-// directly; EXTERNAL reserves a hold and stages the provider-request event.
-func (p *Processor) execute(ctx context.Context, transferID uuid.UUID) error {
-	t, err := p.transfers.GetByID(ctx, transferID)
+// startTransferWorkflow starts TransferWorkflow with WorkflowID transfer-{id}.
+// AlreadyStarted is success (idempotent start).
+func (p *Processor) startTransferWorkflow(ctx context.Context, transferID uuid.UUID) error {
+	if p.temporal == nil {
+		return fmt.Errorf("temporal starter is not configured")
+	}
+	workflowID := fmt.Sprintf("transfer-%s", transferID.String())
+	_, err := p.temporal.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:                                       workflowID,
+		TaskQueue:                                p.temporalQueue,
+		WorkflowIDReusePolicy:                    enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
+		WorkflowExecutionErrorWhenAlreadyStarted: true,
+	}, worker.TransferWorkflow, worker.TransferWorkflowInput{
+		TransferID: transferID.String(),
+	})
 	if err != nil {
+		var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
+		if errors.As(err, &alreadyStarted) {
+			return nil
+		}
 		return err
 	}
-	if t == nil {
-		// Unknown transfer: nothing to do.
-		return nil
-	}
-	if t.TransferType == transferTypeExternal {
-		return p.transfers.ReserveExternalTransfer(ctx, transferID)
-	}
-	return p.transfers.ExecuteInternalTransfer(ctx, transferID, p.fx)
+	return nil
 }
 
-// escalateOrDLQ pushes the message onto the next retry tier, or to the DLQ when
-// the tiers are exhausted. The main offset is committed by the caller so a
-// retried message never wedges the main partition.
 func (p *Processor) markProcessed(ctx context.Context, key string) {
 	if err := p.inbox.MarkProcessed(ctx, consumerGroup, key); err != nil {
-		// Not fatal: the status guard still prevents double-acting on a later
-		// redelivery. Log so it can be investigated.
 		p.log.Error("processor: mark processed failed", "error", err, "transfer_id", key)
 	}
 }
