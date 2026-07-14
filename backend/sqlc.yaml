@@ -102,6 +102,21 @@ sql:
         emit_pointers_for_null_types: true
 
   - engine: 'postgresql'
+    queries: 'internal/modules/transfer/infrastructure/query/*.sql'
+    schema: 'db/migrations'
+    gen:
+      go:
+        package: 'gen'
+        out: 'internal/modules/transfer/infrastructure/gen'
+        sql_package: 'pgx/v5'
+        omit_unused_structs: true
+        emit_json_tags: false
+        emit_prepared_queries: true
+        emit_db_tags: true
+        emit_result_struct_pointers: true
+        emit_pointers_for_null_types: true
+
+  - engine: 'postgresql'
     queries: 'internal/modules/notification/infrastructure/query/*.sql'
     schema: 'db/migrations'
     gen:

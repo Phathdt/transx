@@ -7,8 +7,8 @@ import (
 
 	"transx/internal/common/consumerretry"
 	"transx/internal/common/kafkatopic"
-	"transx/internal/modules/wallet/domain/entities"
-	"transx/internal/modules/wallet/domain/interfaces"
+	"transx/internal/modules/transfer/domain/entities"
+	"transx/internal/modules/transfer/domain/interfaces"
 	"transx/internal/platform/kafka"
 	"transx/internal/platform/logger"
 )

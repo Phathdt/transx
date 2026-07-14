@@ -49,6 +49,21 @@ func main() {
 				Usage:  "Run the FX service (gRPC Quote + QuoteFee)",
 				Action: mycli.RunFXService,
 			},
+			{
+				Name:   "wallet-grpc",
+				Usage:  "Run the Wallet gRPC service (Move/Hold/SettleHold/ReleaseHold)",
+				Action: mycli.RunWalletGRPCService,
+			},
+			{
+				Name:   "bank-grpc",
+				Usage:  "Run the Bank gRPC service (Submit/Query, mode-driven, stateless)",
+				Action: mycli.RunBankGRPCService,
+			},
+			{
+				Name:   "transfer-worker",
+				Usage:  "Run the Transfer service's Temporal worker (TransferWorkflow + activities)",
+				Action: mycli.RunTransferWorker,
+			},
 			{Name: "seed", Usage: "Insert development users (idempotent)", Action: mycli.Seed},
 			{
 				Name:  "openapi-export",

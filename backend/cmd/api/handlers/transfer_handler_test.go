@@ -15,8 +15,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	walletservices "transx/internal/modules/wallet/application/services"
-	"transx/internal/modules/wallet/domain/entities"
+	"transx/internal/common/accountref"
+	transferservices "transx/internal/modules/transfer/application/services"
+	"transx/internal/modules/transfer/domain/entities"
+	walletentities "transx/internal/modules/wallet/domain/entities"
 	"transx/internal/platform/middleware"
 	"transx/internal/testmocks"
 )
@@ -28,30 +30,30 @@ func TestTransferHandlerCreateTransferAmountValidation(t *testing.T) {
 
 		ctx := context.Background()
 		userID := uuid.New()
-		fromRef := walletservices.NewAccountReference()
-		toRef := walletservices.NewAccountReference()
+		fromRef := accountref.New()
+		toRef := accountref.New()
 		idempotencyKey := uuid.New().String()
 		amount := decimal.RequireFromString("1.00")
 
 		transferRepo := testmocks.NewTransferRepository(t)
 		accountRepo := testmocks.NewAccountRepository(t)
 		transferRepo.EXPECT().FindByUserAndKey(mock.Anything, userID, idempotencyKey).Return(nil, nil)
-		accountRepo.EXPECT().GetByRef(mock.Anything, fromRef).Return(&entities.Account{
+		accountRepo.EXPECT().GetByRef(mock.Anything, fromRef).Return(&walletentities.Account{
 			Ref:      fromRef,
 			UserID:   userID,
 			Currency: "USD",
-			Status:   entities.AccountStatusActive,
+			Status:   walletentities.AccountStatusActive,
 		}, nil)
-		accountRepo.EXPECT().GetByRef(mock.Anything, toRef).Return(&entities.Account{
+		accountRepo.EXPECT().GetByRef(mock.Anything, toRef).Return(&walletentities.Account{
 			Ref:      toRef,
 			UserID:   uuid.New(),
 			Currency: "USD",
-			Status:   entities.AccountStatusActive,
+			Status:   walletentities.AccountStatusActive,
 		}, nil)
-		accountRepo.EXPECT().GetLookupByRef(mock.Anything, toRef).Return(&entities.AccountLookup{
+		accountRepo.EXPECT().GetLookupByRef(mock.Anything, toRef).Return(&walletentities.AccountLookup{
 			AccountRef: toRef,
 			Currency:   "USD",
-			Status:     string(entities.AccountStatusActive),
+			Status:     string(walletentities.AccountStatusActive),
 			HolderName: "Bob",
 		}, nil)
 		transferRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(tr *entities.Transfer) bool {
@@ -64,7 +66,7 @@ func TestTransferHandlerCreateTransferAmountValidation(t *testing.T) {
 			return tr, nil
 		})
 
-		h := NewTransferHandler(walletservices.NewTransferService(transferRepo, accountRepo, "stub-provider"))
+		h := NewTransferHandler(transferservices.NewTransferService(transferRepo, accountRepo, "stub-provider"))
 		app.Post("/api/v1/transfers", h.CreateTransfer)
 
 		body := []byte(
@@ -89,9 +91,9 @@ func TestTransferHandlerCreateTransferAmountValidation(t *testing.T) {
 		app.Use(middleware.UserID())
 
 		userID := uuid.New()
-		fromRef := walletservices.NewAccountReference()
-		toRef := walletservices.NewAccountReference()
-		h := NewTransferHandler(walletservices.NewTransferService(
+		fromRef := accountref.New()
+		toRef := accountref.New()
+		h := NewTransferHandler(transferservices.NewTransferService(
 			testmocks.NewTransferRepository(t),
 			testmocks.NewAccountRepository(t),
 			"stub-provider",

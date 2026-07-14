@@ -6,7 +6,7 @@ COVERAGE_MIN ?= 90.0
 SQL_FORMATTER ?= pg_format
 SQL_FILES := $(shell find db internal -type f -name '*.sql' 2>/dev/null)
 
-.PHONY: help sqlc proto mock format format-sql vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-notification run-stub-provider run-fx clean
+.PHONY: help sqlc proto mock format format-sql vet lint test test-integration coverage build check openapi migrate seed run-wallet run-replayer run-consumer run-notification run-stub-provider run-fx run-transfer-worker clean
 
 help:
 	@printf "Available targets:\n"
@@ -30,6 +30,9 @@ help:
 	@printf "  run-notification Run notification consumer for terminal transfer events\n"
 	@printf "  run-stub-provider Run stub payment provider HTTP service\n"
 	@printf "  run-fx       Run the FX gRPC service\n"
+	@printf "  run-wallet-grpc Run the Wallet gRPC service (Move/Hold/SettleHold/ReleaseHold)\n"
+	@printf "  run-bank-grpc Run the Bank gRPC service (Submit/Query, mode-driven, stateless)\n"
+	@printf "  run-transfer-worker Run the Transfer service's Temporal worker\n"
 	@printf "  clean        Remove local build artifacts\n"
 
 sqlc:
@@ -76,7 +79,7 @@ test-integration:
 	go test -count=1 -tags=integration -p 1 ./... -timeout 120s
 
 coverage:
-	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/notification/... ./internal/common/consumerretry/... | grep -Ev '(/query|/gen)' | xargs go test -coverprofile=$(COVERPROFILE)
+	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/notification/... ./internal/common/consumerretry/... ./internal/common/provider/... | grep -Ev '(/query|/gen)' | xargs go test -coverprofile=$(COVERPROFILE)
 	@coverage="$$(go tool cover -func=$(COVERPROFILE) | awk '/^total:/ {gsub(/%/,"",$$3); print $$3}')"; \
 		echo "modules + workers coverage: $$coverage%"; \
 		awk -v coverage="$$coverage" -v min="$(COVERAGE_MIN)" 'BEGIN { if (coverage + 0 < min + 0) exit 1 }'
@@ -109,6 +112,15 @@ run-stub-provider:
 
 run-fx:
 	go run . --config config.yaml fx
+
+run-wallet-grpc:
+	go run . --config config.yaml wallet-grpc
+
+run-bank-grpc:
+	go run . --config config.yaml bank-grpc
+
+run-transfer-worker:
+	HTTP__ADDRESS=:4004 go run . --config config.yaml transfer-worker
 
 clean:
 	rm -rf bin/

@@ -282,7 +282,125 @@ services:
       FX__LISTEN_ADDRESS: ":50051"
     restart: unless-stopped
 
+  # Wallet gRPC service: serves Move/Hold/SettleHold/ReleaseHold. Not yet
+  # called from any worker (wired up in a later phase); stood up here for
+  # standalone verification. Internal service, no auth.
+  wallet-grpc:
+    <<: *backend
+    container_name: transx-wallet-grpc
+    command: ["wallet-grpc"]
+    environment:
+      <<: *backend-env
+      WALLET__LISTEN_ADDRESS: ":50052"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Bank gRPC service: stateless, mode-driven Submit/Query replacing
+  # stub-provider. Not yet called from any worker (wired up in a later
+  # phase); stood up here for standalone verification. No auth, no DB.
+  bank-grpc:
+    <<: *backend
+    container_name: transx-bank-grpc
+    command: ["bank-grpc"]
+    environment:
+      <<: *backend-env
+      BANK__MODE: "always_success"
+      BANK__LISTEN_ADDRESS: ":50053"
+    restart: unless-stopped
+
+  # Temporal's own Postgres, separate from the app database so workflow
+  # history/state never shares a schema (or a backup/restore boundary) with
+  # transx's own tables.
+  temporal-postgres:
+    image: postgres:18-alpine
+    container_name: transx-temporal-postgres
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Temporal server (auto-setup image runs schema setup + the namespace
+  # register on first boot, so no separate migration step is needed for dev).
+  temporal:
+    image: temporalio/auto-setup:1.29.1
+    container_name: transx-temporal
+    environment:
+      # Driver name is a protocol family, not the actual Postgres version —
+      # postgres12_pgx works against Postgres 12+ including our Postgres 18.
+      DB: postgres12_pgx
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+      DEFAULT_NAMESPACE: transx
+    ports:
+      - "7233:7233"
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Web UI for inspecting workflow executions during development.
+  temporal-ui:
+    image: temporalio/ui:2.40.1
+    container_name: transx-temporal-ui
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8088:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Transfer Temporal worker: registers TransferWorkflow + activities, dials
+  # Wallet/Bank/FX over gRPC. Not yet driving real traffic (wired in a later
+  # phase); stood up here so the worker/Temporal connectivity can be verified
+  # standalone.
+  transfer-worker:
+    <<: *backend
+    container_name: transx-transfer-worker
+    command: ["transfer-worker"]
+    environment:
+      <<: *backend-env
+      HTTP__ADDRESS: ":4004"
+      TEMPORAL__HOST_PORT: "temporal:7233"
+      WALLET__GRPC_ADDRESS: "wallet-grpc:50052"
+      BANK__GRPC_ADDRESS: "bank-grpc:50053"
+      FX__GRPC_ADDRESS: "fx:50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+      wallet-grpc:
+        condition: service_started
+      bank-grpc:
+        condition: service_started
+      fx:
+        condition: service_started
+    restart: unless-stopped
+
 
 volumes:
   postgres-data:
   redpanda-data:
+  temporal-postgres-data:

@@ -17,6 +17,9 @@ type Config struct {
 	Auth     Auth     `yaml:"auth"     mapstructure:"auth"`
 	Provider Provider `yaml:"provider" mapstructure:"provider"`
 	FX       FX       `yaml:"fx"       mapstructure:"fx"`
+	Wallet   Wallet   `yaml:"wallet"   mapstructure:"wallet"`
+	Bank     Bank     `yaml:"bank"     mapstructure:"bank"`
+	Temporal Temporal `yaml:"temporal" mapstructure:"temporal"`
 }
 
 type App struct {
@@ -67,6 +70,34 @@ type FX struct {
 	ListenAddress string            `yaml:"listen_address" mapstructure:"listen_address"`
 }
 
+// Wallet configures the Wallet gRPC service (Move/Hold/SettleHold/ReleaseHold).
+// GRPCAddress is where a client (e.g. the transfer worker) dials the wallet
+// gRPC service; ListenAddress is where the wallet service serves gRPC.
+type Wallet struct {
+	GRPCAddress   string `yaml:"grpc_address"   mapstructure:"grpc_address"`
+	ListenAddress string `yaml:"listen_address" mapstructure:"listen_address"`
+}
+
+// Bank configures the Bank gRPC service, which replaces stub-provider. Mode
+// drives its stateless outcome (always_success | always_failure |
+// always_timeout); the server holds no operation/callback state. GRPCAddress is
+// where a client dials the bank gRPC service; ListenAddress is where the bank
+// service serves gRPC.
+type Bank struct {
+	Mode          string `yaml:"mode"           mapstructure:"mode"`
+	GRPCAddress   string `yaml:"grpc_address"   mapstructure:"grpc_address"`
+	ListenAddress string `yaml:"listen_address" mapstructure:"listen_address"`
+}
+
+// Temporal configures the transfer worker's Temporal client. HostPort is the
+// frontend gRPC address (e.g. "temporal:7233"); Namespace and TaskQueue scope
+// the workflow/activity registration and poll.
+type Temporal struct {
+	HostPort  string `yaml:"host_port" mapstructure:"host_port"`
+	Namespace string `yaml:"namespace" mapstructure:"namespace"`
+	TaskQueue string `yaml:"task_queue" mapstructure:"task_queue"`
+}
+
 // Load reads config from configPath YAML file with env var overrides.
 // Env override format: APP__LOG_LEVEL overrides app.log_level
 func Load(configPath string) (Config, error) {
@@ -115,6 +146,37 @@ func Load(configPath string) (Config, error) {
 	}
 	if cfg.FX.ListenAddress == "" {
 		cfg.FX.ListenAddress = ":50051"
+	}
+	// Wallet gRPC transport defaults for local single-host runs; compose and
+	// non-local envs override via WALLET__GRPC_ADDRESS / WALLET__LISTEN_ADDRESS.
+	if cfg.Wallet.GRPCAddress == "" {
+		cfg.Wallet.GRPCAddress = "localhost:50052"
+	}
+	if cfg.Wallet.ListenAddress == "" {
+		cfg.Wallet.ListenAddress = ":50052"
+	}
+	// Bank behaves like Provider but over gRPC: fall back to the stub defaults
+	// so services run without explicit bank config. Compose and non-local envs
+	// override via BANK__MODE / BANK__GRPC_ADDRESS / BANK__LISTEN_ADDRESS.
+	if cfg.Bank.Mode == "" {
+		cfg.Bank.Mode = "always_success"
+	}
+	if cfg.Bank.GRPCAddress == "" {
+		cfg.Bank.GRPCAddress = "localhost:50053"
+	}
+	if cfg.Bank.ListenAddress == "" {
+		cfg.Bank.ListenAddress = ":50053"
+	}
+	// Temporal defaults for local single-host runs; compose and non-local envs
+	// override via TEMPORAL__HOST_PORT / TEMPORAL__NAMESPACE / TEMPORAL__TASK_QUEUE.
+	if cfg.Temporal.HostPort == "" {
+		cfg.Temporal.HostPort = "localhost:7233"
+	}
+	if cfg.Temporal.Namespace == "" {
+		cfg.Temporal.Namespace = "transx"
+	}
+	if cfg.Temporal.TaskQueue == "" {
+		cfg.Temporal.TaskQueue = "transfer-task-queue"
 	}
 
 	return cfg, nil

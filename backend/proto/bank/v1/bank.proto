@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package bank.v1;
+
+option go_package = "transx/internal/platform/grpc/gen/bank/v1;bankv1";
+
+// BankService is a stateless, mode-driven external payment provider used in
+// place of the HTTP stub-provider. Submit and Query never persist any
+// operation/callback state: the outcome is derived purely from the server's
+// configured mode (always_success | always_failure | always_timeout), so Query
+// on an unknown transfer_id returns the same outcome the mode would produce for
+// a fresh Submit.
+service BankService {
+  // Submit reports the definitive outcome of sending amount/currency out
+  // through the bank for transfer_id. A transient condition (timeout) is
+  // signalled as a gRPC error (DeadlineExceeded/Unavailable) so the caller
+  // retries instead of settling.
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+  // Query re-derives the outcome for transfer_id from the configured mode.
+  // Since the server holds no state, this returns the same result Submit would
+  // return right now, not a recorded historical outcome.
+  rpc Query(QueryRequest) returns (QueryResponse);
+}
+
+message SubmitRequest {
+  string transfer_id = 1;
+  string amount = 2;
+  string currency = 3;
+}
+
+// outcome is SUCCESS or FAILURE. reference_id is set on SUCCESS; reason is set
+// on FAILURE (e.g. "PROVIDER_REJECTED").
+message SubmitResponse {
+  string outcome = 1;
+  string reference_id = 2;
+  string reason = 3;
+}
+
+message QueryRequest {
+  string transfer_id = 1;
+}
+
+message QueryResponse {
+  string outcome = 1;
+  string reference_id = 2;
+  string reason = 3;
+}

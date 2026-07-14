@@ -16,10 +16,11 @@ import (
 
 	"transx/cmd/consumer"
 	"transx/internal/common/kafkatopic"
-	walletfx "transx/internal/modules/wallet/infrastructure/fx"
+	"transx/internal/common/provider"
+	transferfx "transx/internal/modules/transfer/infrastructure/fx"
+	transfergen "transx/internal/modules/transfer/infrastructure/gen"
+	transferrepos "transx/internal/modules/transfer/infrastructure/repositories"
 	walletgen "transx/internal/modules/wallet/infrastructure/gen"
-	"transx/internal/modules/wallet/infrastructure/provider"
-	walletrepos "transx/internal/modules/wallet/infrastructure/repositories"
 	"transx/internal/platform/config"
 	fxv1 "transx/internal/platform/grpc/gen/fx/v1"
 	"transx/internal/platform/httpserver"
@@ -57,9 +58,10 @@ func runConsumer(ctx context.Context, configPath string) error {
 	}
 	defer db.Close()
 
-	q := walletgen.New(db)
-	transferRepo := walletrepos.NewPostgresTransferRepository(q, db)
-	inboxRepo := walletrepos.NewPostgresInboxRepository(q)
+	q := transfergen.New(db)
+	walletQ := walletgen.New(db)
+	transferRepo := transferrepos.NewPostgresTransferRepository(q, walletQ, db)
+	inboxRepo := transferrepos.NewPostgresInboxRepository(q)
 
 	// External transfers reach the provider over HTTP; a transient HTTP failure
 	// is retried through the delayed-retry tiers.
@@ -93,7 +95,7 @@ func runConsumer(ctx context.Context, configPath string) error {
 	if err != nil {
 		return err
 	}
-	fxService := walletfx.NewGRPCClient(fxv1.NewFXServiceClient(fxConn))
+	fxService := transferfx.NewGRPCClient(fxv1.NewFXServiceClient(fxConn))
 	transferProcessor := consumer.NewProcessor(mainConsumer, producer, transferRepo, inboxRepo, fxService, log)
 	providerConsumer := consumer.NewProviderConsumer(
 		providerRequestConsumer, producer, providerClient, transferRepo, inboxRepo, log,

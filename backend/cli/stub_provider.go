@@ -11,7 +11,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"transx/internal/modules/wallet/infrastructure/provider"
+	"transx/internal/common/provider"
 	"transx/internal/platform/config"
 	"transx/internal/platform/httpserver"
 	"transx/internal/platform/logger"

@@ -14,8 +14,8 @@ import (
 
 	"transx/cmd/consumer"
 	"transx/internal/common/kafkatopic"
-	"transx/internal/modules/wallet/application/dto"
-	"transx/internal/modules/wallet/domain/entities"
+	"transx/internal/modules/transfer/application/dto"
+	"transx/internal/modules/transfer/domain/entities"
 	"transx/internal/platform/kafka"
 	"transx/internal/platform/logger"
 	"transx/internal/testmocks"

@@ -19,6 +19,14 @@ packages:
           outpkg: testmocks
           filename: account_repository.go
           mockname: AccountRepository
+      MoneyRepository:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: money_repository.go
+          mockname: MoneyRepository
+  transx/internal/modules/transfer/domain/interfaces:
+    interfaces:
       TransferRepository:
         config:
           dir: internal/testmocks

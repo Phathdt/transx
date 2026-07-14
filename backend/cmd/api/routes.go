@@ -3,6 +3,7 @@ package api
 import (
 	"transx/cmd/api/handlers"
 	authdto "transx/internal/modules/auth/application/dto"
+	transferdto "transx/internal/modules/transfer/application/dto"
 	walletdto "transx/internal/modules/wallet/application/dto"
 
 	"github.com/gofiber/fiber/v2"
@@ -148,8 +149,8 @@ func registerTransferRoutes(r fiberopenapi.Router, transferH *handlers.TransferH
 		option.Tags("wallet"),
 		option.OperationID("createTransfer"),
 		option.Summary("Create a transfer (idempotent via Idempotency-Key). INTERNAL needs toAccountRef (an ACC- account ref); EXTERNAL omits it or carries a free-text beneficiary id (provider is set from server config)."),
-		option.Request(new(walletdto.CreateTransferCommand), option.ContentRequired()),
-		option.Response(fiber.StatusAccepted, new(walletdto.TransferResponse)),
+		option.Request(new(transferdto.CreateTransferCommand), option.ContentRequired()),
+		option.Response(fiber.StatusAccepted, new(transferdto.TransferResponse)),
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusForbidden, new(handlers.ErrorResponse)),
@@ -162,8 +163,8 @@ func registerTransferRoutes(r fiberopenapi.Router, transferH *handlers.TransferH
 		option.Tags("wallet"),
 		option.OperationID("listTransfers"),
 		option.Summary("List the caller's transfers, paginated, with optional status and accountRef filters"),
-		option.Request(new(walletdto.ListTransfersQuery)),
-		option.Response(fiber.StatusOK, new(walletdto.TransferListResponse)),
+		option.Request(new(transferdto.ListTransfersQuery)),
+		option.Response(fiber.StatusOK, new(transferdto.TransferListResponse)),
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
@@ -173,7 +174,7 @@ func registerTransferRoutes(r fiberopenapi.Router, transferH *handlers.TransferH
 		option.Tags("wallet"),
 		option.OperationID("getTransfer"),
 		option.Summary("Get a transfer by its business reference (ETN- for EXTERNAL, ITN- for INTERNAL, followed by a ULID)"),
-		option.Response(fiber.StatusOK, new(walletdto.TransferResponse)),
+		option.Response(fiber.StatusOK, new(transferdto.TransferResponse)),
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),

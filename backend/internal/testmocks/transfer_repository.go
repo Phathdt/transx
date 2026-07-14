@@ -4,8 +4,8 @@ package testmocks
 
 import (
 	context "context"
-	entities "transx/internal/modules/wallet/domain/entities"
-	interfaces "transx/internal/modules/wallet/domain/interfaces"
+	entities "transx/internal/modules/transfer/domain/entities"
+	interfaces "transx/internal/modules/transfer/domain/interfaces"
 
 	mock "github.com/stretchr/testify/mock"
 

@@ -4,8 +4,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"transx/internal/common/apperror"
-	"transx/internal/modules/wallet/application/dto"
-	"transx/internal/modules/wallet/application/services"
+	"transx/internal/modules/transfer/application/dto"
+	"transx/internal/modules/transfer/application/services"
 	"transx/internal/platform/httpserver"
 	"transx/internal/platform/middleware"
 )
