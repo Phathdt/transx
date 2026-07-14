@@ -294,7 +294,7 @@ services:
     command: ["bank-grpc"]
     environment:
       <<: *backend-env
-      BANK__MODE: "always_success"
+      BANK__MODE: "${BANK__MODE:-always_success}"
       BANK__LISTEN_ADDRESS: ":50053"
     restart: unless-stopped
 

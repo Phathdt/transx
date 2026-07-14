@@ -52,6 +52,40 @@ func TestFakeProviderClient(t *testing.T) {
 		require.Error(t, err)
 		assert.Empty(t, result.Outcome)
 	})
+
+	t.Run("random is deterministic for the same transfer id", func(t *testing.T) {
+		client := NewFakeProviderClient(ModeRandom)
+
+		first, err := client.Submit(ctx, transferID, amount, "USD")
+		require.NoError(t, err)
+		second, err := client.Submit(ctx, transferID, amount, "USD")
+		require.NoError(t, err)
+		assert.Equal(t, first.Outcome, second.Outcome)
+		assert.Equal(t, first.ReferenceID, second.ReferenceID)
+		assert.Equal(t, first.Reason, second.Reason)
+		assert.True(t,
+			first.Outcome == entities.ProviderSuccess || first.Outcome == entities.ProviderFailure,
+			"outcome=%s", first.Outcome,
+		)
+	})
+
+	t.Run("random can produce both outcomes across ids", func(t *testing.T) {
+		client := NewFakeProviderClient(ModeRandom)
+		var sawSuccess, sawFailure bool
+		for i := 0; i < 64 && !(sawSuccess && sawFailure); i++ {
+			result, err := client.Submit(ctx, uuid.New(), amount, "USD")
+			require.NoError(t, err)
+			switch result.Outcome {
+			case entities.ProviderSuccess:
+				sawSuccess = true
+			case entities.ProviderFailure:
+				sawFailure = true
+			}
+		}
+		assert.True(t, sawSuccess, "expected at least one SUCCESS")
+		assert.True(t, sawFailure, "expected at least one FAILURE")
+	})
+
 }
 
 func TestHTTPProviderClient(t *testing.T) {

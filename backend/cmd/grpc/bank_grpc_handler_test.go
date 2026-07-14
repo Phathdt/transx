@@ -98,3 +98,22 @@ func TestBankServerQuery(t *testing.T) {
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 }
+
+func TestBankServerRandomMode(t *testing.T) {
+	ctx := context.Background()
+	transferID := uuid.New()
+	server := NewBankServer(provider.ModeRandom)
+
+	submit, err := server.Submit(ctx, &bankv1.SubmitRequest{
+		TransferId: transferID.String(),
+		Amount:     "100",
+		Currency:   "USD",
+	})
+	require.NoError(t, err)
+	query, err := server.Query(ctx, &bankv1.QueryRequest{TransferId: transferID.String()})
+	require.NoError(t, err)
+	assert.Equal(t, submit.GetOutcome(), query.GetOutcome())
+	assert.Equal(t, submit.GetReferenceId(), query.GetReferenceId())
+	assert.Equal(t, submit.GetReason(), query.GetReason())
+	assert.Contains(t, []string{"SUCCESS", "FAILURE"}, submit.GetOutcome())
+}

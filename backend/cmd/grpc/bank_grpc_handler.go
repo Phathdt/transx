@@ -23,7 +23,7 @@ type BankServer struct {
 }
 
 // NewBankServer builds a server driven by mode (always_success |
-// always_failure | always_timeout); an empty mode defaults to success.
+// always_failure | always_timeout | random); an empty mode defaults to success.
 func NewBankServer(mode string) *BankServer {
 	return &BankServer{fake: provider.NewFakeProviderClient(mode)}
 }
@@ -56,8 +56,9 @@ func (s *BankServer) Query(ctx context.Context, req *bankv1.QueryRequest) (*bank
 	}
 
 	// Amount/currency do not affect the mode-driven outcome (always_success,
-	// always_failure and always_timeout are unconditional), so Query passes
-	// zero-value placeholders through the same fake client Submit uses.
+	// always_failure, always_timeout, random). random is deterministic per
+	// transfer_id so Query matches Submit. Query passes zero-value placeholders
+	// through the same fake client Submit uses.
 	result, err := s.fake.Submit(ctx, transferID, decimal.Zero, "")
 	if err != nil {
 		return nil, status.Error(codes.DeadlineExceeded, err.Error())
