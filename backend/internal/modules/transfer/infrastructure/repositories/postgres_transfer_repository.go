@@ -440,13 +440,25 @@ func (r *PostgresTransferRepository) SetSettlementSnapshot(
 			return nil
 		}
 
+		// EXTERNAL snapshots leave destination empty (NULL). CHECK constraints
+		// require destination_amount/destination_fx_rate to be NULL or > 0, so a
+		// zero decimal must not be written as 0.
+		destAmount := decimal.NullDecimal{}
+		if destinationAmount.IsPositive() {
+			destAmount = decimal.NewNullDecimal(destinationAmount)
+		}
+		destRate := decimal.NullDecimal{}
+		if destinationRate.IsPositive() {
+			destRate = decimal.NewNullDecimal(destinationRate)
+		}
+
 		if err := q.SetTransferSettlementSnapshot(ctx, gen.SetTransferSettlementSnapshotParams{
 			SourceAmount:        decimal.NewNullDecimal(sourceAmount),
 			SourceCurrency:      sourceCurrency,
-			DestinationAmount:   decimal.NewNullDecimal(destinationAmount),
+			DestinationAmount:   destAmount,
 			DestinationCurrency: destinationCurrency,
 			SourceFxRate:        decimal.NewNullDecimal(sourceRate),
-			DestinationFxRate:   decimal.NewNullDecimal(destinationRate),
+			DestinationFxRate:   destRate,
 			FeeAmount:           feeAmount,
 			FeeCurrency:         feeCurrency,
 			ID:                  pgUUID(transferID),

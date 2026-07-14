@@ -225,7 +225,7 @@ services:
     environment:
       <<: *backend-env
       HTTP__ADDRESS: ":4002"
-      FX__GRPC_ADDRESS: "fx:50051"
+      TEMPORAL__HOST_PORT: "temporal:7233"
     depends_on:
       postgres:
         condition: service_healthy
@@ -235,8 +235,8 @@ services:
         condition: service_healthy
       redpanda-init:
         condition: service_completed_successfully
-      fx:
-        condition: service_started
+      temporal:
+        condition: service_healthy
     restart: unless-stopped
 
   # Consumes terminal transfer events and records notification dispatch attempts.
