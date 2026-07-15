@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link } from 'react-router'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useListAccounts } from '#/lib/api/generated/wallet/wallet'
 import { useTransferStatusPolling } from '#/hooks/use-transfer-status-polling'

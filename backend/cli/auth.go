@@ -23,11 +23,12 @@ import (
 	"transx/internal/platform/logger"
 	"transx/internal/platform/middleware"
 	"transx/internal/platform/postgres"
+	platredis "transx/internal/platform/redis"
 )
 
-// RunAuthService starts the standalone auth service: POST /login issues a JWT,
-// GET /check is the Traefik ForwardAuth backend that verifies the bearer token
-// and echoes X-User-ID. No business API routes beyond these are registered yet.
+// RunAuthService starts the standalone auth service: JSON token endpoints
+// (login/refresh/logout/session) plus GET /check for Traefik ForwardAuth.
+// Cookies are owned by the React Router BFF, not this service.
 func RunAuthService(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -53,7 +54,11 @@ func runAuth(ctx context.Context, configPath string) error {
 	}
 	ttl := cfg.Auth.JWTTTL
 	if ttl == 0 {
-		ttl = 24 * time.Hour
+		ttl = 15 * time.Minute
+	}
+	refreshTTL := cfg.Auth.RefreshTTL
+	if refreshTTL == 0 {
+		refreshTTL = 30 * 24 * time.Hour
 	}
 
 	db, err := postgres.Connect(ctx, cfg.Postgres)
@@ -62,9 +67,16 @@ func runAuth(ctx context.Context, configPath string) error {
 	}
 	defer db.Close()
 
+	rdb, err := platredis.Connect(ctx, cfg.Redis)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rdb.Close() }()
+
 	userRepo := authrepos.NewPostgresUserRepository(authgen.New(db))
+	sessionStore := authrepos.NewRedisRefreshSessionStore(rdb)
 	tokenSvc := authservices.NewTokenService(cfg.Auth.JWTSecret, ttl)
-	authSvc := authservices.NewAuthService(userRepo, tokenSvc)
+	authSvc := authservices.NewAuthService(userRepo, tokenSvc, sessionStore, refreshTTL)
 	authH := handlers.NewAuthHandler(authSvc)
 
 	server := httpserver.New(httpserver.Config{
@@ -78,13 +90,14 @@ func runAuth(ctx context.Context, configPath string) error {
 		Ready: func(ctx context.Context) error {
 			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			return db.Ping(pingCtx)
+			if err := db.Ping(pingCtx); err != nil {
+				return err
+			}
+			return platredis.Ping(pingCtx, rdb)
 		},
 	})
 
 	app := server.App()
-	// Register auth routes via the shared spec router so runtime routing and the
-	// exported OpenAPI spec stay in sync (both live under /api/v1).
 	cmdapi.RegisterRoutes(app, authH)
 
 	errCh := make(chan error, 1)

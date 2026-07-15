@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate } from 'react-router'
 import { useAuth } from '#/hooks/use-auth'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -34,7 +34,7 @@ export function LoginForm() {
     setApiErrorMessage(null)
     login.mutate(values, {
       onSuccess: () => {
-        navigate({ to: '/app/transfers' })
+        navigate('/app/transfers')
       },
       onError: (error) => {
         setApiErrorMessage(error.message)

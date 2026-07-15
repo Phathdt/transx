@@ -11,6 +11,12 @@ packages:
           outpkg: testmocks
           filename: user_repository.go
           mockname: UserRepository
+      RefreshSessionStore:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: refresh_session_store.go
+          mockname: RefreshSessionStore
   transx/internal/modules/wallet/domain/interfaces:
     interfaces:
       AccountRepository:

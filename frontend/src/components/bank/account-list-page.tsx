@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link } from 'react-router'
 import { ChevronRight, Wallet } from 'lucide-react'
 import { useListAccounts } from '#/lib/api/generated/wallet/wallet'
 import type { DtoAccountListResponse } from '#/lib/api/generated/models'
@@ -147,8 +147,7 @@ export function AccountListPage() {
           {accounts.map((account) => (
             <li key={account.accountRef}>
               <Link
-                to="/app/accounts/$accountRef"
-                params={{ accountRef: account.accountRef ?? '' }}
+                to={`/app/accounts/${account.accountRef ?? ''}`}
                 className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
               >
                 <span className="row-avatar size-11 shrink-0 text-sm font-bold uppercase">

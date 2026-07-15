@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link } from 'react-router'
 import { ArrowDownLeft, ArrowUpRight, ChevronRight, Plus } from 'lucide-react'
 import {
   useListAccounts,
@@ -197,8 +197,7 @@ export function TransferListPage() {
             return (
               <li key={transfer.transferId}>
                 <Link
-                  to="/app/transfers/$transferId"
-                  params={{ transferId: transfer.transferId ?? '' }}
+                  to={`/app/transfers/${transfer.transferId ?? ''}`}
                   className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
                 >
                   <span className="row-avatar size-11 shrink-0">

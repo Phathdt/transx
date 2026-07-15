@@ -1,19 +1,20 @@
 import type { ReactNode } from 'react'
-import { Link, useRouter } from '@tanstack/react-router'
+import { Link, NavLink } from 'react-router'
 import { ArrowLeftRight, LogOut, Plus, Wallet } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { InboxBell } from '#/components/inbox/inbox-bell'
 import { useAuth } from '#/hooks/use-auth'
+import { cn } from '#/lib/utils'
 
 const NAV_ITEMS = [
   {
     to: '/app/transfers',
     label: 'Transfers',
     icon: ArrowLeftRight,
-    exact: true,
+    end: true,
   },
-  { to: '/app/transfers/new', label: 'New Transfer', icon: Plus, exact: false },
-  { to: '/app/accounts', label: 'Accounts', icon: Wallet, exact: true },
+  { to: '/app/transfers/new', label: 'New Transfer', icon: Plus, end: false },
+  { to: '/app/accounts', label: 'Accounts', icon: Wallet, end: true },
 ] as const
 
 /**
@@ -23,11 +24,10 @@ const NAV_ITEMS = [
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { logout } = useAuth()
-  const router = useRouter()
 
   async function handleLogout() {
+    // useAuth.logout already navigates to /login after clearing session.
     await logout()
-    await router.navigate({ to: '/login' })
   }
 
   return (
@@ -47,17 +47,21 @@ export function AppShell({ children }: { children: ReactNode }) {
               </span>
             </Link>
             <div className="hidden items-center gap-1 sm:flex">
-              {NAV_ITEMS.map(({ to, label, icon: Icon, exact }) => (
-                <Link
+              {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+                <NavLink
                   key={to}
                   to={to}
-                  className="nav-link flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium"
-                  activeProps={{ className: 'nav-link is-active' }}
-                  activeOptions={{ exact }}
+                  end={end}
+                  className={({ isActive }) =>
+                    cn(
+                      'nav-link flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium',
+                      isActive && 'is-active',
+                    )
+                  }
                 >
                   <Icon className="size-4" />
                   {label}
-                </Link>
+                </NavLink>
               ))}
             </div>
           </div>
@@ -69,19 +73,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Button>
           </div>
         </nav>
-        {/* Compact icon nav for narrow screens. */}
         <div className="page-wrap flex items-center gap-1 pb-2 sm:hidden">
-          {NAV_ITEMS.map(({ to, label, icon: Icon, exact }) => (
-            <Link
+          {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+            <NavLink
               key={to}
               to={to}
-              className="nav-link flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-medium"
-              activeProps={{ className: 'nav-link is-active' }}
-              activeOptions={{ exact }}
+              end={end}
+              className={({ isActive }) =>
+                cn(
+                  'nav-link flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-medium',
+                  isActive && 'is-active',
+                )
+              }
             >
               <Icon className="size-4" />
               {label}
-            </Link>
+            </NavLink>
           ))}
         </div>
       </header>

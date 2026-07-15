@@ -19,6 +19,7 @@ the full product spec.
   - [Backend CLI](#backend-cli)
   - [Common Commands](#common-commands)
   - [Overview Architecture](#overview-architecture)
+    - [Auth BFF \(web\)](#auth-bff-web)
   - [Wallet API](#wallet-api)
   - [Internal Transfer Flow](#internal-transfer-flow)
   - [External Transfer Flow](#external-transfer-flow)
@@ -35,7 +36,9 @@ the full product spec.
 | Concern        | Choice                                  |
 | -------------- | --------------------------------------- |
 | Language       | Go 1.26                                 |
+| Frontend       | React Router v7 framework (SSR) + React 19 |
 | Database       | PostgreSQL 18 (native `uuidv7()`)       |
+| Session store  | Redis (auth refresh tokens)             |
 | Messaging      | Kafka (Redpanda only in local demo)     |
 | Orchestration  | Temporal (TransferWorkflow saga)        |
 | Gateway        | Traefik + ForwardAuth                   |
@@ -65,10 +68,11 @@ backend/
 │   └── shared/             # OpenAPI router factory
 ├── internal/
 │   ├── modules/<domain>/   # DDD per module: domain / application / infrastructure
-│   ├── platform/           # config, postgres, kafka, httpserver, grpc, logger, middleware
+│   ├── platform/           # config, postgres, redis, kafka, httpserver, grpc, logger
 │   ├── common/             # apperror, kafkatopic, provider (Bank fake)
 │   └── shared/             # lifecycle, pgconv
 └── db/migrations/          # goose SQL migrations
+frontend/                   # React Router v7 framework app (Auth BFF + UI)
 docs/                       # product + architecture docs
 plans/                      # planning artifacts and implementation phases
 ```
@@ -87,7 +91,8 @@ Requires Go 1.26, Docker, and (for codegen) `sqlc` + `goose`.
 
 ```bash
 # Local demo stack: Redpanda stands in for Kafka (not a production choice).
-docker compose up -d postgres redpanda temporal temporal-postgres
+# Redis is required for auth refresh sessions.
+docker compose up -d postgres redis redpanda temporal temporal-postgres
 ```
 
 Backend containers mount these local files read-only in Docker Compose:
@@ -145,21 +150,29 @@ the transfer worker during prepare activities.
 docker compose up -d
 # traefik + auth + wallet + transfer + consumer + notification + fx
 # + wallet-grpc + bank-grpc + transfer-worker + temporal (+ ui)
-# + iris + postgres + redpanda (Kafka-compatible demo broker only)
+# + iris + postgres + redis + redpanda (Kafka-compatible demo broker only)
 ```
 
-A Traefik gateway fronts the backend on `http://localhost:4000`. Login is
-public; all other routes are gated by ForwardAuth, which verifies the bearer
-token and injects `X-User-Id` onto the upstream request.
+A Traefik gateway fronts the backend on `http://localhost:4000`. Auth token
+endpoints (`/login`, `/refresh`, `/logout`, `/session`) are public JSON APIs;
+wallet/transfer/inbox routes are gated by ForwardAuth (Bearer access token →
+`X-User-Id`).
+
+**Web UI auth (Auth BFF):** React Router Node owns the HttpOnly refresh cookie.
+Browser → RR (`/api/auth/*`) → Go auth (JSON AT+RT). Domain API calls still use
+Bearer access tokens against Traefik.
 
 ```bash
-# Login (public)
+# Login against Go auth (returns accessToken + refreshToken JSON — no Set-Cookie)
 curl -X POST http://localhost:4000/api/v1/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"alice@transx.dev","password":"password123"}'
 
-# Authenticated request (Traefik verifies the token, injects X-User-Id)
-curl http://localhost:4000/api/v1/accounts/<accountRef> -H "Authorization: Bearer <token>"
+# Authenticated request (Traefik verifies the access token, injects X-User-Id)
+curl http://localhost:4000/api/v1/accounts/<accountRef> -H "Authorization: Bearer <accessToken>"
+
+# Frontend (RR framework + Auth BFF cookie)
+cd frontend && cp -n .env.example .env && yarn install && yarn dev  # :3000
 ```
 
 ## Backend CLI
@@ -167,7 +180,7 @@ curl http://localhost:4000/api/v1/accounts/<accountRef> -H "Authorization: Beare
 ```
 transx [--config|-c config.yaml] <subcommand>
 
-  auth             Start the auth service (POST /login + ForwardAuth /check)
+  auth             Start the auth service (JSON AT+RT + ForwardAuth /check)
   wallet           Start the wallet HTTP API (API only)
   transfer         Start the transfer HTTP API (API only)
   consumer         Kafka→Temporal bridge for transfer.requested (+ start retries)
@@ -189,8 +202,8 @@ transx [--config|-c config.yaml] <subcommand>
 
 ```bash
 # Infrastructure
-# Redpanda = local Kafka stand-in for demos only
-docker compose up -d postgres redpanda temporal temporal-postgres
+# Redpanda = local Kafka stand-in for demos only; Redis = auth refresh sessions
+docker compose up -d postgres redis redpanda temporal temporal-postgres
 docker compose down
 
 # Run from backend/
@@ -223,9 +236,11 @@ make check
 
 ```mermaid
 flowchart TD
-    FE["Client"]
+    BR["Browser"]
+    RR["React Router Node\n:3000 SSR + Auth BFF"]
     TR["Traefik\nGateway :4000"]
-    AUTH["Auth Service\nJWT + ForwardAuth"]
+    AUTH["Auth Service\nJSON AT+RT + /check"]
+    REDIS[("Redis\nrefresh sessions")]
     WALLET["Wallet API\n/accounts"]
     TRANSFER["Transfer API\n/transfers"]
     IRIS["iris CDC\nPostgres → Kafka"]
@@ -243,13 +258,19 @@ flowchart TD
     TDLQ[("transx.transfer.dlq")]
     NDLQ[("transx.notification.dlq")]
 
-    FE -->|"REST /api/v1"| TR
-    TR -->|"/login (public)"| AUTH
-    TR -->|"ForwardAuth /check"| AUTH
+    BR -->|"HTML / same-origin\n/api/auth/*"| RR
+    RR -->|"HttpOnly RT cookie\non FE host"| BR
+    RR -->|"JSON login/refresh/logout/session"| AUTH
+    AUTH --> REDIS
+    AUTH --> PG
+
+    BR -->|"Bearer access token\nREST /api/v1 domain"| TR
+    TR -->|"/login|/refresh|/logout|/session\n(public JSON)"| AUTH
+    TR -->|"ForwardAuth /check\nBearer AT"| AUTH
     TR -->|"/accounts* + X-User-Id"| WALLET
     TR -->|"/transfers* + X-User-Id"| TRANSFER
+    TR -->|"/inbox* + X-User-Id"| NOTIF
 
-    AUTH --> PG
     WALLET --> PG
     TRANSFER -->|"PENDING + outbox"| PG
     IRIS -->|"logical replication"| PG
@@ -271,16 +292,54 @@ flowchart TD
     NOTIF -.->|"poison / exhausted retries"| NDLQ
 ```
 
-- **Gateway**: Traefik terminates routing and delegates authentication to auth
-  via ForwardAuth.
-- **Auth**: issues JWTs and verifies them for the gateway (`X-User-Id`).
+### Auth BFF (web)
+
+```mermaid
+sequenceDiagram
+    actor B as Browser
+    participant RR as React Router Node
+    participant A as Go Auth
+    participant R as Redis
+    participant T as Traefik / APIs
+
+    B->>RR: POST /api/auth/login {email,password}
+    RR->>A: POST /api/v1/login
+    A->>R: store RT hash
+    A-->>RR: {accessToken, refreshToken}
+    RR-->>B: Set-Cookie HttpOnly RT + JSON AT
+    Note over B: AT in memory only
+
+    B->>RR: document /app/* (cookie RT)
+    RR->>A: POST /api/v1/session {refreshToken}
+    A->>R: validate (no rotate)
+    A-->>RR: 204
+    RR-->>B: HTML shell
+
+    B->>RR: POST /api/auth/refresh (cookie)
+    RR->>A: POST /api/v1/refresh {refreshToken}
+    A->>R: rotate RT
+    A-->>RR: {accessToken, refreshToken}
+    RR-->>B: new cookie + AT JSON
+
+    B->>T: GET /api/v1/accounts Authorization Bearer AT
+    T->>A: ForwardAuth GET /check
+    A-->>T: 200 + X-User-Id
+    T-->>B: domain response
+```
+
+- **React Router Node**: SSR UI + Auth BFF. Owns the HttpOnly refresh cookie on
+  the FE host. Proxies login/refresh/logout/session to Go as JSON only.
+- **Gateway**: Traefik routes domain APIs; ForwardAuth verifies **access** JWT
+  and injects `X-User-Id`.
+- **Auth**: issues short-lived access JWTs + opaque refresh tokens (Redis). No
+  browser cookies on the auth service itself.
 - **Transfer API**: stages `PENDING` transfer + `transfer.requested` outbox in
   one transaction; does not move money.
 - **iris**: CDC drain of outbox → Kafka topics named by `event_type` (single-instance FIFO). Local demo compose uses Redpanda as a Kafka-compatible broker only.
 - **consumer**: only the Kafka→Temporal bridge (inbox dedup + `ExecuteWorkflow`).
 - **transfer-worker**: runs the Temporal saga (INTERNAL/EXTERNAL activities).
 - **wallet-grpc / bank-grpc / fx**: money, bank outcomes, and FX quotes over gRPC.
-- **notification**: terminal events → notification audit rows.
+- **notification**: terminal events → notification audit rows (+ inbox HTTP).
 
 ## Wallet API
 
@@ -564,7 +623,7 @@ flowchart LR
 ```
 internal/
 ├── modules/
-│   ├── auth/         POST /login, ForwardAuth /check (JWT)
+│   ├── auth/         JSON AT+RT (login/refresh/logout/session), ForwardAuth /check
 │   ├── wallet/       accounts, ledger, money repository (gRPC ops)
 │   ├── transfer/     transfers, outbox, inbox, transfer application service
 │   ├── fx/           rates + fees
@@ -596,5 +655,8 @@ Conventions:
 
 - Product requirements: `docs/prd.md`
 - System architecture: `docs/system-architecture.md`
+- Hybrid auth / Auth BFF: `docs/ssr.md`
+- Frontend (RR + Auth BFF): `frontend/README.md`
 - OpenAPI spec: `backend/openapi.yaml`
 - Temporal saga plan: `plans/260711-2300-temporal-saga-transfer-orchestration/`
+- RR framework + hybrid auth plan: `plans/260715-1333-rrv7-framework-hybrid-auth/`

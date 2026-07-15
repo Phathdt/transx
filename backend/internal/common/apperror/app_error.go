@@ -54,3 +54,7 @@ func NewConflictError(msg string) *AppError {
 func NewBadGatewayError(msg string, err error) *AppError {
 	return &AppError{Status: http.StatusBadGateway, Message: msg, Err: err}
 }
+
+func NewInternalError(msg string) *AppError {
+	return &AppError{Status: http.StatusInternalServerError, Message: msg}
+}

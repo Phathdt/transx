@@ -1,4 +1,5 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { redirect } from 'react-router'
+import type { Route } from './+types/login'
 import { PublicShell } from '#/components/layout/public-shell'
 import { LoginForm } from '#/components/auth/login-form'
 import {
@@ -8,19 +9,15 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
-import { getAccessToken } from '#/lib/auth/auth-session'
+import { probeSessionFromRequest } from '../lib/auth.server'
 
-export const Route = createFileRoute('/login')({
-  beforeLoad: () => {
-    // Already-authenticated users skip the login screen.
-    if (getAccessToken()) {
-      throw redirect({ to: '/app/transfers' })
-    }
-  },
-  component: LoginPage,
-})
+export async function loader({ request }: Route.LoaderArgs) {
+  const ok = await probeSessionFromRequest(request)
+  if (ok) throw redirect('/app/transfers')
+  return null
+}
 
-function LoginPage() {
+export default function LoginPage() {
   return (
     <PublicShell>
       <Card className="glass-card border-0 shadow-none">

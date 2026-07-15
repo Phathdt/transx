@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   getGetInboxUnreadCountQueryKey,
@@ -75,8 +75,7 @@ export function InboxDetailSheet({
           {data?.transferId ? (
             <Button asChild variant="outline" className="self-start">
               <Link
-                to="/app/transfers/$transferId"
-                params={{ transferId: data.transferId }}
+                to={`/app/transfers/${data.transferId}`}
                 onClick={() => onOpenChange(false)}
               >
                 View transfer

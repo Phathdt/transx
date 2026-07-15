@@ -1,5 +1,6 @@
 x-backend-env: &backend-env
   POSTGRES__DATABASE_URL: postgres://transx:transx@postgres:5432/transx?sslmode=disable
+  REDIS__ADDR: redis:6379
   KAFKA__BROKERS: redpanda:29092
   # Non-local environment switches slog to JSON output so Promtail can parse
   # level/trace_id fields and ship structured logs to Loki.
@@ -56,6 +57,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: transx-redis
+    ports:
+      - "${REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
@@ -134,15 +149,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      # Public login route — no forward-auth (clients have no token yet).
+      # Public auth routes — no forward-auth (cookie/login bootstrap).
       - traefik.http.routers.auth-login.rule=PathPrefix(`/api/v1/login`)
       - traefik.http.routers.auth-login.entrypoints=web
       - traefik.http.routers.auth-login.service=auth-svc
+      - traefik.http.routers.auth-refresh.rule=PathPrefix(`/api/v1/refresh`)
+      - traefik.http.routers.auth-refresh.entrypoints=web
+      - traefik.http.routers.auth-refresh.service=auth-svc
+      - traefik.http.routers.auth-logout.rule=PathPrefix(`/api/v1/logout`)
+      - traefik.http.routers.auth-logout.entrypoints=web
+      - traefik.http.routers.auth-logout.service=auth-svc
+      - traefik.http.routers.auth-session.rule=PathPrefix(`/api/v1/session`)
+      - traefik.http.routers.auth-session.entrypoints=web
+      - traefik.http.routers.auth-session.service=auth-svc
       - traefik.http.services.auth-svc.loadbalancer.server.port=4000
       # ForwardAuth middleware: Traefik calls /api/v1/check; on 2xx it copies
       # X-User-Id onto the upstream request, on 401 it rejects the client.
@@ -395,5 +421,6 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
   redpanda-data:
   temporal-postgres-data:

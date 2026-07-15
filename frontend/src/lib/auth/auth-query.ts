@@ -1,10 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { login } from '#/lib/api/generated/auth/auth'
 import { listAccounts } from '#/lib/api/generated/wallet/wallet'
-import type {
-  DtoLoginCommand,
-  DtoLoginResponse,
-} from '#/lib/api/generated/models'
 import type { ApiError } from '#/lib/api/api-error'
 
 /** Stable key for the auth-check query (server truth for a valid token). */
@@ -24,10 +19,3 @@ export const authCheckQueryOptions = () =>
     retry: false,
     staleTime: 5 * 60 * 1000,
   })
-
-/** Thin wrapper around the generated login call for the auth mutation. */
-export function loginRequest(
-  command: DtoLoginCommand,
-): Promise<DtoLoginResponse> {
-  return login(command)
-}

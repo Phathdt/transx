@@ -13,6 +13,7 @@ type Config struct {
 	App      App      `yaml:"app"      mapstructure:"app"`
 	HTTP     HTTP     `yaml:"http"     mapstructure:"http"`
 	Postgres Postgres `yaml:"postgres" mapstructure:"postgres"`
+	Redis    Redis    `yaml:"redis"    mapstructure:"redis"`
 	Kafka    Kafka    `yaml:"kafka"    mapstructure:"kafka"`
 	Auth     Auth     `yaml:"auth"     mapstructure:"auth"`
 	Provider Provider `yaml:"provider" mapstructure:"provider"`
@@ -27,10 +28,15 @@ type App struct {
 	LogLevel    string `yaml:"log_level"   mapstructure:"log_level"`
 }
 
-// Auth configures the auth service: JWT signing (HS256) and token lifetime.
+// Auth configures the auth service: JWT signing (HS256), access-token lifetime,
+// and refresh-cookie sessions stored in Redis (hybrid auth).
 type Auth struct {
-	JWTSecret string        `yaml:"jwt_secret" mapstructure:"jwt_secret"`
-	JWTTTL    time.Duration `yaml:"jwt_ttl"    mapstructure:"jwt_ttl"` // e.g. 24h
+	JWTSecret      string        `yaml:"jwt_secret"       mapstructure:"jwt_secret"`
+	JWTTTL         time.Duration `yaml:"jwt_ttl"          mapstructure:"jwt_ttl"` // e.g. 15m access token
+	RefreshTTL     time.Duration `yaml:"refresh_ttl"      mapstructure:"refresh_ttl"`
+	CookieName     string        `yaml:"cookie_name"      mapstructure:"cookie_name"`
+	CookieSecure   bool          `yaml:"cookie_secure"    mapstructure:"cookie_secure"`
+	CookieSameSite string        `yaml:"cookie_same_site" mapstructure:"cookie_same_site"` // none|lax|strict
 }
 
 type HTTP struct {
@@ -40,6 +46,13 @@ type HTTP struct {
 
 type Postgres struct {
 	DatabaseURL string `yaml:"database_url" mapstructure:"database_url"`
+}
+
+// Redis configures the shared Redis client (auth refresh sessions first).
+type Redis struct {
+	Addr     string `yaml:"addr"     mapstructure:"addr"`
+	Password string `yaml:"password" mapstructure:"password"`
+	DB       int    `yaml:"db"       mapstructure:"db"`
 }
 
 type Kafka struct {
@@ -177,6 +190,21 @@ func Load(configPath string) (Config, error) {
 	}
 	if cfg.Temporal.TaskQueue == "" {
 		cfg.Temporal.TaskQueue = "transfer-task-queue"
+	}
+	// Redis defaults for local single-host runs; compose overrides via REDIS__ADDR.
+	if cfg.Redis.Addr == "" {
+		cfg.Redis.Addr = "localhost:6379"
+	}
+	// Auth cookie/session defaults for hybrid auth (refresh in Redis).
+	if cfg.Auth.RefreshTTL == 0 {
+		cfg.Auth.RefreshTTL = 30 * 24 * time.Hour
+	}
+	if cfg.Auth.CookieName == "" {
+		cfg.Auth.CookieName = "refresh_token"
+	}
+	if cfg.Auth.CookieSameSite == "" {
+		// Cross-origin FE (:3000) → API (:4000) needs None; pair with Secure in non-local.
+		cfg.Auth.CookieSameSite = "none"
 	}
 
 	return cfg, nil

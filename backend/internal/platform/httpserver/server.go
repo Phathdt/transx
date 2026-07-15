@@ -62,6 +62,8 @@ func New(cfg Config) *Server {
 	}
 
 	if len(cfg.CORSAllowedOrigins) > 0 {
+		// AllowCredentials requires explicit origins (no wildcard).
+		// Needed for cross-origin refresh cookies (FE :3000 → API :4000).
 		app.Use(cors.New(cors.Config{
 			AllowOrigins: strings.Join(cfg.CORSAllowedOrigins, ","),
 			AllowMethods: strings.Join([]string{
@@ -69,7 +71,8 @@ func New(cfg Config) *Server {
 				fiber.MethodPost,
 				fiber.MethodOptions,
 			}, ","),
-			AllowHeaders: "Origin,Content-Type,Accept,Authorization",
+			AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
+			AllowCredentials: true,
 		}))
 	}
 

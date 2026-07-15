@@ -316,8 +316,8 @@ paths:
     post:
       tags:
         - auth
-      summary: Authenticate with email and password, returns a JWT
-      description: Authenticate with email and password, returns a JWT
+      summary: Authenticate with email and password; returns access + refresh tokens (JSON)
+      description: Authenticate with email and password; returns access + refresh tokens (JSON)
       operationId: login
       requestBody:
         content:
@@ -344,8 +344,107 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HandlersErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
         '500':
           description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /logout:
+    post:
+      tags:
+        - auth
+      summary: Revoke refresh session (JSON refreshToken)
+      description: Revoke refresh session (JSON refreshToken)
+      operationId: logout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtoRefreshCommand'
+      responses:
+        '204':
+          description: No Content
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /refresh:
+    post:
+      tags:
+        - auth
+      summary: Rotate refresh token and return a new access + refresh pair
+      description: Rotate refresh token and return a new access + refresh pair
+      operationId: refresh
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtoRefreshCommand'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoLoginResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /session:
+    post:
+      tags:
+        - auth
+      summary: Validate refresh token without rotating it (RR BFF auth-gate)
+      description: Validate refresh token without rotating it (RR BFF auth-gate)
+      operationId: session
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtoRefreshCommand'
+        required: true
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -625,6 +724,8 @@ components:
       properties:
         accessToken:
           type: string
+        refreshToken:
+          type: string
         tokenType:
           type: string
         userId:
@@ -637,6 +738,13 @@ components:
         updated:
           type: integer
           format: int64
+    DtoRefreshCommand:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
     DtoTransferListResponse:
       type: object
       properties:
