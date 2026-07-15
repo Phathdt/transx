@@ -5,7 +5,7 @@
 -- are user-facing messages (not EMAIL/PUSH logs). Each row is an unread/read
 -- message for one recipient on one terminal transfer event.
 CREATE TABLE user_inbox_items (
-    id uuid PRIMARY KEY DEFAULT uuid_v7 (),
+    id uuid PRIMARY KEY DEFAULT uuidv7 (),
     user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     type text NOT NULL, -- transfer.completed | transfer.failed
     title text NOT NULL,
