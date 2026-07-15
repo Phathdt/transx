@@ -6,9 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 
-export type ListAccountsParams = {
+export type ListInboxParams = {
 page?: number;
 pageSize?: number;
-currency?: string;
-status?: string;
 };

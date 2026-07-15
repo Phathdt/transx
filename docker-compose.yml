@@ -257,7 +257,14 @@ services:
       redpanda-init:
         condition: service_completed_successfully
     restart: unless-stopped
-
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.notification.rule=PathPrefix(`/api/v1/inbox`)
+      - traefik.http.routers.notification.entrypoints=web
+      - traefik.http.routers.notification.priority=90
+      - traefik.http.routers.notification.middlewares=forward-auth
+      - traefik.http.routers.notification.service=notification-svc
+      - traefik.http.services.notification-svc.loadbalancer.server.port=4003
 
   fx:
     <<: *backend

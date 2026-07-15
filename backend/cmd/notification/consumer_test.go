@@ -95,6 +95,44 @@ func (f *fakeInbox) MarkProcessed(_ context.Context, _, key string) error {
 	return f.markErr
 }
 
+// fakeUserInboxRepo records CreateInboxItems inserts for consumer tests.
+type fakeUserInboxRepo struct {
+	inserts   int
+	insertErr error
+}
+
+func (r *fakeUserInboxRepo) InsertInboxItem(_ context.Context, _ *entities.InboxItem) error {
+	if r.insertErr != nil {
+		return r.insertErr
+	}
+	r.inserts++
+	return nil
+}
+
+func (r *fakeUserInboxRepo) GetInboxItemByUserAndID(_ context.Context, _, _ uuid.UUID) (*entities.InboxItem, error) {
+	return nil, nil
+}
+
+func (r *fakeUserInboxRepo) ListInboxByUser(_ context.Context, _ uuid.UUID, _, _ int32) ([]*entities.InboxItem, error) {
+	return nil, nil
+}
+
+func (r *fakeUserInboxRepo) CountInboxByUser(_ context.Context, _ uuid.UUID) (int64, error) {
+	return 0, nil
+}
+
+func (r *fakeUserInboxRepo) CountUnreadByUser(_ context.Context, _ uuid.UUID) (int64, error) {
+	return 0, nil
+}
+
+func (r *fakeUserInboxRepo) MarkInboxRead(_ context.Context, _, _ uuid.UUID) (*entities.InboxItem, error) {
+	return nil, nil
+}
+
+func (r *fakeUserInboxRepo) MarkAllInboxRead(_ context.Context, _ uuid.UUID) (int64, error) {
+	return 0, nil
+}
+
 // fakeNotifRepo backs the real NotificationService.
 type fakeNotifRepo struct {
 	ctxResult *dto.TransferNotificationContext
@@ -141,18 +179,19 @@ func makeMessage(transferID string) kafka.Message {
 
 func newConsumer(
 	t *testing.T, inbox *fakeInbox, repo *fakeNotifRepo, notifier *fakeNotifier,
-) (*notification.Consumer, *fakeConsumer, *fakeProducer) {
+) (*notification.Consumer, *fakeConsumer, *fakeProducer, *fakeUserInboxRepo) {
 	t.Helper()
 	log := logger.New("plain", "error")
 	producer := &fakeProducer{}
 	fc := &fakeConsumer{}
-	svc := services.NewNotificationService(repo, notifier)
+	userInbox := &fakeUserInboxRepo{}
+	svc := services.NewNotificationService(repo, notifier, userInbox)
 	retry := consumerretry.NewRetryHelper(
 		producer, log, kafkatopic.TransferCompleted,
 		kafkatopic.NotificationRetryStages(), kafkatopic.NotificationDLQ,
 	)
 	c := notification.NewConsumer(fc, retry, inbox, svc, kafkatopic.TransferCompleted, testGroup, log)
-	return c, fc, producer
+	return c, fc, producer, userInbox
 }
 
 // --- tests ------------------------------------------------------------------
@@ -160,7 +199,7 @@ func newConsumer(
 func TestHandleValidMessageNotifiesAndCommits(t *testing.T) {
 	inbox := &fakeInbox{}
 	repo := &fakeNotifRepo{ctxResult: fullContext()}
-	c, fc, producer := newConsumer(t, inbox, repo, &fakeNotifier{})
+	c, fc, producer, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
 
 	c.Handle(context.Background(), makeMessage(uuid.New().String()))
 
@@ -173,7 +212,7 @@ func TestHandleValidMessageNotifiesAndCommits(t *testing.T) {
 func TestHandleAlreadyProcessedIsNoOp(t *testing.T) {
 	inbox := &fakeInbox{processed: true}
 	repo := &fakeNotifRepo{ctxResult: fullContext()}
-	c, fc, producer := newConsumer(t, inbox, repo, &fakeNotifier{})
+	c, fc, producer, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
 
 	c.Handle(context.Background(), makeMessage(uuid.New().String()))
 
@@ -186,7 +225,7 @@ func TestHandleAlreadyProcessedIsNoOp(t *testing.T) {
 func TestHandlePoisonMessageToDLQ(t *testing.T) {
 	inbox := &fakeInbox{}
 	repo := &fakeNotifRepo{}
-	c, fc, producer := newConsumer(t, inbox, repo, &fakeNotifier{})
+	c, fc, producer, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
 
 	badMsg := kafka.Message{Topic: kafkatopic.TransferCompleted, Value: []byte("not json")}
 	c.Handle(context.Background(), badMsg)
@@ -200,7 +239,7 @@ func TestHandlePoisonMessageToDLQ(t *testing.T) {
 func TestHandleTransientNotifierErrorEscalates(t *testing.T) {
 	inbox := &fakeInbox{}
 	repo := &fakeNotifRepo{ctxResult: fullContext()}
-	c, fc, producer := newConsumer(t, inbox, repo, &fakeNotifier{sendErr: errors.New("smtp down")})
+	c, fc, producer, _ := newConsumer(t, inbox, repo, &fakeNotifier{sendErr: errors.New("smtp down")})
 
 	c.Handle(context.Background(), makeMessage(uuid.New().String()))
 
@@ -214,7 +253,7 @@ func TestHandleTransientNotifierErrorEscalates(t *testing.T) {
 func TestHandleTransientInboxErrorEscalates(t *testing.T) {
 	inbox := &fakeInbox{isProcErr: &pgconn.PgError{Code: "40001"}}
 	repo := &fakeNotifRepo{}
-	c, fc, producer := newConsumer(t, inbox, repo, &fakeNotifier{})
+	c, fc, producer, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
 
 	c.Handle(context.Background(), makeMessage(uuid.New().String()))
 
@@ -226,7 +265,7 @@ func TestHandleTransientInboxErrorEscalates(t *testing.T) {
 func TestHandlePermanentTransferNotFoundMarksProcessed(t *testing.T) {
 	inbox := &fakeInbox{}
 	repo := &fakeNotifRepo{ctxResult: nil} // join returns no row
-	c, fc, producer := newConsumer(t, inbox, repo, &fakeNotifier{})
+	c, fc, producer, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
 
 	c.Handle(context.Background(), makeMessage(uuid.New().String()))
 
@@ -239,7 +278,7 @@ func TestHandlePermanentTransferNotFoundMarksProcessed(t *testing.T) {
 func TestRunProcessesQueuedMessageThenStops(t *testing.T) {
 	inbox := &fakeInbox{}
 	repo := &fakeNotifRepo{ctxResult: fullContext()}
-	c, fc, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
+	c, fc, _, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
 	fc.fetchMsgs = []kafka.Message{makeMessage(uuid.New().String())}
 
 	// Fetch returns one message, then context.Canceled to end the loop.
@@ -253,7 +292,7 @@ func TestRunProcessesQueuedMessageThenStops(t *testing.T) {
 func TestHandleMarkProcessedAndCommitErrorsAreNonFatal(t *testing.T) {
 	inbox := &fakeInbox{markErr: errors.New("mark failed")}
 	repo := &fakeNotifRepo{ctxResult: fullContext()}
-	c, fc, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
+	c, fc, _, _ := newConsumer(t, inbox, repo, &fakeNotifier{})
 	fc.commitErr = errors.New("commit failed")
 
 	// Neither a mark-processed nor a commit failure should panic or escalate.
@@ -261,4 +300,51 @@ func TestHandleMarkProcessedAndCommitErrorsAreNonFatal(t *testing.T) {
 
 	assert.Equal(t, 2, repo.inserted)
 	assert.Equal(t, 1, fc.commits)
+}
+
+func TestHandleTransientNotifierStillCreatesInboxAndEscalates(t *testing.T) {
+	inbox := &fakeInbox{}
+	repo := &fakeNotifRepo{ctxResult: fullContext()}
+	c, fc, producer, userInbox := newConsumer(t, inbox, repo, &fakeNotifier{sendErr: errors.New("smtp down")})
+
+	c.Handle(context.Background(), makeMessage(uuid.New().String()))
+
+	// Inbox write runs even when channel notify fails; message is escalated and
+	// not marked processed so redelivery can finish the notify path.
+	assert.Equal(t, 1, userInbox.inserts)
+	require.Len(t, producer.published, 1)
+	assert.Equal(t, kafkatopic.NotificationRetry6s, producer.published[0].Topic)
+	assert.Empty(t, inbox.marked)
+	assert.Equal(t, 1, fc.commits)
+}
+
+func TestHandlePermanentNoRecipientAfterInboxMarksProcessed(t *testing.T) {
+	inbox := &fakeInbox{}
+	ctx := fullContext()
+	ctx.RecipientEmail = ""
+	ctx.RecipientUserID = "" // no EMAIL/PUSH targets; also no inbox recipients
+	repo := &fakeNotifRepo{ctxResult: ctx}
+	c, fc, producer, userInbox := newConsumer(t, inbox, repo, &fakeNotifier{})
+
+	c.Handle(context.Background(), makeMessage(uuid.New().String()))
+
+	// Permanent on both paths (no transfer recipients): mark processed, no retry.
+	assert.Equal(t, 0, userInbox.inserts)
+	assert.Len(t, inbox.marked, 1)
+	assert.Equal(t, 1, fc.commits)
+	assert.Empty(t, producer.published)
+}
+
+func TestHandleSuccessCreatesInboxAndMarksProcessed(t *testing.T) {
+	inbox := &fakeInbox{}
+	repo := &fakeNotifRepo{ctxResult: fullContext()}
+	c, fc, producer, userInbox := newConsumer(t, inbox, repo, &fakeNotifier{})
+
+	c.Handle(context.Background(), makeMessage(uuid.New().String()))
+
+	assert.Equal(t, 1, userInbox.inserts)
+	assert.Equal(t, 2, repo.inserted)
+	assert.Len(t, inbox.marked, 1)
+	assert.Equal(t, 1, fc.commits)
+	assert.Empty(t, producer.published)
 }

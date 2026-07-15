@@ -5,10 +5,10 @@
  * transx API
  * OpenAPI spec version: 1.0.0
  */
-import type { DtoTransferResponse } from './dtoTransferResponse.ts';
+import type { DtoInboxItemResponse } from './dtoInboxItemResponse.ts';
 
-export interface DtoTransferListResponse {
-  data?: DtoTransferResponse[];
+export interface DtoInboxListResponse {
+  data?: DtoInboxItemResponse[];
   page?: number;
   pageSize?: number;
   total?: number;

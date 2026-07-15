@@ -129,10 +129,7 @@ func IsTransient(err error) bool {
 		return true
 	}
 	var resourceExhausted *serviceerror.ResourceExhausted
-	if errors.As(err, &resourceExhausted) {
-		return true
-	}
-	return false
+	return errors.As(err, &resourceExhausted)
 }
 
 // transferEventPayload is the transfer.* wire contract: only the id travels, so

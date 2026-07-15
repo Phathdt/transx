@@ -9,9 +9,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 
+	cmdapi "transx/cmd/api"
+	"transx/cmd/api/handlers"
 	"transx/cmd/consumer"
 	"transx/cmd/notification"
 	"transx/internal/common/consumerretry"
@@ -24,6 +27,7 @@ import (
 	"transx/internal/platform/httpserver"
 	"transx/internal/platform/kafka"
 	"transx/internal/platform/logger"
+	"transx/internal/platform/middleware"
 	"transx/internal/platform/postgres"
 )
 
@@ -65,9 +69,10 @@ func runNotificationService(ctx context.Context, configPath string) error {
 
 	q := notifgen.New(db)
 	notificationRepo := notifrepos.NewPostgresNotificationRepository(q)
-	inboxRepo := notifrepos.NewPostgresInboxRepository(q)
+	processedMsgRepo := notifrepos.NewPostgresProcessedMessageRepository(q)
+	userInboxRepo := notifrepos.NewPostgresUserInboxRepository(q)
 	logNotifier := notifier.NewLogNotifier(log)
-	service := notifsvc.NewNotificationService(notificationRepo, logNotifier)
+	service := notifsvc.NewNotificationService(notificationRepo, logNotifier, userInboxRepo)
 
 	// Kafka is a hard dependency; NewProducer/NewConsumer panic on construction
 	// failure, so build them here on the main goroutine to fail loud at startup.
@@ -101,7 +106,7 @@ func runNotificationService(ctx context.Context, configPath string) error {
 			retryStages,
 			kafkatopic.NotificationDLQ,
 		),
-		inboxRepo,
+		processedMsgRepo,
 		service,
 		kafkatopic.TransferCompleted,
 		notificationCompletedGroup,
@@ -110,19 +115,29 @@ func runNotificationService(ctx context.Context, configPath string) error {
 	failedNotifier := notification.NewConsumer(
 		failedConsumer,
 		consumerretry.NewRetryHelper(producer, log, kafkatopic.TransferFailed, retryStages, kafkatopic.NotificationDLQ),
-		inboxRepo, service, kafkatopic.TransferFailed, notificationFailedGroup, log,
+		processedMsgRepo, service, kafkatopic.TransferFailed, notificationFailedGroup, log,
 	)
 
-	// Health-only HTTP server so Compose/k8s can probe /healthz + /readyz.
+	// HTTP serves health probes plus the authenticated inbox API.
+	// Kafka consumers still own the write path; this process just exposes the
+	// owner-scoped inbox over the same binary.
+	inboxH := handlers.NewInboxHandler(service)
 	server := httpserver.New(httpserver.Config{
-		Address: cfg.HTTP.Address,
-		Logger:  log,
+		Address:            cfg.HTTP.Address,
+		CORSAllowedOrigins: cfg.HTTP.CORSAllowedOrigins,
+		Logger:             log,
+		ErrorHandler:       handlers.DomainErrorHandler,
+		Middlewares: []fiber.Handler{
+			middleware.RequestID(),
+			middleware.UserID(),
+		},
 		Ready: func(ctx context.Context) error {
 			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
 			return db.Ping(pingCtx)
 		},
 	})
+	cmdapi.RegisterInboxRoutes(server.App(), inboxH)
 
 	g, gctx := errgroup.WithContext(ctx)
 

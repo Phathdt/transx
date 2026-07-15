@@ -19,7 +19,7 @@ help:
 	@printf "  lint         Run golangci-lint (enforces module boundaries via depguard)\n"
 	@printf "  test         Run unit tests with go test -short -p 1 ./...\n"
 	@printf "  test-integration Run tagged integration tests (requires Docker)\n"
-	@printf "  coverage     Run internal/modules tests excluding generated gen and sqlc query packages; require >= $(COVERAGE_MIN)%%\n"
+	@printf "  coverage     Run unit coverage for modules/workers excluding gen, query, and repositories (integration-tested); require >= $(COVERAGE_MIN)%%\n"
 	@printf "  build        Build transx binary\n"
 	@printf "  check        Run sqlc, format, vet, lint, test, coverage\n"
 	@printf "  openapi      Generate openapi.yaml\n"
@@ -79,7 +79,10 @@ test-integration:
 	go test -count=1 -tags=integration -p 1 ./... -timeout 120s
 
 coverage:
-	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/notification/... ./internal/common/consumerretry/... ./internal/common/provider/... | grep -Ev '(/query|/gen)' | xargs go test -coverprofile=$(COVERPROFILE)
+	@# Repositories are integration-tagged (//go:build integration) and would
+	@# otherwise sit at 0% under `go test -short`, dragging the unit gate below
+	@# COVERAGE_MIN. Cover them via `make test-integration` instead.
+	@go list ./internal/modules/... ./cmd/consumer/... ./cmd/notification/... ./internal/common/consumerretry/... ./internal/common/provider/... | grep -Ev '(/query|/gen|/repositories)' | xargs go test -coverprofile=$(COVERPROFILE)
 	@coverage="$$(go tool cover -func=$(COVERPROFILE) | awk '/^total:/ {gsub(/%/,"",$$3); print $$3}')"; \
 		echo "modules + workers coverage: $$coverage%"; \
 		awk -v coverage="$$coverage" -v min="$(COVERAGE_MIN)" 'BEGIN { if (coverage + 0 < min + 0) exit 1 }'
