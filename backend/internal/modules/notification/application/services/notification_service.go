@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -134,8 +135,8 @@ func buildMessage(eventType string, c *dto.TransferNotificationContext) (subject
 }
 
 // CreateInboxItems creates user-inbox items for the sender and (if internal)
-// the receiver of a terminal transfer event. Idempotent via ON CONFLICT DO
-// NOTHING in the sqlc query.
+// the receiver of a terminal transfer event. Idempotent via ON CONFLICT upsert
+// in the sqlc query.
 func (s *NotificationService) CreateInboxItems(ctx context.Context, transferID uuid.UUID, eventType string) error {
 	transferCtx, err := s.repo.GetTransferContext(ctx, transferID)
 	if err != nil {
@@ -178,7 +179,7 @@ func (s *NotificationService) resolveInboxRecipients(c *dto.TransferNotification
 		return nil
 	}
 	recipients := []uuid.UUID{fromID}
-	if c.TransferType != "INTERNAL" || c.ToUserID == "" {
+	if !strings.EqualFold(c.TransferType, "INTERNAL") || c.ToUserID == "" {
 		return recipients
 	}
 	toID, err := uuid.Parse(c.ToUserID)
@@ -209,9 +210,14 @@ func (s *NotificationService) ListInbox(
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.userInboxRepo.ListInboxByUser(ctx, userID, int32(limit), int32(offset))
-	if err != nil {
-		return nil, err
+	// Clamp already bounds offset to int32; skip the list query when the page
+	// starts past the end so we do not round-trip Postgres for an empty page.
+	var rows []*entities.InboxItem
+	if int64(offset) < total {
+		rows, err = s.userInboxRepo.ListInboxByUser(ctx, userID, limit, offset)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	data := make([]dto.InboxItemResponse, 0, len(rows))

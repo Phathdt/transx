@@ -409,3 +409,18 @@ func TestCreateInboxItemsExternalIgnoresToUserID(t *testing.T) {
 	require.Len(t, inbox.items, 1)
 	assert.Equal(t, fromID, inbox.items[0].UserID)
 }
+
+func TestListInboxPastEndReturnsEmpty(t *testing.T) {
+	userID := uuid.New()
+	now := time.Now().UTC()
+	inbox := &fakeUserInboxRepo{items: []*entities.InboxItem{
+		{ID: uuid.New(), UserID: userID, Type: "transfer.completed", Title: "a", Body: "b", CreatedAt: now},
+	}}
+	svc := services.NewNotificationService(&fakeRepo{}, &fakeNotifier{}, inbox)
+
+	list, err := svc.ListInbox(context.Background(), userID, 99, 20)
+	require.NoError(t, err)
+	assert.Empty(t, list.Data)
+	assert.EqualValues(t, 1, list.Total)
+	assert.Equal(t, 99, list.Page)
+}
