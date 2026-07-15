@@ -3,6 +3,7 @@ package api
 import (
 	"transx/cmd/api/handlers"
 	authdto "transx/internal/modules/auth/application/dto"
+	notifdto "transx/internal/modules/notification/application/dto"
 	transferdto "transx/internal/modules/transfer/application/dto"
 	walletdto "transx/internal/modules/wallet/application/dto"
 
@@ -40,6 +41,64 @@ func RegisterAllRoutesForSpec(r fiberopenapi.Router) {
 	RegisterAuthRoutes(r, nil)
 	registerWalletRoutes(r, nil)
 	registerTransferRoutes(r, nil)
+	registerInboxRoutes(r, nil)
+}
+
+// RegisterInboxRoutes wires the inbox-service routes onto the Fiber app.
+func RegisterInboxRoutes(app *fiber.App, inboxH *handlers.InboxHandler) {
+	registerInboxRoutes(fiberopenapi.NewRouter(app), inboxH)
+}
+
+// registerInboxRoutes wires the inbox routes onto the spec router.
+// A nil handler registers the route for spec export only.
+func registerInboxRoutes(r fiberopenapi.Router, inboxH *handlers.InboxHandler) {
+	v1 := r.Group("/api/v1/inbox")
+
+	var getUnreadCount, listInbox, getInbox, readAll fiber.Handler
+	if inboxH != nil {
+		getUnreadCount = inboxH.GetUnreadCount
+		listInbox = inboxH.ListInbox
+		getInbox = inboxH.GetInbox
+		readAll = inboxH.ReadAll
+	}
+
+	// Static paths before /:id so /unread-count and /read-all are not caught by the
+	// parameterized route.
+	v1.Get("/unread-count", getUnreadCount).With(
+		option.Tags("inbox"),
+		option.OperationID("getInboxUnreadCount"),
+		option.Summary("Return the caller's unread inbox item count"),
+		option.Response(fiber.StatusOK, new(notifdto.UnreadCountResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+	)
+
+	v1.Post("/read-all", readAll).With(
+		option.Tags("inbox"),
+		option.OperationID("markAllInboxRead"),
+		option.Summary("Mark all of the caller's unread inbox items as read"),
+		option.Response(fiber.StatusOK, new(notifdto.ReadAllResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+	)
+
+	v1.Get("/", listInbox).With(
+		option.Tags("inbox"),
+		option.OperationID("listInbox"),
+		option.Summary("List the caller's inbox items, newest first, paginated"),
+		option.Request(new(notifdto.ListInboxQuery)),
+		option.Response(fiber.StatusOK, new(notifdto.InboxListResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Get("/:id", getInbox).With(
+		option.Tags("inbox"),
+		option.OperationID("getInboxItem"),
+		option.Summary("Get one inbox item. If unread it is automatically marked as read."),
+		option.Response(fiber.StatusOK, new(notifdto.InboxItemResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
+	)
 }
 
 // RegisterAuthRoutes wires the auth-service routes: login + the ForwardAuth

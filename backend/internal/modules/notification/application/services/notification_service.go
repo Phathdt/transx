@@ -3,8 +3,12 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
+
+	"transx/internal/common/pagination"
 
 	"transx/internal/modules/notification/application/dto"
 	"transx/internal/modules/notification/domain/entities"
@@ -13,16 +17,19 @@ import (
 
 // NotificationService builds a transfer notification from reloaded state and
 // dispatches it across every channel, recording each attempt as an audit row.
+// It also creates user-facing inbox items for the same terminal event.
 type NotificationService struct {
-	repo     interfaces.NotificationRepository
-	notifier interfaces.Notifier
+	repo          interfaces.NotificationRepository
+	notifier      interfaces.Notifier
+	userInboxRepo interfaces.UserInboxRepository
 }
 
 func NewNotificationService(
 	repo interfaces.NotificationRepository,
 	notifier interfaces.Notifier,
+	userInboxRepo interfaces.UserInboxRepository,
 ) *NotificationService {
-	return &NotificationService{repo: repo, notifier: notifier}
+	return &NotificationService{repo: repo, notifier: notifier, userInboxRepo: userInboxRepo}
 }
 
 // channelTarget pairs a channel with its resolved recipient. EMAIL goes to the
@@ -125,4 +132,139 @@ func buildMessage(eventType string, c *dto.TransferNotificationContext) (subject
 		body = fmt.Sprintf("Your transfer %s is now %s.", c.Reference, c.Status)
 	}
 	return subject, body
+}
+
+// CreateInboxItems creates user-inbox items for the sender and (if internal)
+// the receiver of a terminal transfer event. Idempotent via ON CONFLICT upsert
+// in the sqlc query.
+func (s *NotificationService) CreateInboxItems(ctx context.Context, transferID uuid.UUID, eventType string) error {
+	transferCtx, err := s.repo.GetTransferContext(ctx, transferID)
+	if err != nil {
+		return err
+	}
+	if transferCtx == nil {
+		return entities.ErrTransferNotFound
+	}
+
+	recipients := s.resolveInboxRecipients(transferCtx)
+
+	title, body := buildMessage(eventType, transferCtx)
+
+	for _, userID := range recipients {
+		if err := s.userInboxRepo.InsertInboxItem(ctx, &entities.InboxItem{
+			UserID:      userID,
+			Type:        eventType,
+			Title:       title,
+			Body:        body,
+			TransferID:  transferID,
+			TransferRef: transferCtx.Reference,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resolveInboxRecipients resolves the set of user ids who should receive an
+// inbox item for a terminal transfer event.
+//
+// Rules:
+//   - Always include from_user_id (sender).
+//   - Include to_user_id only for INTERNAL transfers when present and != from.
+//   - EXTERNAL is always sender-only, even if free-text to_account_ref happens
+//     to match an in-system account_ref (join may still populate ToUserID).
+func (s *NotificationService) resolveInboxRecipients(c *dto.TransferNotificationContext) []uuid.UUID {
+	fromID, err := uuid.Parse(c.RecipientUserID)
+	if err != nil || fromID == uuid.Nil {
+		return nil
+	}
+	recipients := []uuid.UUID{fromID}
+	if !strings.EqualFold(c.TransferType, "INTERNAL") || c.ToUserID == "" {
+		return recipients
+	}
+	toID, err := uuid.Parse(c.ToUserID)
+	if err != nil || toID == uuid.Nil || toID == fromID {
+		return recipients
+	}
+	return append(recipients, toID)
+}
+
+// UnreadCount returns the number of unread inbox items for the caller.
+func (s *NotificationService) UnreadCount(ctx context.Context, userID uuid.UUID) (*dto.UnreadCountResponse, error) {
+	count, err := s.userInboxRepo.CountUnreadByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.UnreadCountResponse{Count: count}, nil
+}
+
+// ListInbox returns a paginated list of the caller's inbox items, newest first.
+func (s *NotificationService) ListInbox(
+	ctx context.Context,
+	userID uuid.UUID,
+	page, pageSize int,
+) (*dto.InboxListResponse, error) {
+	effectivePage, limit, offset := pagination.Clamp(page, pageSize)
+
+	total, err := s.userInboxRepo.CountInboxByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	// Clamp already bounds offset to int32; skip the list query when the page
+	// starts past the end so we do not round-trip Postgres for an empty page.
+	var rows []*entities.InboxItem
+	if int64(offset) < total {
+		rows, err = s.userInboxRepo.ListInboxByUser(ctx, userID, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	data := make([]dto.InboxItemResponse, 0, len(rows))
+	for _, item := range rows {
+		data = append(data, inboxItemToResponse(item))
+	}
+	return &dto.InboxListResponse{
+		Data:     data,
+		Page:     effectivePage,
+		PageSize: int(limit),
+		Total:    total,
+	}, nil
+}
+
+// GetInbox returns one inbox item. If the item is unread it is automatically
+// marked as read (read_at = now). Returns nil when the item is not found or
+// not owned by the caller.
+func (s *NotificationService) GetInbox(ctx context.Context, id, userID uuid.UUID) (*dto.InboxItemResponse, error) {
+	item, err := s.userInboxRepo.MarkInboxRead(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, nil
+	}
+	resp := inboxItemToResponse(item)
+	return &resp, nil
+}
+
+// ReadAll marks all unread inbox items as read for the caller.
+func (s *NotificationService) ReadAll(ctx context.Context, userID uuid.UUID) (int64, error) {
+	return s.userInboxRepo.MarkAllInboxRead(ctx, userID)
+}
+
+func inboxItemToResponse(item *entities.InboxItem) dto.InboxItemResponse {
+	var readAt *string
+	if item.ReadAt != nil {
+		s := item.ReadAt.UTC().Format(time.RFC3339)
+		readAt = &s
+	}
+	return dto.InboxItemResponse{
+		ID:         item.ID.String(),
+		Type:       item.Type,
+		Title:      item.Title,
+		Body:       item.Body,
+		TransferID: item.TransferRef,
+		ReadAt:     readAt,
+		CreatedAt:  item.CreatedAt.UTC().Format(time.RFC3339),
+	}
 }

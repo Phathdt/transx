@@ -72,7 +72,7 @@ func TestFakeProviderClient(t *testing.T) {
 	t.Run("random can produce both outcomes across ids", func(t *testing.T) {
 		client := NewFakeProviderClient(ModeRandom)
 		var sawSuccess, sawFailure bool
-		for i := 0; i < 64 && !(sawSuccess && sawFailure); i++ {
+		for i := 0; i < 64 && (!sawSuccess || !sawFailure); i++ {
 			result, err := client.Submit(ctx, uuid.New(), amount, "USD")
 			require.NoError(t, err)
 			switch result.Outcome {
@@ -85,7 +85,6 @@ func TestFakeProviderClient(t *testing.T) {
 		assert.True(t, sawSuccess, "expected at least one SUCCESS")
 		assert.True(t, sawFailure, "expected at least one FAILURE")
 	})
-
 }
 
 func TestHTTPProviderClient(t *testing.T) {

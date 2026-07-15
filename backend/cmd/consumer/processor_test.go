@@ -99,7 +99,9 @@ func (f *fakeTemporalStarter) ExecuteWorkflow(
 	return nil, f.err
 }
 
-func newTestProcessor(t *testing.T) (*consumer.Processor, *testmocks.InboxRepository, *fakeTemporalStarter, *fakeProducer) {
+func newTestProcessor(
+	t *testing.T,
+) (*consumer.Processor, *testmocks.InboxRepository, *fakeTemporalStarter, *fakeProducer) {
 	t.Helper()
 	inboxRepo := testmocks.NewInboxRepository(t)
 	producer := &fakeProducer{}

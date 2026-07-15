@@ -66,6 +66,7 @@ the gateway's ForwardAuth, never by the browser.
 | `/app/transfers`             | Transfer history (paginated)             |
 | `/app/transfers/new`         | Create a transfer (lookup + idempotency) |
 | `/app/transfers/$transferId` | Transfer detail with status polling      |
+| App shell inbox bell          | Unread badge + dropdown + detail sheet   |
 
 `/app` is a protected layout: it redirects to `/login` without a valid token
 (verified via `GET /check`). Regenerate the route tree after adding routes:

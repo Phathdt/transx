@@ -93,8 +93,8 @@ type Bank struct {
 // frontend gRPC address (e.g. "temporal:7233"); Namespace and TaskQueue scope
 // the workflow/activity registration and poll.
 type Temporal struct {
-	HostPort  string `yaml:"host_port" mapstructure:"host_port"`
-	Namespace string `yaml:"namespace" mapstructure:"namespace"`
+	HostPort  string `yaml:"host_port"  mapstructure:"host_port"`
+	Namespace string `yaml:"namespace"  mapstructure:"namespace"`
 	TaskQueue string `yaml:"task_queue" mapstructure:"task_queue"`
 }
 

@@ -22,31 +22,31 @@ import (
 // row and used to build the message. consumerGroup namespaces inbox dedup per
 // topic so the completed and failed events of one transfer dedup independently.
 type Consumer struct {
-	consumer      kafka.MessageConsumer
-	inbox         interfaces.InboxRepository
-	svc           *services.NotificationService
-	retry         consumerretry.RetryHelper
-	eventType     string
-	consumerGroup string
-	log           logger.Logger
+	consumer         kafka.MessageConsumer
+	processedMsgRepo interfaces.ProcessedMessageRepository
+	svc              *services.NotificationService
+	retry            consumerretry.RetryHelper
+	eventType        string
+	consumerGroup    string
+	log              logger.Logger
 }
 
 func NewConsumer(
 	consumer kafka.MessageConsumer,
 	retry consumerretry.RetryHelper,
-	inbox interfaces.InboxRepository,
+	processedMsgRepo interfaces.ProcessedMessageRepository,
 	svc *services.NotificationService,
 	eventType, consumerGroup string,
 	log logger.Logger,
 ) *Consumer {
 	return &Consumer{
-		consumer:      consumer,
-		inbox:         inbox,
-		svc:           svc,
-		retry:         retry,
-		eventType:     eventType,
-		consumerGroup: consumerGroup,
-		log:           log,
+		consumer:         consumer,
+		processedMsgRepo: processedMsgRepo,
+		svc:              svc,
+		retry:            retry,
+		eventType:        eventType,
+		consumerGroup:    consumerGroup,
+		log:              log,
 	}
 }
 
@@ -69,7 +69,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 }
 
-// Handle processes one message: parse → dedup → notify → commit/escalate.
+// Handle processes one message: parse → dedup → inbox+notify → commit/escalate.
 // Exported for testing.
 func (c *Consumer) Handle(ctx context.Context, msg kafka.Message) {
 	key, err := consumerretry.ParseTransferID(msg.Value)
@@ -80,7 +80,7 @@ func (c *Consumer) Handle(ctx context.Context, msg kafka.Message) {
 		return
 	}
 
-	processed, err := c.inbox.IsProcessed(ctx, c.consumerGroup, key)
+	processed, err := c.processedMsgRepo.IsProcessed(ctx, c.consumerGroup, key)
 	if err != nil {
 		// Treat an inbox read failure as transient and retry the whole message.
 		c.retry.EscalateOrDLQ(ctx, msg, err)
@@ -94,25 +94,51 @@ func (c *Consumer) Handle(ctx context.Context, msg kafka.Message) {
 	}
 
 	transferID, _ := uuid.Parse(key) // key already validated by ParseTransferID.
-	if err := c.svc.Notify(ctx, transferID, c.eventType); err != nil {
-		if isPermanent(err) {
-			// Unknown transfer or no recipient: the failure is recorded; retrying
-			// cannot help. Mark processed and commit so it does not loop.
-			c.log.Error("notification: permanent error", "error", err, "transfer_id", key)
-			c.markProcessed(ctx, key)
-			c.commit(ctx, msg)
-			return
-		}
+
+	// Inbox is independent of EMAIL/PUSH channel success: users still see the
+	// in-app event when a log/SMTP notifier fails. Both paths share permanent
+	// transfer-missing errors; channel-only permanent (no recipient) does not
+	// block inbox creation.
+	inboxErr := c.svc.CreateInboxItems(ctx, transferID, c.eventType)
+	notifyErr := c.svc.Notify(ctx, transferID, c.eventType)
+
+	if isPermanent(inboxErr) && isPermanent(notifyErr) {
+		// Unknown transfer (or no deliverable target and no inbox recipient):
+		// retrying cannot help. Mark processed and commit so it does not loop.
+		c.log.Error("notification: permanent error",
+			"inbox_error", inboxErr, "notify_error", notifyErr, "transfer_id", key)
+		c.markProcessed(ctx, key)
+		c.commit(ctx, msg)
+		return
+	}
+	if err := firstTransient(inboxErr, notifyErr); err != nil {
 		// Transient (DB/notifier): escalate through the retry tiers and commit so
 		// the main partition is not wedged. Not marked processed, so a redelivery
-		// re-runs it.
+		// re-runs both paths (inbox insert is idempotent).
 		c.retry.EscalateOrDLQ(ctx, msg, err)
 		c.commit(ctx, msg)
 		return
 	}
+	// Permanent channel-only failure (e.g. no EMAIL/PUSH recipient) with a
+	// successful inbox write is still done: surface the permanent error in logs
+	// but do not retry.
+	if isPermanent(notifyErr) {
+		c.log.Error("notification: permanent notify error after inbox write",
+			"error", notifyErr, "transfer_id", key)
+	}
 
 	c.markProcessed(ctx, key)
 	c.commit(ctx, msg)
+}
+
+// firstTransient returns the first non-nil non-permanent error, if any.
+func firstTransient(errs ...error) error {
+	for _, err := range errs {
+		if err != nil && !isPermanent(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // isPermanent reports whether the error must not be retried: an unknown transfer
@@ -123,7 +149,7 @@ func isPermanent(err error) bool {
 }
 
 func (c *Consumer) markProcessed(ctx context.Context, key string) {
-	if err := c.inbox.MarkProcessed(ctx, c.consumerGroup, key); err != nil {
+	if err := c.processedMsgRepo.MarkProcessed(ctx, c.consumerGroup, key); err != nil {
 		c.log.Error("notification: mark processed failed", "error", err, "transfer_id", key)
 	}
 }

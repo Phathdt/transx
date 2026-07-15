@@ -197,6 +197,121 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HandlersErrorResponse'
+  /inbox:
+    get:
+      tags:
+        - inbox
+      summary: List the caller's inbox items, newest first, paginated
+      description: List the caller's inbox items, newest first, paginated
+      operationId: listInbox
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            format: int32
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoInboxListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /inbox/read-all:
+    post:
+      tags:
+        - inbox
+      summary: Mark all of the caller's unread inbox items as read
+      description: Mark all of the caller's unread inbox items as read
+      operationId: markAllInboxRead
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoReadAllResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /inbox/unread-count:
+    get:
+      tags:
+        - inbox
+      summary: Return the caller's unread inbox item count
+      description: Return the caller's unread inbox item count
+      operationId: getInboxUnreadCount
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoUnreadCountResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /inbox/{id}:
+    get:
+      tags:
+        - inbox
+      summary: Get one inbox item. If unread it is automatically marked as read.
+      description: Get one inbox item. If unread it is automatically marked as read.
+      operationId: getInboxItem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoInboxItemResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
   /login:
     post:
       tags:
@@ -460,6 +575,41 @@ components:
           type: string
         name:
           type: string
+    DtoInboxItemResponse:
+      type: object
+      properties:
+        body:
+          type: string
+        createdAt:
+          type: string
+        id:
+          type: string
+        readAt:
+          type:
+            - string
+            - 'null'
+        title:
+          type: string
+        transferId:
+          type: string
+        type:
+          type: string
+    DtoInboxListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DtoInboxItemResponse'
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
     DtoLoginCommand:
       type: object
       required:
@@ -481,6 +631,12 @@ components:
           type: string
         userName:
           type: string
+    DtoReadAllResponse:
+      type: object
+      properties:
+        updated:
+          type: integer
+          format: int64
     DtoTransferListResponse:
       type: object
       properties:
@@ -534,6 +690,12 @@ components:
           type: string
         transferId:
           type: string
+    DtoUnreadCountResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          format: int64
     HandlersErrorResponse:
       type: object
       properties:

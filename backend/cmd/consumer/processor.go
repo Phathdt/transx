@@ -25,7 +25,12 @@ const consumerGroup = "wallet-processor"
 // TemporalStarter starts a TransferWorkflow run. client.Client satisfies this;
 // tests inject a stub so unit tests never dial Temporal.
 type TemporalStarter interface {
-	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow any, args ...any) (client.WorkflowRun, error)
+	ExecuteWorkflow(
+		ctx context.Context,
+		options client.StartWorkflowOptions,
+		workflow any,
+		args ...any,
+	) (client.WorkflowRun, error)
 }
 
 // Processor is the Kafka→Temporal bridge for transfer.requested: inbox dedup,

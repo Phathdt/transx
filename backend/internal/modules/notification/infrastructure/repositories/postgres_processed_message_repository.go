@@ -7,19 +7,19 @@ import (
 	"transx/internal/modules/notification/infrastructure/gen"
 )
 
-// PostgresInboxRepository implements interfaces.InboxRepository over the shared
-// inbox_events table, scoped per consumer group.
-type PostgresInboxRepository struct {
+// PostgresProcessedMessageRepository implements interfaces.ProcessedMessageRepository
+// over the shared inbox_events table, scoped per consumer group.
+type PostgresProcessedMessageRepository struct {
 	q *gen.Queries
 }
 
-func NewPostgresInboxRepository(q *gen.Queries) *PostgresInboxRepository {
-	return &PostgresInboxRepository{q: q}
+func NewPostgresProcessedMessageRepository(q *gen.Queries) *PostgresProcessedMessageRepository {
+	return &PostgresProcessedMessageRepository{q: q}
 }
 
-var _ interfaces.InboxRepository = (*PostgresInboxRepository)(nil)
+var _ interfaces.ProcessedMessageRepository = (*PostgresProcessedMessageRepository)(nil)
 
-func (r *PostgresInboxRepository) IsProcessed(
+func (r *PostgresProcessedMessageRepository) IsProcessed(
 	ctx context.Context,
 	group, messageKey string,
 ) (bool, error) {
@@ -29,7 +29,7 @@ func (r *PostgresInboxRepository) IsProcessed(
 	})
 }
 
-func (r *PostgresInboxRepository) MarkProcessed(
+func (r *PostgresProcessedMessageRepository) MarkProcessed(
 	ctx context.Context,
 	group, messageKey string,
 ) error {

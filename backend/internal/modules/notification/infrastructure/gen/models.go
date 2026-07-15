@@ -18,3 +18,15 @@ type Notification struct {
 	Error      string             `db:"error"`
 	CreatedAt  pgtype.Timestamptz `db:"created_at"`
 }
+
+type UserInboxItem struct {
+	ID          pgtype.UUID        `db:"id"`
+	UserID      pgtype.UUID        `db:"user_id"`
+	Type        string             `db:"type"`
+	Title       string             `db:"title"`
+	Body        string             `db:"body"`
+	TransferID  pgtype.UUID        `db:"transfer_id"`
+	TransferRef *string            `db:"transfer_ref"`
+	ReadAt      pgtype.Timestamptz `db:"read_at"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+}

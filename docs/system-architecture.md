@@ -135,3 +135,22 @@ shared: `wallet` uses it read-only for beneficiary lookup
 transfers (`ProviderClient`). Keeping the wire contract (`http_contract.go`)
 in one place means the two call sites and the stub server cannot drift on
 field names.
+
+
+## Notification service: dispatch audit vs in-app inbox
+
+The `notification` process owns two distinct surfaces that must not be confused:
+
+| Surface | Table | Purpose | Public API |
+| --- | --- | --- | --- |
+| Dispatch audit | `notifications` | EMAIL/PUSH send attempts (SENT/FAILED) for ops | **None** (internal only) |
+| In-app inbox | `user_inbox_items` | User-facing messages (read/unread) | `GET/POST /api/v1/inbox/*` |
+
+On each terminal Kafka event (`transfer.completed` / `transfer.failed`):
+
+1. `CreateInboxItems` inserts one row per recipient (`user_id, type, transfer_id` unique when `transfer_id` present). Recipients: always the sender; also the destination account owner when that account is in-system (typical INTERNAL). EXTERNAL free-text destinations → sender only.
+2. `Notify` still logs EMAIL/PUSH dispatch attempts (unchanged audit path).
+
+Inbox creation is independent of channel send success so users still see the event when a notifier fails. Traefik routes `PathPrefix(/api/v1/inbox)` (priority 90, ForwardAuth) to the notification service HTTP port.
+
+Frontend: AppShell bell polls `GET /inbox/unread-count`, lists via `GET /inbox`, opens detail via `GET /inbox/:id` (auto-marks read), and can `POST /inbox/read-all`.

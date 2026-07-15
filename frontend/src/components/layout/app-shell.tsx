@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
 import { ArrowLeftRight, LogOut, Plus, Wallet } from 'lucide-react'
 import { Button } from '#/components/ui/button'
+import { InboxBell } from '#/components/inbox/inbox-bell'
 import { useAuth } from '#/hooks/use-auth'
 
 const NAV_ITEMS = [
@@ -16,8 +17,9 @@ const NAV_ITEMS = [
 ] as const
 
 /**
- * Authenticated app chrome: frosted top nav (Transfers, New Transfer, Accounts)
- * plus logout. Logout is intentionally separated from transfer actions.
+ * Authenticated app chrome: frosted top nav (Transfers, New Transfer, Accounts),
+ * inbox bell, plus logout. Logout is intentionally separated from transfer
+ * actions.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { logout } = useAuth()
@@ -59,10 +61,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               ))}
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            <LogOut className="size-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </Button>
+          <div className="flex items-center gap-1">
+            <InboxBell />
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut className="size-4" />
+              <span className="hidden sm:inline">Logout</span>
+            </Button>
+          </div>
         </nav>
         {/* Compact icon nav for narrow screens. */}
         <div className="page-wrap flex items-center gap-1 pb-2 sm:hidden">

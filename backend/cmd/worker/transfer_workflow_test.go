@@ -420,7 +420,11 @@ func (s *TransferWorkflowTestSuite) TestFaultExternalUnknownDoesNotReleaseHold()
 	s.env.OnActivity(a.BankQuery, mock.Anything, transferID).Return(
 		worker.BankResult{Outcome: worker.BankOutcomeUnknown}, nil).Times(2)
 	s.env.OnActivity(a.BankQuery, mock.Anything, transferID).Return(
-		worker.BankResult{Outcome: worker.BankOutcomeFailure, Reason: transferentities.FailureProviderRejected}, nil).Once()
+		worker.BankResult{
+			Outcome: worker.BankOutcomeFailure,
+			Reason:  transferentities.FailureProviderRejected,
+		}, nil).
+		Once()
 	s.env.OnActivity(a.WalletReleaseHold, mock.Anything, mock.Anything).Return(worker.WalletHoldResult{}, nil).Once()
 	s.env.OnActivity(a.MarkTerminal, mock.Anything, worker.MarkTerminalInput{
 		TransferID: transferID, Succeeded: false, Reason: transferentities.FailureProviderRejected,

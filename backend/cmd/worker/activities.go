@@ -193,7 +193,10 @@ type PrepareInternalMoveResult struct {
 // the settlement snapshot on the transfer (PENDING → PROCESSING), and returns
 // the amounts for Wallet.Move. Business failures (missing/inactive accounts, FX
 // unavailable) are non-retryable.
-func (a *Activities) PrepareInternalMove(ctx context.Context, input PrepareInternalMoveInput) (PrepareInternalMoveResult, error) {
+func (a *Activities) PrepareInternalMove(
+	ctx context.Context,
+	input PrepareInternalMoveInput,
+) (PrepareInternalMoveResult, error) {
 	t, err := a.transfer.GetByID(ctx, input.TransferID)
 	if err != nil {
 		return PrepareInternalMoveResult{}, err
@@ -317,7 +320,10 @@ type PrepareExternalHoldResult struct {
 // must equal transaction currency), freezes settlement at rate 1, advances
 // PENDING → PROCESSING, and returns the hold parameters. Business failures are
 // non-retryable.
-func (a *Activities) PrepareExternalHold(ctx context.Context, input PrepareExternalHoldInput) (PrepareExternalHoldResult, error) {
+func (a *Activities) PrepareExternalHold(
+	ctx context.Context,
+	input PrepareExternalHoldInput,
+) (PrepareExternalHoldResult, error) {
 	t, err := a.transfer.GetByID(ctx, input.TransferID)
 	if err != nil {
 		return PrepareExternalHoldResult{}, err

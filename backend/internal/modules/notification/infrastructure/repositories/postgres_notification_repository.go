@@ -59,9 +59,11 @@ func (r *PostgresNotificationRepository) GetTransferContext(
 		Amount:          row.TransactionAmount,
 		Currency:        row.TransactionCurrency,
 		ToAccountRef:    textValue(row.ToAccountRef),
+		TransferType:    row.TransferType,
 		RecipientEmail:  row.RecipientEmail,
 		RecipientName:   row.RecipientName,
 		RecipientUserID: uuidString(row.RecipientUserID),
+		ToUserID:        uuidString(row.ToUserID),
 	}, nil
 }
 

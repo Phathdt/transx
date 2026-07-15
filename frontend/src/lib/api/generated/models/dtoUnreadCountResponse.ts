@@ -6,9 +6,6 @@
  * OpenAPI spec version: 1.0.0
  */
 
-export interface DtoAccountLookupResponse {
-  accountRef?: string;
-  currency?: string;
-  holderName?: string;
-  status?: string;
+export interface DtoUnreadCountResponse {
+  count?: number;
 }
