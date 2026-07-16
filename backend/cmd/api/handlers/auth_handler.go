@@ -87,7 +87,13 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 }
 
 // Check is the Traefik ForwardAuth endpoint — Bearer access token only.
+// OPTIONS is allowed so browser CORS preflight is not rejected by ForwardAuth
+// before the real GET/POST (with Authorization) reaches the gateway.
 func (h *AuthHandler) Check(c *fiber.Ctx) error {
+	if c.Method() == fiber.MethodOptions {
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+
 	token := bearerToken(c.Get(fiber.HeaderAuthorization))
 	if token == "" {
 		return apperror.NewUnauthorizedError("missing bearer token")

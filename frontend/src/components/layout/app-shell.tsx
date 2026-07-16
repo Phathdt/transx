@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { Link, NavLink } from 'react-router'
+import { useEffect, type ReactNode } from 'react'
+import { Link, NavLink, useNavigate } from 'react-router'
 import { ArrowLeftRight, LogOut, Plus, Wallet } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { InboxBell } from '#/components/inbox/inbox-bell'
@@ -23,11 +23,33 @@ const NAV_ITEMS = [
  * actions.
  */
 export function AppShell({ children }: { children: ReactNode }) {
-  const { logout } = useAuth()
+  const navigate = useNavigate()
+  const { logout, status, isAuthenticated } = useAuth()
 
   async function handleLogout() {
     // useAuth.logout already navigates to /login after clearing session.
     await logout()
+  }
+
+  useEffect(() => {
+    if (status === 'guest') {
+      navigate('/login', { replace: true })
+    }
+  }, [status, navigate])
+
+  // Wait for silent AT bootstrap (cookie RT → BFF /api/auth/refresh) before
+  // mounting domain queries. Otherwise InboxBell / list pages fire without
+  // Authorization and Traefik ForwardAuth returns 401 ("missing bearer token").
+  if (status === 'loading' || status === 'guest') {
+    return (
+      <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
+        {status === 'guest' ? 'Redirecting to sign in…' : 'Loading session…'}
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return null
   }
 
   return (

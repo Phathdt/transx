@@ -186,6 +186,16 @@ services:
       - traefik.http.routers.auth-session.entrypoints=web
       - traefik.http.routers.auth-session.service=auth-svc
       - traefik.http.services.auth-svc.loadbalancer.server.port=4000
+      # Browser CORS preflight (OPTIONS + Access-Control-Request-Headers:
+      # authorization) must be answered here. Traefik ForwardAuth always hits
+      # GET /api/v1/check without a bearer on OPTIONS, so preflight would 401
+      # before the real request. headers middleware short-circuits OPTIONS.
+      - traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,OPTIONS
+      - traefik.http.middlewares.cors.headers.accesscontrolallowheaders=Authorization,Content-Type,Accept,Origin
+      - traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://127.0.0.1:3000
+      - traefik.http.middlewares.cors.headers.accesscontrolallowcredentials=true
+      - traefik.http.middlewares.cors.headers.accesscontrolmaxage=100
+      - traefik.http.middlewares.cors.headers.addvaryheader=true
       # ForwardAuth middleware: Traefik calls /api/v1/check; on 2xx it copies
       # X-User-Id onto the upstream request, on 401 it rejects the client.
       - traefik.http.middlewares.forward-auth.forwardauth.address=http://auth:4000/api/v1/check
@@ -213,7 +223,7 @@ services:
       # All other non-login traffic flows here, gated by forward-auth.
       - traefik.http.routers.wallet.rule=PathPrefix(`/`)
       - traefik.http.routers.wallet.entrypoints=web
-      - traefik.http.routers.wallet.middlewares=forward-auth
+      - traefik.http.routers.wallet.middlewares=cors,forward-auth
       - traefik.http.services.wallet-svc.loadbalancer.server.port=4000
       - traefik.http.routers.wallet.service=wallet-svc
 
@@ -234,7 +244,7 @@ services:
       - traefik.http.routers.transfer.rule=PathPrefix(`/api/v1/transfers`)
       - traefik.http.routers.transfer.entrypoints=web
       - traefik.http.routers.transfer.priority=90
-      - traefik.http.routers.transfer.middlewares=forward-auth
+      - traefik.http.routers.transfer.middlewares=cors,forward-auth
       - traefik.http.routers.transfer.service=transfer-svc
       - traefik.http.services.transfer-svc.loadbalancer.server.port=4000
 
@@ -304,7 +314,7 @@ services:
       - traefik.http.routers.notification.rule=PathPrefix(`/api/v1/inbox`)
       - traefik.http.routers.notification.entrypoints=web
       - traefik.http.routers.notification.priority=90
-      - traefik.http.routers.notification.middlewares=forward-auth
+      - traefik.http.routers.notification.middlewares=cors,forward-auth
       - traefik.http.routers.notification.service=notification-svc
       - traefik.http.services.notification-svc.loadbalancer.server.port=4003
 

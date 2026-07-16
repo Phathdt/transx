@@ -34,6 +34,11 @@ func UserID() fiber.Handler {
 // boundary inside the wallet service.
 func UserIDExcept(publicPrefixes ...string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// Browser CORS preflight never carries Authorization / X-User-Id.
+		// Let CORS middleware answer OPTIONS; real methods stay gated.
+		if c.Method() == fiber.MethodOptions {
+			return c.Next()
+		}
 		// Health/readiness probes are unauthenticated infrastructure endpoints.
 		switch c.Path() {
 		case "/healthz", "/readyz":
