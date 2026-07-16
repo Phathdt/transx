@@ -55,13 +55,11 @@ func New(cfg Config) *Server {
 	}
 	app := fiber.New(fiberCfg)
 
-	for _, middleware := range cfg.Middlewares {
-		if middleware != nil {
-			app.Use(middleware)
-		}
-	}
-
+	// CORS before auth/user middlewares so OPTIONS preflight is answered with
+	// the right ACAO/ACAH headers and never fails as "missing bearer / X-User-Id".
 	if len(cfg.CORSAllowedOrigins) > 0 {
+		// AllowCredentials requires explicit origins (no wildcard).
+		// Needed for cross-origin browser calls (FE :3000 → API :4000).
 		app.Use(cors.New(cors.Config{
 			AllowOrigins: strings.Join(cfg.CORSAllowedOrigins, ","),
 			AllowMethods: strings.Join([]string{
@@ -69,8 +67,15 @@ func New(cfg Config) *Server {
 				fiber.MethodPost,
 				fiber.MethodOptions,
 			}, ","),
-			AllowHeaders: "Origin,Content-Type,Accept,Authorization",
+			AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
+			AllowCredentials: true,
 		}))
+	}
+
+	for _, middleware := range cfg.Middlewares {
+		if middleware != nil {
+			app.Use(middleware)
+		}
 	}
 
 	app.Use(fiblogger.New(fiblogger.Config{

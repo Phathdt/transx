@@ -1,97 +1,97 @@
 # transx — Simple Bank Frontend
 
-Web UI for the transx wallet transfer system: log in with a seeded account,
-view your transfer history, create internal/external transfers, and follow a
-transfer through to settlement.
+Web UI for the transx wallet transfer system.
 
-Built with Vite + React 19 (client-side SPA), TanStack Router + Query, Tailwind
-v4, shadcn/ui, and an Orval-generated API client (React Query hooks + Zod
-schemas).
+Built with **React Router v8 framework mode** (SSR) + React 19, TanStack Query,
+Tailwind v4, shadcn/ui, Orval API client.
+
+## Auth model (dual access tokens)
+
+```text
+Browser ──same-origin──► RR Node (/api/auth/*)
+                            │ HttpOnly refresh cookie
+                            │ RR Redis rr:at:{sessionID} (AT_ssr)
+                            ▼
+                         Go Auth (JSON)
+                            │ Go Redis auth:rt:{sessionID}
+Browser ──Bearer AT────► Traefik → wallet/transfer/inbox
+```
+
+| Token          | Where                     | How obtained                                  |
+| -------------- | ------------------------- | --------------------------------------------- |
+| **AT_browser** | Memory only               | Login JSON; silent renew via BFF              |
+| **AT_ssr**     | RR Redis `rr:at:{sid}`    | Login hop + cache miss → Go `/session/access` |
+| **RT**         | HttpOnly cookie (RR host) | Login; stable across silent AT renew          |
+
+- **Login:** Go `/login` → AT_browser+RT; Go `/session/access` → AT_ssr; cache; cookie RT
+- **Silent renew** (`POST /api/auth/refresh`): cookie RT → Go **`/session/access`** → AT only; **no Set-Cookie**; does **not** call Go `/refresh`
+- **Logout:** revoke this RT + DEL this `rr:at` key + clear cookie
+- **Multi-device:** concurrent sessions; logout A keeps B
+- **Domain APIs (browser):** browser → Traefik with Bearer AT_browser
+- **SSR loaders:** auth-gate via cookie → Go `POST /session`; domain pages (e.g. `/app/transfers`, `/app/accounts`) fetch with AT_ssr on Node and render HTML; layout seeds inbox unread badge (then React Query polls with AT_browser)
 
 ## Prerequisites
 
-The frontend talks to the transx backend through the Traefik gateway. Start the
-backend stack first (from the repo root):
-
 ```bash
-docker compose up -d          # Postgres, Redpanda, Traefik, services
+docker compose up -d   # includes redis (Go) + redis-rr (RR SSR AT) + frontend
 cd backend && make migrate && make seed
 ```
 
-The gateway listens on `http://localhost:4000` and all API routes live under
-`/api/v1`. See the root [`README.md`](../README.md) for the full backend setup.
+Gateway: `http://localhost:4000`. UI: `http://localhost:3000`. Two Redis instances:
+
+| Service    | Host port (default) | Keys           |
+| ---------- | ------------------- | -------------- |
+| `redis`    | 16379               | Go `auth:rt:*` |
+| `redis-rr` | 16380               | RR `rr:at:*`   |
 
 ## Getting Started
 
+### Local (pnpm)
+
 ```bash
-yarn install
-cp .env.example .env          # set VITE_API_PROXY_TARGET if not localhost:4000
-yarn dev                      # http://localhost:3000
+pnpm install
+cp .env.example .env
+pnpm dev   # http://localhost:3000
 ```
 
-The dev server proxies `/api/v1/*` to `VITE_API_PROXY_TARGET` (default
-`http://localhost:4000`), so the browser calls the API same-origin and the
-bearer token stays first-party.
+### Docker Compose
+
+```bash
+# from repo root — builds frontend/Dockerfile and wires redis-rr + Traefik auth
+docker compose up -d --build frontend
+# UI: http://localhost:3000
+```
+
+| Env                 | Purpose                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL` | Domain API base (browser → Traefik). **Build-time** for Docker (`ARG`); default `http://localhost:4000/api/v1` |
+| `AUTH_API_BASE_URL` | Server-side RR → Go auth. Compose default `http://traefik/api/v1`                                              |
+| `RR_REDIS_URL`      | SSR AT cache Redis. Local: `redis://localhost:16380`; Compose: `redis://redis-rr:6379`                         |
+| `RR_AT_TTL_SECONDS` | Cache TTL, default `900` (≈ JWT TTL)                                                                           |
+| `COOKIE_SECURE`     | `true` behind HTTPS                                                                                            |
+| `FRONTEND_PORT`     | Host port for compose frontend, default `3000`                                                                 |
 
 ### Dev login
 
-Seeded accounts (from `../backend/cli/seed.go`), password `password123`:
-
-| Email                      | Accounts                              |
-| -------------------------- | ------------------------------------- |
-| `alice@transx.dev`         | `alice-main` (USD), `alice-vnd` (VND) |
-| `bob@transx.dev`           | `bob-main` (USD)                      |
-| `carol@…` `dave@…` `eve@…` | seeded users, no accounts             |
-
-## API Client Generation
-
-The typed API client is generated from the backend OpenAPI spec
-(`../backend/openapi.yaml`) by [Orval](https://orval.dev/):
-
-```bash
-yarn generate:api
-```
-
-This writes React Query hooks + Zod schemas to `src/lib/api/generated/` (do not
-edit by hand). Regenerate whenever the backend spec changes. Config lives in
-`orval.config.ts`; the Axios mutator (`src/lib/api/http-mutator.ts`) injects the
-`Authorization: Bearer` header and normalizes errors. `X-User-Id` is injected by
-the gateway's ForwardAuth, never by the browser.
+Password `password123`: `alice@transx.dev`, `bob@transx.dev`, …
 
 ## Routes
 
-| Route                        | Purpose                                  |
-| ---------------------------- | ---------------------------------------- |
-| `/login`                     | Public login page                        |
-| `/app/transfers`             | Transfer history (paginated)             |
-| `/app/transfers/new`         | Create a transfer (lookup + idempotency) |
-| `/app/transfers/$transferId` | Transfer detail with status polling      |
-| App shell inbox bell          | Unread badge + dropdown + detail sheet   |
-
-`/app` is a protected layout: it redirects to `/login` without a valid token
-(verified via `GET /check`). Regenerate the route tree after adding routes:
-
-```bash
-yarn generate-routes
-```
+| Path                               | Purpose                          |
+| ---------------------------------- | -------------------------------- |
+| `/login`                           | Public login                     |
+| `/api/auth/login\|refresh\|logout` | RR auth BFF                      |
+| `/app/transfers`                   | Transfer list (SSR loader + HTML) |
+| `/app/transfers/new\|:id` …        | Protected app (layout auth-gate) |
+| `/app/accounts`                    | Account list (SSR loader + HTML) |
+| `/app/accounts/:accountRef`        | Account detail (client fetch)    |
 
 ## Scripts
 
 ```bash
-yarn dev              # dev server on :3000
-yarn build            # production build (static SPA in dist/)
-yarn test             # vitest
-yarn run lint         # eslint
-yarn run check        # prettier --check
-yarn run format       # prettier --write && eslint --fix
-yarn generate:api     # regenerate API client from backend OpenAPI
-yarn generate-routes  # regenerate the router tree
-```
-
-## Styling
-
-Tailwind CSS v4 with shadcn/ui (new-york style). Add primitives with:
-
-```bash
-npx shadcn@latest add <component>
+pnpm dev          # react-router dev :3000
+pnpm build        # SSR + client → build/
+pnpm start        # serve production SSR
+pnpm test
+pnpm generate:api # Orval from backend OpenAPI
 ```

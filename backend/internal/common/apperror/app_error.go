@@ -54,3 +54,9 @@ func NewConflictError(msg string) *AppError {
 func NewBadGatewayError(msg string, err error) *AppError {
 	return &AppError{Status: http.StatusBadGateway, Message: msg, Err: err}
 }
+
+// NewInternalError returns a 500 with an optional wrapped cause for server logs.
+// The public Message stays client-safe; DomainErrorHandler logs Err when set.
+func NewInternalError(msg string, err error) *AppError {
+	return &AppError{Status: http.StatusInternalServerError, Message: msg, Err: err}
+}

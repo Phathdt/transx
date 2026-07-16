@@ -1,12 +1,10 @@
-import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { useMemo } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowDownLeft, ArrowUpRight, ChevronRight, Plus } from 'lucide-react'
-import {
-  useListAccounts,
-  useListTransfers,
-} from '#/lib/api/generated/wallet/wallet'
-import type { DtoTransferListResponse } from '#/lib/api/generated/models'
-import type { ApiError } from '#/lib/api/api-error'
+import type {
+  DtoAccountResponse,
+  DtoTransferResponse,
+} from '#/lib/api/generated/models'
 import {
   transferCounterparty,
   transferDirection,
@@ -14,8 +12,6 @@ import {
 import { Button } from '#/components/ui/button'
 import { Card, CardContent } from '#/components/ui/card'
 import { Label } from '#/components/ui/label'
-import { Skeleton } from '#/components/ui/skeleton'
-import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
   Select,
   SelectContent,
@@ -25,10 +21,7 @@ import {
 } from '#/components/ui/select'
 import { TransferStatusBadge } from './transfer-status-badge'
 
-const PAGE_SIZE = 20
-
-// Sentinel for the "all statuses" option; an empty string is not a valid
-// SelectItem value, so map it to/from "" before calling the API.
+// Sentinel for the "all statuses" option; empty string is not a valid SelectItem.
 const ALL = 'ALL'
 
 const TRANSFER_STATUSES = [
@@ -42,14 +35,32 @@ const TRANSFER_STATUSES = [
   'UNKNOWN',
 ]
 
-export function TransferListPage() {
-  const [page, setPage] = useState(1)
-  const [status, setStatus] = useState(ALL)
-  const [accountRef, setAccountRef] = useState('')
+export type TransferListPageProps = {
+  transfers: DtoTransferResponse[]
+  accounts: DtoAccountResponse[]
+  total: number
+  page: number
+  pageSize: number
+  status: string
+  accountRef: string
+}
 
-  // The caller's accounts populate the account filter options.
-  const { data: accountsData } = useListAccounts({ pageSize: 100 })
-  const accounts = useMemo(() => accountsData?.data ?? [], [accountsData])
+/**
+ * Presentational transfers list. Data comes from the RR loader (SSR HTML).
+ * Filters/pagination update the URL so the loader re-fetches on the server.
+ */
+export function TransferListPage({
+  transfers,
+  accounts,
+  total,
+  page,
+  pageSize,
+  status,
+  accountRef,
+}: TransferListPageProps) {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
   const ownedRefs = useMemo(
     () =>
       new Set(
@@ -60,19 +71,20 @@ export function TransferListPage() {
     [accounts],
   )
 
-  const { data, isLoading, isError, error } = useListTransfers<
-    DtoTransferListResponse,
-    ApiError
-  >({
-    page,
-    pageSize: PAGE_SIZE,
-    ...(status !== ALL ? { status } : {}),
-    ...(accountRef ? { accountRef } : {}),
-  })
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  const transfers = data?.data ?? []
-  const total = data?.total ?? 0
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  function replaceParams(patch: Record<string, string | null>) {
+    const next = new URLSearchParams(searchParams)
+    for (const [key, value] of Object.entries(patch)) {
+      if (value == null || value === '' || value === ALL) {
+        next.delete(key)
+      } else {
+        next.set(key, value)
+      }
+    }
+    const qs = next.toString()
+    navigate(qs ? `?${qs}` : '.')
+  }
 
   return (
     <div className="space-y-7">
@@ -101,8 +113,7 @@ export function TransferListPage() {
             <Select
               value={status}
               onValueChange={(v) => {
-                setStatus(v)
-                setPage(1)
+                replaceParams({ status: v, page: null })
               }}
             >
               <SelectTrigger id="status-filter" className="w-44">
@@ -123,8 +134,10 @@ export function TransferListPage() {
             <Select
               value={accountRef || ALL}
               onValueChange={(v) => {
-                setAccountRef(v === ALL ? '' : v)
-                setPage(1)
+                replaceParams({
+                  accountRef: v === ALL ? null : v,
+                  page: null,
+                })
               }}
             >
               <SelectTrigger id="account-filter" className="w-56">
@@ -145,9 +158,7 @@ export function TransferListPage() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                setStatus(ALL)
-                setAccountRef('')
-                setPage(1)
+                replaceParams({ status: null, accountRef: null, page: null })
               }}
             >
               Clear
@@ -156,18 +167,7 @@ export function TransferListPage() {
         </CardContent>
       </Card>
 
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[72px] w-full rounded-2xl" />
-          ))}
-        </div>
-      ) : isError ? (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load transfers</AlertTitle>
-          <AlertDescription>{error.message}</AlertDescription>
-        </Alert>
-      ) : transfers.length === 0 ? (
+      {transfers.length === 0 ? (
         <Card className="glass-card border-0 shadow-none">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <span className="row-avatar size-12">
@@ -197,8 +197,7 @@ export function TransferListPage() {
             return (
               <li key={transfer.transferId}>
                 <Link
-                  to="/app/transfers/$transferId"
-                  params={{ transferId: transfer.transferId ?? '' }}
+                  to={`/app/transfers/${transfer.transferId ?? ''}`}
                   className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
                 >
                   <span className="row-avatar size-11 shrink-0">
@@ -236,13 +235,16 @@ export function TransferListPage() {
         </ul>
       )}
 
-      {total > PAGE_SIZE ? (
+      {total > pageSize ? (
         <div className="flex items-center justify-between text-sm">
           <Button
             variant="outline"
             size="sm"
             disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => {
+              const prev = Math.max(1, page - 1)
+              replaceParams({ page: prev <= 1 ? null : String(prev) })
+            }}
           >
             Previous
           </Button>
@@ -253,7 +255,9 @@ export function TransferListPage() {
             variant="outline"
             size="sm"
             disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => {
+              replaceParams({ page: String(page + 1) })
+            }}
           >
             Next
           </Button>

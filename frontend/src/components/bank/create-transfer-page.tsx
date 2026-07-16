@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
@@ -139,10 +139,7 @@ export function CreateTransferPage() {
       // Refresh the list cache so the new transfer shows on return.
       queryClient.invalidateQueries({ queryKey: getListTransfersQueryKey() })
       toast.success('Transfer created')
-      navigate({
-        to: '/app/transfers/$transferId',
-        params: { transferId: result.transferId ?? '' },
-      })
+      navigate(`/app/transfers/${result.transferId ?? ''}`)
     } catch (err) {
       const apiError = toApiError(err)
       setSubmitError(

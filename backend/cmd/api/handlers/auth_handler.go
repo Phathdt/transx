@@ -11,7 +11,8 @@ import (
 	"transx/internal/platform/httpserver"
 )
 
-// AuthHandler exposes login and the ForwardAuth check endpoint.
+// AuthHandler exposes login, refresh, logout, session probe, and ForwardAuth check.
+// Token transport is JSON only — cookie ownership lives in the React Router BFF.
 type AuthHandler struct {
 	svc *services.AuthService
 }
@@ -20,28 +21,79 @@ func NewAuthHandler(svc *services.AuthService) *AuthHandler {
 	return &AuthHandler{svc: svc}
 }
 
-// Login handles POST /login: validate credentials, return a JWT.
+// Login handles POST /login: credentials → access + refresh tokens (JSON).
 func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	var cmd dto.LoginCommand
-	if err := c.BodyParser(&cmd); err != nil {
-		return apperror.NewBadRequestError("invalid request body")
+	if err := parseAndValidate(c, &cmd); err != nil {
+		return err
 	}
-	if err := httpserver.ValidateStruct(cmd); err != nil {
-		return apperror.NewBadRequestError(err.Error())
-	}
-
-	resp, err := h.svc.Login(c.Context(), cmd)
+	result, err := h.svc.Login(c.Context(), cmd)
 	if err != nil {
 		return err
 	}
-	return c.JSON(resp)
+	return c.JSON(result)
 }
 
-// Check is the Traefik ForwardAuth endpoint. Traefik forwards the original
-// request here; on 2xx it copies the X-User-ID header onto the upstream request,
-// on 401 it rejects the client. We read the bearer token, verify it, and echo
-// the user id back as X-User-ID.
+// Refresh handles POST /refresh: rotate refresh token, return new AT+RT pair.
+func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
+	cmd, err := parseRefreshCommand(c)
+	if err != nil {
+		return err
+	}
+	result, err := h.svc.Refresh(c.Context(), cmd.RefreshToken)
+	if err != nil {
+		return err
+	}
+	return c.JSON(result)
+}
+
+// Session handles POST /session: validate refresh token without rotating it.
+// Used by the RR BFF auth-gate loaders.
+func (h *AuthHandler) Session(c *fiber.Ctx) error {
+	cmd, err := parseRefreshCommand(c)
+	if err != nil {
+		return err
+	}
+	if err := h.svc.ValidateRefresh(c.Context(), cmd.RefreshToken); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// SessionAccess handles POST /session/access: mint a new access token only.
+// Does not rotate the refresh session. Used by RR BFF login hop, silent AT
+// renew, and SSR AT cache miss.
+func (h *AuthHandler) SessionAccess(c *fiber.Ctx) error {
+	cmd, err := parseRefreshCommand(c)
+	if err != nil {
+		return err
+	}
+	result, err := h.svc.Access(c.Context(), cmd.RefreshToken)
+	if err != nil {
+		return err
+	}
+	return c.JSON(result)
+}
+
+// Logout handles POST /logout: revoke refresh session (idempotent).
+func (h *AuthHandler) Logout(c *fiber.Ctx) error {
+	var cmd dto.RefreshCommand
+	// Empty body is OK (idempotent logout).
+	_ = c.BodyParser(&cmd)
+	if err := h.svc.Logout(c.Context(), cmd.RefreshToken); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// Check is the Traefik ForwardAuth endpoint — Bearer access token only.
+// OPTIONS is allowed so browser CORS preflight is not rejected by ForwardAuth
+// before the real GET/POST (with Authorization) reaches the gateway.
 func (h *AuthHandler) Check(c *fiber.Ctx) error {
+	if c.Method() == fiber.MethodOptions {
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+
 	token := bearerToken(c.Get(fiber.HeaderAuthorization))
 	if token == "" {
 		return apperror.NewUnauthorizedError("missing bearer token")
@@ -52,12 +104,28 @@ func (h *AuthHandler) Check(c *fiber.Ctx) error {
 		return err
 	}
 
-	// Header consumed by Traefik (authResponseHeaders) and trusted downstream.
 	c.Set("X-User-ID", userID.String())
 	return c.SendStatus(fiber.StatusOK)
 }
 
-// bearerToken extracts the token from an "Authorization: Bearer <token>" header.
+func parseRefreshCommand(c *fiber.Ctx) (dto.RefreshCommand, error) {
+	var cmd dto.RefreshCommand
+	if err := parseAndValidate(c, &cmd); err != nil {
+		return dto.RefreshCommand{}, err
+	}
+	return cmd, nil
+}
+
+func parseAndValidate[T any](c *fiber.Ctx, dst *T) error {
+	if err := c.BodyParser(dst); err != nil {
+		return apperror.NewBadRequestError("invalid request body")
+	}
+	if err := httpserver.ValidateStruct(*dst); err != nil {
+		return apperror.NewBadRequestError(err.Error())
+	}
+	return nil
+}
+
 func bearerToken(header string) string {
 	const prefix = "Bearer "
 	if len(header) > len(prefix) && strings.EqualFold(header[:len(prefix)], prefix) {

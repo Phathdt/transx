@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link } from 'react-router'
 import { ArrowLeft } from 'lucide-react'
 import { useGetAccount } from '#/lib/api/generated/wallet/wallet'
 import type { DtoAccountResponse } from '#/lib/api/generated/models'

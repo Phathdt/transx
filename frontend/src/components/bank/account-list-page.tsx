@@ -1,14 +1,9 @@
-import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ChevronRight, Wallet } from 'lucide-react'
-import { useListAccounts } from '#/lib/api/generated/wallet/wallet'
-import type { DtoAccountListResponse } from '#/lib/api/generated/models'
-import type { ApiError } from '#/lib/api/api-error'
+import type { DtoAccountResponse } from '#/lib/api/generated/models'
 import { Card, CardContent } from '#/components/ui/card'
 import { Button } from '#/components/ui/button'
 import { Label } from '#/components/ui/label'
-import { Skeleton } from '#/components/ui/skeleton'
-import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
   Select,
   SelectContent,
@@ -18,10 +13,7 @@ import {
 } from '#/components/ui/select'
 import { AccountStatusBadge } from './account-status-badge'
 
-const PAGE_SIZE = 20
-
-// Sentinel for the "all statuses" option; an empty string is not a valid
-// SelectItem value, so map it to/from "" before calling the API.
+// Sentinel for the "all statuses" option; empty string is not a valid SelectItem.
 const ALL = 'ALL'
 
 const ACCOUNT_STATUSES = ['ACTIVE', 'FROZEN', 'CLOSED']
@@ -29,24 +21,44 @@ const ACCOUNT_STATUSES = ['ACTIVE', 'FROZEN', 'CLOSED']
 // ISO-4217 allow-list mirrored from the backend (services/currency.go).
 const CURRENCIES = ['USD', 'EUR', 'VND']
 
-export function AccountListPage() {
-  const [page, setPage] = useState(1)
-  const [status, setStatus] = useState(ALL)
-  const [currency, setCurrency] = useState('')
+export type AccountListPageProps = {
+  accounts: DtoAccountResponse[]
+  total: number
+  page: number
+  pageSize: number
+  status: string
+  currency: string
+}
 
-  const { data, isLoading, isError, error } = useListAccounts<
-    DtoAccountListResponse,
-    ApiError
-  >({
-    page,
-    pageSize: PAGE_SIZE,
-    ...(status !== ALL ? { status } : {}),
-    ...(currency ? { currency } : {}),
-  })
+/**
+ * Presentational accounts list. Data comes from the RR loader (SSR HTML).
+ * Filters/pagination update the URL so the loader re-fetches on the server.
+ */
+export function AccountListPage({
+  accounts,
+  total,
+  page,
+  pageSize,
+  status,
+  currency,
+}: AccountListPageProps) {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
-  const accounts = data?.data ?? []
-  const total = data?.total ?? 0
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  function replaceParams(patch: Record<string, string | null>) {
+    const next = new URLSearchParams(searchParams)
+    for (const [key, value] of Object.entries(patch)) {
+      if (value == null || value === '' || value === ALL) {
+        next.delete(key)
+      } else {
+        next.set(key, value)
+      }
+    }
+    const qs = next.toString()
+    navigate(qs ? `?${qs}` : '.')
+  }
 
   return (
     <div className="space-y-7">
@@ -67,8 +79,7 @@ export function AccountListPage() {
             <Select
               value={status}
               onValueChange={(v) => {
-                setStatus(v)
-                setPage(1)
+                replaceParams({ status: v, page: null })
               }}
             >
               <SelectTrigger id="status-filter" className="w-44">
@@ -89,8 +100,10 @@ export function AccountListPage() {
             <Select
               value={currency || ALL}
               onValueChange={(v) => {
-                setCurrency(v === ALL ? '' : v)
-                setPage(1)
+                replaceParams({
+                  currency: v === ALL ? null : v,
+                  page: null,
+                })
               }}
             >
               <SelectTrigger id="currency-filter" className="w-36">
@@ -111,9 +124,7 @@ export function AccountListPage() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                setStatus(ALL)
-                setCurrency('')
-                setPage(1)
+                replaceParams({ status: null, currency: null, page: null })
               }}
             >
               Clear
@@ -122,18 +133,7 @@ export function AccountListPage() {
         </CardContent>
       </Card>
 
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-[72px] w-full rounded-2xl" />
-          ))}
-        </div>
-      ) : isError ? (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load accounts</AlertTitle>
-          <AlertDescription>{error.message}</AlertDescription>
-        </Alert>
-      ) : accounts.length === 0 ? (
+      {accounts.length === 0 ? (
         <Card className="glass-card border-0 shadow-none">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <span className="row-avatar size-12">
@@ -147,8 +147,7 @@ export function AccountListPage() {
           {accounts.map((account) => (
             <li key={account.accountRef}>
               <Link
-                to="/app/accounts/$accountRef"
-                params={{ accountRef: account.accountRef ?? '' }}
+                to={`/app/accounts/${account.accountRef ?? ''}`}
                 className="list-row flex items-center gap-4 px-4 py-3.5 no-underline sm:px-5"
               >
                 <span className="row-avatar size-11 shrink-0 text-sm font-bold uppercase">
@@ -175,13 +174,16 @@ export function AccountListPage() {
         </ul>
       )}
 
-      {total > PAGE_SIZE ? (
+      {total > pageSize ? (
         <div className="flex items-center justify-between text-sm">
           <Button
             variant="outline"
             size="sm"
             disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => {
+              const prev = Math.max(1, page - 1)
+              replaceParams({ page: prev <= 1 ? null : String(prev) })
+            }}
           >
             Previous
           </Button>
@@ -192,7 +194,9 @@ export function AccountListPage() {
             variant="outline"
             size="sm"
             disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => {
+              replaceParams({ page: String(page + 1) })
+            }}
           >
             Next
           </Button>

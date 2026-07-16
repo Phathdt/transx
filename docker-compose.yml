@@ -1,5 +1,6 @@
 x-backend-env: &backend-env
   POSTGRES__DATABASE_URL: postgres://transx:transx@postgres:5432/transx?sslmode=disable
+  REDIS__ADDR: redis:6379
   KAFKA__BROKERS: redpanda:29092
   # Non-local environment switches slog to JSON output so Promtail can parse
   # level/trace_id fields and ship structured logs to Loki.
@@ -56,6 +57,36 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: transx-redis
+    ports:
+      - "${REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Dedicated Redis for React Router Node SSR AT cache (rr:at:*).
+  # Isolated from Go auth Redis (auth:rt:* on service `redis`).
+  redis-rr:
+    image: redis:7-alpine
+    container_name: transx-redis-rr
+    ports:
+      - "${RR_REDIS_PORT:-16380}:6379"
+    volumes:
+      - redis-rr-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
@@ -134,16 +165,37 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      # Public login route — no forward-auth (clients have no token yet).
+      # Public auth routes — no forward-auth (cookie/login bootstrap).
       - traefik.http.routers.auth-login.rule=PathPrefix(`/api/v1/login`)
       - traefik.http.routers.auth-login.entrypoints=web
       - traefik.http.routers.auth-login.service=auth-svc
+      - traefik.http.routers.auth-refresh.rule=PathPrefix(`/api/v1/refresh`)
+      - traefik.http.routers.auth-refresh.entrypoints=web
+      - traefik.http.routers.auth-refresh.service=auth-svc
+      - traefik.http.routers.auth-logout.rule=PathPrefix(`/api/v1/logout`)
+      - traefik.http.routers.auth-logout.entrypoints=web
+      - traefik.http.routers.auth-logout.service=auth-svc
+      - traefik.http.routers.auth-session.rule=PathPrefix(`/api/v1/session`)
+      - traefik.http.routers.auth-session.entrypoints=web
+      - traefik.http.routers.auth-session.service=auth-svc
       - traefik.http.services.auth-svc.loadbalancer.server.port=4000
+      # Browser CORS preflight (OPTIONS + Access-Control-Request-Headers:
+      # authorization) must be answered here. Traefik ForwardAuth always hits
+      # GET /api/v1/check without a bearer on OPTIONS, so preflight would 401
+      # before the real request. headers middleware short-circuits OPTIONS.
+      - traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,OPTIONS
+      - traefik.http.middlewares.cors.headers.accesscontrolallowheaders=Authorization,Content-Type,Accept,Origin,Idempotency-Key
+      - traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://127.0.0.1:3000
+      - traefik.http.middlewares.cors.headers.accesscontrolallowcredentials=true
+      - traefik.http.middlewares.cors.headers.accesscontrolmaxage=100
+      - traefik.http.middlewares.cors.headers.addvaryheader=true
       # ForwardAuth middleware: Traefik calls /api/v1/check; on 2xx it copies
       # X-User-Id onto the upstream request, on 401 it rejects the client.
       - traefik.http.middlewares.forward-auth.forwardauth.address=http://auth:4000/api/v1/check
@@ -171,7 +223,7 @@ services:
       # All other non-login traffic flows here, gated by forward-auth.
       - traefik.http.routers.wallet.rule=PathPrefix(`/`)
       - traefik.http.routers.wallet.entrypoints=web
-      - traefik.http.routers.wallet.middlewares=forward-auth
+      - traefik.http.routers.wallet.middlewares=cors,forward-auth
       - traefik.http.services.wallet-svc.loadbalancer.server.port=4000
       - traefik.http.routers.wallet.service=wallet-svc
 
@@ -192,7 +244,7 @@ services:
       - traefik.http.routers.transfer.rule=PathPrefix(`/api/v1/transfers`)
       - traefik.http.routers.transfer.entrypoints=web
       - traefik.http.routers.transfer.priority=90
-      - traefik.http.routers.transfer.middlewares=forward-auth
+      - traefik.http.routers.transfer.middlewares=cors,forward-auth
       - traefik.http.routers.transfer.service=transfer-svc
       - traefik.http.services.transfer-svc.loadbalancer.server.port=4000
 
@@ -262,7 +314,7 @@ services:
       - traefik.http.routers.notification.rule=PathPrefix(`/api/v1/inbox`)
       - traefik.http.routers.notification.entrypoints=web
       - traefik.http.routers.notification.priority=90
-      - traefik.http.routers.notification.middlewares=forward-auth
+      - traefik.http.routers.notification.middlewares=cors,forward-auth
       - traefik.http.routers.notification.service=notification-svc
       - traefik.http.services.notification-svc.loadbalancer.server.port=4003
 
@@ -392,8 +444,38 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # React Router v7 SSR + Auth BFF. Browser hits :3000; domain APIs stay on
+  # Traefik :4000. Server-side auth uses the Docker network (service names).
+  frontend:
+    image: transx-frontend
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle — browser reaches Traefik on the host.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000/api/v1}
+    container_name: transx-frontend
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      # SSR / BFF → Go auth via Traefik on the compose network (not localhost).
+      AUTH_API_BASE_URL: ${AUTH_API_BASE_URL:-http://traefik/api/v1}
+      RR_REDIS_URL: ${RR_REDIS_URL:-redis://redis-rr:6379}
+      RR_AT_TTL_SECONDS: ${RR_AT_TTL_SECONDS:-900}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      redis-rr:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      traefik:
+        condition: service_started
+    restart: unless-stopped
 
 volumes:
   postgres-data:
+  redis-data:
+  redis-rr-data:
   redpanda-data:
   temporal-postgres-data:

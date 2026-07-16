@@ -10,7 +10,7 @@ vi.mock('#/hooks/use-auth', () => ({
   useAuth: () => ({ login: { mutate, isPending: false } }),
 }))
 
-vi.mock('@tanstack/react-router', () => ({
+vi.mock('react-router', () => ({
   useNavigate: () => navigate,
 }))
 

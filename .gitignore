@@ -28,3 +28,5 @@ plans
 
 **/*.cover.out
 **/coverage.out
+
+docs/journals/

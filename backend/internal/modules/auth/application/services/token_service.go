@@ -10,6 +10,7 @@ import (
 
 // TokenService issues and verifies HS256 JWTs. The subject claim carries the
 // user id, which the ForwardAuth check propagates as X-User-ID.
+// Implements interfaces.TokenService.
 type TokenService struct {
 	secret []byte
 	ttl    time.Duration
@@ -20,8 +21,10 @@ func NewTokenService(secret string, ttl time.Duration) *TokenService {
 }
 
 // Issue mints a signed JWT for the given user id.
+// Each mint gets a unique jti so consecutive issues in the same second differ.
 func (s *TokenService) Issue(userID uuid.UUID, now time.Time) (string, error) {
 	claims := jwt.RegisteredClaims{
+		ID:        uuid.NewString(),
 		Subject:   userID.String(),
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(s.ttl)),

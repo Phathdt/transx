@@ -13,6 +13,7 @@ type Config struct {
 	App      App      `yaml:"app"      mapstructure:"app"`
 	HTTP     HTTP     `yaml:"http"     mapstructure:"http"`
 	Postgres Postgres `yaml:"postgres" mapstructure:"postgres"`
+	Redis    Redis    `yaml:"redis"    mapstructure:"redis"`
 	Kafka    Kafka    `yaml:"kafka"    mapstructure:"kafka"`
 	Auth     Auth     `yaml:"auth"     mapstructure:"auth"`
 	Provider Provider `yaml:"provider" mapstructure:"provider"`
@@ -27,10 +28,12 @@ type App struct {
 	LogLevel    string `yaml:"log_level"   mapstructure:"log_level"`
 }
 
-// Auth configures the auth service: JWT signing (HS256) and token lifetime.
+// Auth configures the auth service: JWT signing (HS256), access-token lifetime,
+// and opaque refresh sessions in Redis. Cookie ownership lives on the RR BFF.
 type Auth struct {
-	JWTSecret string        `yaml:"jwt_secret" mapstructure:"jwt_secret"`
-	JWTTTL    time.Duration `yaml:"jwt_ttl"    mapstructure:"jwt_ttl"` // e.g. 24h
+	JWTSecret  string        `yaml:"jwt_secret"  mapstructure:"jwt_secret"`
+	JWTTTL     time.Duration `yaml:"jwt_ttl"     mapstructure:"jwt_ttl"` // e.g. 15m access token
+	RefreshTTL time.Duration `yaml:"refresh_ttl" mapstructure:"refresh_ttl"`
 }
 
 type HTTP struct {
@@ -40,6 +43,13 @@ type HTTP struct {
 
 type Postgres struct {
 	DatabaseURL string `yaml:"database_url" mapstructure:"database_url"`
+}
+
+// Redis configures the shared Redis client (auth refresh sessions first).
+type Redis struct {
+	Addr     string `yaml:"addr"     mapstructure:"addr"`
+	Password string `yaml:"password" mapstructure:"password"`
+	DB       int    `yaml:"db"       mapstructure:"db"`
 }
 
 type Kafka struct {
@@ -177,6 +187,14 @@ func Load(configPath string) (Config, error) {
 	}
 	if cfg.Temporal.TaskQueue == "" {
 		cfg.Temporal.TaskQueue = "transfer-task-queue"
+	}
+	// Redis defaults for local single-host runs; compose overrides via REDIS__ADDR.
+	if cfg.Redis.Addr == "" {
+		cfg.Redis.Addr = "localhost:6379"
+	}
+	// Auth refresh session default (opaque RT hash TTL in Redis).
+	if cfg.Auth.RefreshTTL == 0 {
+		cfg.Auth.RefreshTTL = 24 * time.Hour
 	}
 
 	return cfg, nil

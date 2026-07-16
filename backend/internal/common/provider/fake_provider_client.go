@@ -9,7 +9,10 @@ import (
 	"github.com/shopspring/decimal"
 
 	"transx/internal/modules/transfer/domain/entities"
+	"transx/internal/modules/transfer/domain/interfaces"
 )
+
+var _ interfaces.ProviderClient = (*FakeProviderClient)(nil)
 
 // Fake client modes, configurable so the full external flow can be exercised
 // end-to-end without a real provider API.

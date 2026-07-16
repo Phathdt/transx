@@ -101,26 +101,74 @@ func registerInboxRoutes(r fiberopenapi.Router, inboxH *handlers.InboxHandler) {
 	)
 }
 
-// RegisterAuthRoutes wires the auth-service routes: login + the ForwardAuth
-// check endpoint. Passing a nil handler registers the route for spec export
-// only (no live handler attached).
+// RegisterAuthRoutes wires the auth-service routes: login/refresh/logout + the
+// ForwardAuth check endpoint. Passing a nil handler registers the route for
+// spec export only (no live handler attached).
 func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 	v1 := r.Group("/api/v1")
 
-	var login, check fiber.Handler
+	var login, refresh, logout, session, sessionAccess, check fiber.Handler
 	if authH != nil {
 		login = authH.Login
+		refresh = authH.Refresh
+		logout = authH.Logout
+		session = authH.Session
+		sessionAccess = authH.SessionAccess
 		check = authH.Check
 	}
 
 	v1.Post("/login", login).With(
 		option.Tags("auth"),
 		option.OperationID("login"),
-		option.Summary("Authenticate with email and password, returns a JWT"),
+		option.Summary("Authenticate with email and password; returns access + refresh tokens (JSON)"),
 		option.Request(new(authdto.LoginCommand), option.ContentRequired()),
 		option.Response(fiber.StatusOK, new(authdto.LoginResponse)),
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusForbidden, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Post("/refresh", refresh).With(
+		option.Tags("auth"),
+		option.OperationID("refresh"),
+		option.Summary("Rotate refresh token and return a new access + refresh pair (optional forced rotation)"),
+		option.Request(new(authdto.RefreshCommand), option.ContentRequired()),
+		option.Response(fiber.StatusOK, new(authdto.LoginResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusForbidden, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	// Static /session/access before any future /session/:id so path is exact.
+	v1.Post("/session/access", sessionAccess).With(
+		option.Tags("auth"),
+		option.OperationID("sessionAccess"),
+		option.Summary("Mint a new access token without rotating the refresh session"),
+		option.Request(new(authdto.RefreshCommand), option.ContentRequired()),
+		option.Response(fiber.StatusOK, new(authdto.ServerAccessResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Post("/session", session).With(
+		option.Tags("auth"),
+		option.OperationID("session"),
+		option.Summary("Validate refresh token without rotating it (RR BFF auth-gate)"),
+		option.Request(new(authdto.RefreshCommand), option.ContentRequired()),
+		option.Response(fiber.StatusNoContent, nil),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+	)
+
+	v1.Post("/logout", logout).With(
+		option.Tags("auth"),
+		option.OperationID("logout"),
+		option.Summary("Revoke refresh session (JSON refreshToken)"),
+		option.Request(new(authdto.RefreshCommand)),
+		option.Response(fiber.StatusNoContent, nil),
+		option.Response(fiber.StatusForbidden, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
 	)
 
