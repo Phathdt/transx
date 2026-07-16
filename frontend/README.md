@@ -33,11 +33,11 @@ Browser ──Bearer AT────► Traefik → wallet/transfer/inbox
 ## Prerequisites
 
 ```bash
-docker compose up -d   # includes redis (Go) + redis-rr (RR SSR AT)
+docker compose up -d   # includes redis (Go) + redis-rr (RR SSR AT) + frontend
 cd backend && make migrate && make seed
 ```
 
-Gateway: `http://localhost:4000`. Two Redis instances:
+Gateway: `http://localhost:4000`. UI: `http://localhost:3000`. Two Redis instances:
 
 | Service | Host port (default) | Keys |
 |---|---|---|
@@ -46,19 +46,30 @@ Gateway: `http://localhost:4000`. Two Redis instances:
 
 ## Getting Started
 
+### Local (pnpm)
+
 ```bash
-yarn install
+pnpm install
 cp .env.example .env
-yarn dev   # http://localhost:3000
+pnpm dev   # http://localhost:3000
+```
+
+### Docker Compose
+
+```bash
+# from repo root — builds frontend/Dockerfile and wires redis-rr + Traefik auth
+docker compose up -d --build frontend
+# UI: http://localhost:3000
 ```
 
 | Env | Purpose |
 |---|---|
-| `VITE_API_BASE_URL` | Domain API base (Traefik), default `http://localhost:4000/api/v1` |
-| `AUTH_API_BASE_URL` | Server-side RR → Go auth (defaults to same) |
-| `RR_REDIS_URL` | SSR AT cache Redis, default `redis://localhost:16380` |
+| `VITE_API_BASE_URL` | Domain API base (browser → Traefik). **Build-time** for Docker (`ARG`); default `http://localhost:4000/api/v1` |
+| `AUTH_API_BASE_URL` | Server-side RR → Go auth. Compose default `http://traefik/api/v1` |
+| `RR_REDIS_URL` | SSR AT cache Redis. Local: `redis://localhost:16380`; Compose: `redis://redis-rr:6379` |
 | `RR_AT_TTL_SECONDS` | Cache TTL, default `900` (≈ JWT TTL) |
 | `COOKIE_SECURE` | `true` behind HTTPS |
+| `FRONTEND_PORT` | Host port for compose frontend, default `3000` |
 
 ### Dev login
 
@@ -76,9 +87,9 @@ Password `password123`: `alice@transx.dev`, `bob@transx.dev`, …
 ## Scripts
 
 ```bash
-yarn dev          # react-router dev :3000
-yarn build        # SSR + client → build/
-yarn start        # serve production SSR
-yarn test
-yarn generate:api # Orval from backend OpenAPI
+pnpm dev          # react-router dev :3000
+pnpm build        # SSR + client → build/
+pnpm start        # serve production SSR
+pnpm test
+pnpm generate:api # Orval from backend OpenAPI
 ```

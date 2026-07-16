@@ -4,7 +4,7 @@
  * Silent browser AT renew uses Go POST /session/access (no RT rotate).
  */
 
-import { parse as parseCookie } from 'cookie'
+import { parseCookie } from 'cookie'
 import {
   deleteServerAccessToken,
   getServerAccessTokenBySession,
@@ -75,7 +75,7 @@ async function authFetch(path: string, init?: RequestInit): Promise<Response> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
+      ...init?.headers,
     },
   })
 }

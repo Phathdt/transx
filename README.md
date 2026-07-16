@@ -175,7 +175,8 @@ curl -X POST http://localhost:4000/api/v1/login \
 curl http://localhost:4000/api/v1/accounts/<accountRef> -H "Authorization: Bearer <accessToken>"
 
 # Frontend (RR framework + Auth BFF cookie)
-cd frontend && cp -n .env.example .env && yarn install && yarn dev  # :3000
+cd frontend && cp -n .env.example .env && pnpm install && pnpm dev  # :3000
+# or containerized: docker compose up -d --build frontend  # :3000
 ```
 
 ## Backend CLI
