@@ -19,7 +19,7 @@ the full product spec.
   - [Backend CLI](#backend-cli)
   - [Common Commands](#common-commands)
   - [Overview Architecture](#overview-architecture)
-    - [Auth BFF \(web\)](#auth-bff-web)
+    - [Auth BFF (web)](#auth-bff-web)
   - [Wallet API](#wallet-api)
   - [Internal Transfer Flow](#internal-transfer-flow)
   - [External Transfer Flow](#external-transfer-flow)
@@ -33,21 +33,21 @@ the full product spec.
 
 ## Tech Stack
 
-| Concern        | Choice                                  |
-| -------------- | --------------------------------------- |
-| Language       | Go 1.26                                 |
-| Frontend       | React Router v7 framework (SSR) + React 19 |
-| Database       | PostgreSQL 18 (native `uuidv7()`)       |
-| Session store  | Redis (auth refresh tokens)             |
-| Messaging      | Kafka (Redpanda only in local demo)     |
-| Orchestration  | Temporal (TransferWorkflow saga)        |
-| Gateway        | Traefik + ForwardAuth                   |
-| HTTP framework | Fiber v2                                |
-| DB access      | pgx v5 + sqlc-generated queries         |
-| Migrations     | goose                                   |
-| External bank  | Bank gRPC (mode-driven fake)            |
-| FX             | standalone gRPC service (buf-generated) |
-| Config         | viper + `.env` (env override: `A__B`)   |
+| Concern        | Choice                                     |
+| -------------- | ------------------------------------------ |
+| Language       | Go 1.26                                    |
+| Frontend       | React Router v8 framework (SSR) + React 19 |
+| Database       | PostgreSQL 18 (native `uuidv7()`)          |
+| Session store  | Redis (auth refresh tokens)                |
+| Messaging      | Kafka (Redpanda only in local demo)        |
+| Orchestration  | Temporal (TransferWorkflow saga)           |
+| Gateway        | Traefik + ForwardAuth                      |
+| HTTP framework | Fiber v2                                   |
+| DB access      | pgx v5 + sqlc-generated queries            |
+| Migrations     | goose                                      |
+| External bank  | Bank gRPC (mode-driven fake)               |
+| FX             | standalone gRPC service (buf-generated)    |
+| Config         | viper + `.env` (env override: `A__B`)      |
 
 All identifiers use **UUID v7** (time-ordered, index-friendly).
 
@@ -72,7 +72,7 @@ backend/
 │   ├── common/             # apperror, kafkatopic, provider (Bank fake)
 │   └── shared/             # lifecycle, pgconv
 └── db/migrations/          # goose SQL migrations
-frontend/                   # React Router v7 framework app (Auth BFF + UI)
+frontend/                   # React Router v8 framework app (Auth BFF + UI)
 docs/                       # product + architecture docs
 plans/                      # planning artifacts and implementation phases
 ```

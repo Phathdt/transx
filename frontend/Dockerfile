@@ -1,7 +1,7 @@
-# React Router v7 SSR (Auth BFF). Build with pnpm; serve via @react-router/serve.
+# React Router v8 SSR (Auth BFF). Build with pnpm; serve via @react-router/serve.
 FROM node:24-alpine AS build
 
-RUN corepack enable && corepack prepare pnpm@10.26.0 --activate
+RUN corepack enable && corepack prepare pnpm@11.13.1 --activate
 
 WORKDIR /app
 

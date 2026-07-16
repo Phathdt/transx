@@ -1,0 +1,6 @@
+# pnpm 11 project settings (former package.json "pnpm" field).
+allowBuilds:
+  esbuild: true
+  lightningcss: true
+# Committed lockfile is the source of truth; skip re-checking package age on install.
+trustLockfile: true
