@@ -387,8 +387,8 @@ paths:
     post:
       tags:
         - auth
-      summary: Rotate refresh token and return a new access + refresh pair
-      description: Rotate refresh token and return a new access + refresh pair
+      summary: Rotate refresh token and return a new access + refresh pair (optional forced rotation)
+      description: Rotate refresh token and return a new access + refresh pair (optional forced rotation)
       operationId: refresh
       requestBody:
         content:
@@ -445,6 +445,44 @@ paths:
                 $ref: '#/components/schemas/HandlersErrorResponse'
         '401':
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+  /session/access:
+    post:
+      tags:
+        - auth
+      summary: Mint a new access token without rotating the refresh session
+      description: Mint a new access token without rotating the refresh session
+      operationId: sessionAccess
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DtoRefreshCommand'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DtoServerAccessResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlersErrorResponse'
+        '500':
+          description: Internal Server Error
           content:
             application/json:
               schema:
@@ -744,6 +782,17 @@ components:
         - refreshToken
       properties:
         refreshToken:
+          type: string
+    DtoServerAccessResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+        userId:
+          type: string
+        userName:
           type: string
     DtoTransferListResponse:
       type: object

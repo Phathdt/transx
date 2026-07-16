@@ -107,12 +107,13 @@ func registerInboxRoutes(r fiberopenapi.Router, inboxH *handlers.InboxHandler) {
 func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 	v1 := r.Group("/api/v1")
 
-	var login, refresh, logout, session, check fiber.Handler
+	var login, refresh, logout, session, sessionAccess, check fiber.Handler
 	if authH != nil {
 		login = authH.Login
 		refresh = authH.Refresh
 		logout = authH.Logout
 		session = authH.Session
+		sessionAccess = authH.SessionAccess
 		check = authH.Check
 	}
 
@@ -131,7 +132,7 @@ func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 	v1.Post("/refresh", refresh).With(
 		option.Tags("auth"),
 		option.OperationID("refresh"),
-		option.Summary("Rotate refresh token and return a new access + refresh pair"),
+		option.Summary("Rotate refresh token and return a new access + refresh pair (optional forced rotation)"),
 		option.Request(new(authdto.RefreshCommand), option.ContentRequired()),
 		option.Response(fiber.StatusOK, new(authdto.LoginResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
@@ -139,6 +140,17 @@ func RegisterAuthRoutes(r fiberopenapi.Router, authH *handlers.AuthHandler) {
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
 	)
 
+	// Static /session/access before any future /session/:id so path is exact.
+	v1.Post("/session/access", sessionAccess).With(
+		option.Tags("auth"),
+		option.OperationID("sessionAccess"),
+		option.Summary("Mint a new access token without rotating the refresh session"),
+		option.Request(new(authdto.RefreshCommand), option.ContentRequired()),
+		option.Response(fiber.StatusOK, new(authdto.ServerAccessResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
 
 	v1.Post("/session", session).With(
 		option.Tags("auth"),

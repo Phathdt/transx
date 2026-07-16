@@ -1,5 +1,5 @@
 import type { DtoLoginCommand, DtoLoginResponse } from '#/lib/api/generated/models'
-import { clearSession, setSession } from '#/lib/auth/auth-session'
+import { clearSession, getSession, setSession } from '#/lib/auth/auth-session'
 import { toApiError } from '#/lib/api/api-error'
 import Axios from 'axios'
 
@@ -26,17 +26,22 @@ type AuthJSON = {
 }
 
 function applySession(data: AuthJSON): DtoLoginResponse {
+  // Merge with existing memory session so silent renew never wipes profile
+  // fields if a response omits them.
+  const prev = getSession()
+  const userId = data.userId || prev?.userId || ''
+  const userName = data.userName || prev?.userName || ''
   setSession({
     accessToken: data.accessToken ?? '',
-    tokenType: data.tokenType ?? 'Bearer',
-    userId: data.userId ?? '',
-    userName: data.userName ?? '',
+    tokenType: data.tokenType ?? prev?.tokenType ?? 'Bearer',
+    userId,
+    userName,
   })
   return {
     accessToken: data.accessToken,
     tokenType: data.tokenType,
-    userId: data.userId,
-    userName: data.userName,
+    userId,
+    userName,
   }
 }
 

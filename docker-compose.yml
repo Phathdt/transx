@@ -72,6 +72,22 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Dedicated Redis for React Router Node SSR AT cache (rr:at:*).
+  # Isolated from Go auth Redis (auth:rt:* on service `redis`).
+  redis-rr:
+    image: redis:7-alpine
+    container_name: transx-redis-rr
+    ports:
+      - "${RR_REDIS_PORT:-16380}:6379"
+    volumes:
+      - redis-rr-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
     container_name: transx-redpanda
@@ -422,5 +438,6 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  redis-rr-data:
   redpanda-data:
   temporal-postgres-data:

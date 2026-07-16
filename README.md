@@ -150,17 +150,20 @@ the transfer worker during prepare activities.
 docker compose up -d
 # traefik + auth + wallet + transfer + consumer + notification + fx
 # + wallet-grpc + bank-grpc + transfer-worker + temporal (+ ui)
-# + iris + postgres + redis + redpanda (Kafka-compatible demo broker only)
+# + iris + postgres + redis (Go auth:rt) + redis-rr (RR rr:at)
+# + redpanda (Kafka-compatible demo broker only)
 ```
 
 A Traefik gateway fronts the backend on `http://localhost:4000`. Auth token
-endpoints (`/login`, `/refresh`, `/logout`, `/session`) are public JSON APIs;
-wallet/transfer/inbox routes are gated by ForwardAuth (Bearer access token →
-`X-User-Id`).
+endpoints (`/login`, `/session/access`, `/refresh`, `/logout`, `/session`) are
+public JSON APIs; wallet/transfer/inbox routes are gated by ForwardAuth (Bearer
+access token → `X-User-Id`).
 
-**Web UI auth (Auth BFF):** React Router Node owns the HttpOnly refresh cookie.
-Browser → RR (`/api/auth/*`) → Go auth (JSON AT+RT). Domain API calls still use
-Bearer access tokens against Traefik.
+**Web UI auth (Auth BFF):** React Router Node owns the HttpOnly refresh cookie
+and a dedicated Redis (`redis-rr`, `rr:at:*`) for SSR access tokens. Browser →
+RR (`/api/auth/*`) → Go auth (JSON). Silent browser AT renew uses Go
+`POST /session/access` (mint AT only; RT cookie unchanged). Domain API calls
+still use Bearer access tokens against Traefik.
 
 ```bash
 # Login against Go auth (returns accessToken + refreshToken JSON — no Set-Cookie)
@@ -202,8 +205,9 @@ transx [--config|-c config.yaml] <subcommand>
 
 ```bash
 # Infrastructure
-# Redpanda = local Kafka stand-in for demos only; Redis = auth refresh sessions
-docker compose up -d postgres redis redpanda temporal temporal-postgres
+# Redpanda = local Kafka stand-in for demos only
+# redis = Go auth:rt; redis-rr = RR SSR AT cache (rr:at)
+docker compose up -d postgres redis redis-rr redpanda temporal temporal-postgres
 docker compose down
 
 # Run from backend/
@@ -240,7 +244,8 @@ flowchart TD
     RR["React Router Node\n:3000 SSR + Auth BFF"]
     TR["Traefik\nGateway :4000"]
     AUTH["Auth Service\nJSON AT+RT + /check"]
-    REDIS[("Redis\nrefresh sessions")]
+    REDIS[("Redis\nauth:rt sessions")]
+    REDISRR[("redis-rr\nrr:at SSR AT")]
     WALLET["Wallet API\n/accounts"]
     TRANSFER["Transfer API\n/transfers"]
     IRIS["iris CDC\nPostgres → Kafka"]
@@ -260,12 +265,13 @@ flowchart TD
 
     BR -->|"HTML / same-origin\n/api/auth/*"| RR
     RR -->|"HttpOnly RT cookie\non FE host"| BR
-    RR -->|"JSON login/refresh/logout/session"| AUTH
+    RR -->|"JSON login|/session/access|/session\n(+ optional /refresh)"| AUTH
+    RR --> REDISRR
     AUTH --> REDIS
     AUTH --> PG
 
     BR -->|"Bearer access token\nREST /api/v1 domain"| TR
-    TR -->|"/login|/refresh|/logout|/session\n(public JSON)"| AUTH
+    TR -->|"/login|/session/access|/refresh|/logout|/session\n(public JSON)"| AUTH
     TR -->|"ForwardAuth /check\nBearer AT"| AUTH
     TR -->|"/accounts* + X-User-Id"| WALLET
     TR -->|"/transfers* + X-User-Id"| TRANSFER
@@ -299,27 +305,31 @@ sequenceDiagram
     actor B as Browser
     participant RR as React Router Node
     participant A as Go Auth
-    participant R as Redis
+    participant RG as Go Redis
+    participant RRDS as RR Redis
     participant T as Traefik / APIs
 
     B->>RR: POST /api/auth/login {email,password}
     RR->>A: POST /api/v1/login
-    A->>R: store RT hash
-    A-->>RR: {accessToken, refreshToken}
-    RR-->>B: Set-Cookie HttpOnly RT + JSON AT
-    Note over B: AT in memory only
+    A->>RG: store RT hash
+    A-->>RR: {AT_browser, RT}
+    RR->>A: POST /api/v1/session/access {RT}
+    A-->>RR: {AT_ssr}
+    RR->>RRDS: SET rr:at:{sid}=AT_ssr
+    RR-->>B: Set-Cookie HttpOnly RT + JSON AT_browser
+    Note over B: AT_browser in memory only
 
     B->>RR: document /app/* (cookie RT)
     RR->>A: POST /api/v1/session {refreshToken}
-    A->>R: validate (no rotate)
+    A->>RG: validate (no rotate)
     A-->>RR: 204
     RR-->>B: HTML shell
 
     B->>RR: POST /api/auth/refresh (cookie)
-    RR->>A: POST /api/v1/refresh {refreshToken}
-    A->>R: rotate RT
-    A-->>RR: {accessToken, refreshToken}
-    RR-->>B: new cookie + AT JSON
+    RR->>A: POST /api/v1/session/access {RT}
+    Note over A: mint AT only — RT unchanged
+    A-->>RR: {accessToken}
+    RR-->>B: AT JSON (no Set-Cookie)
 
     B->>T: GET /api/v1/accounts Authorization Bearer AT
     T->>A: ForwardAuth GET /check
@@ -327,8 +337,9 @@ sequenceDiagram
     T-->>B: domain response
 ```
 
-- **React Router Node**: SSR UI + Auth BFF. Owns the HttpOnly refresh cookie on
-  the FE host. Proxies login/refresh/logout/session to Go as JSON only.
+- **React Router Node**: SSR UI + Auth BFF. Owns the HttpOnly refresh cookie and
+  SSR AT cache (`redis-rr`). Login hops `/login` then `/session/access`. Silent
+  renew uses `/session/access` only (not Go `/refresh`).
 - **Gateway**: Traefik routes domain APIs; ForwardAuth verifies **access** JWT
   and injects `X-User-Id`.
 - **Auth**: issues short-lived access JWTs + opaque refresh tokens (Redis). No
@@ -623,7 +634,7 @@ flowchart LR
 ```
 internal/
 ├── modules/
-│   ├── auth/         JSON AT+RT (login/refresh/logout/session), ForwardAuth /check
+│   ├── auth/         JSON AT+RT (login/session/access/refresh/logout/session), ForwardAuth /check
 │   ├── wallet/       accounts, ledger, money repository (gRPC ops)
 │   ├── transfer/     transfers, outbox, inbox, transfer application service
 │   ├── fx/           rates + fees

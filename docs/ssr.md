@@ -2,485 +2,236 @@
 
 ## Status
 
-**Implemented (pivot A)** — Auth BFF on React Router Node; Go auth is JSON tokens only.
+**Implemented (pivot A + dual AT)** — Auth BFF on React Router Node; Go auth is JSON tokens only. Browser AT and SSR AT are independent strings; silent renew mints AT only (no RT rotate).
 
 ### Implemented decisions
 
 | Item | Choice |
 |---|---|
 | FE runtime | React Router v7 framework mode (`app/`, SSR) |
-| Access token | Memory only (browser); never web storage |
+| Access token (browser) | Memory only; never web storage |
+| Access token (SSR) | RR Redis `rr:at:{sessionID}` (dedicated `redis-rr`) |
 | Refresh token | Redis-backed opaque session on **Go**; **HttpOnly cookie on RR host** |
-| Topology | `Browser → RR Node (cookie RT) → Go Auth (JSON AT+RT)` |
+| Topology | `Browser → RR Node (cookie RT) → Go Auth (JSON)` |
 | Domain APIs | Browser → Traefik with **Bearer AT** (not full BFF) |
 | Cookie SameSite | `Lax` on FE origin (same-site auth BFF routes) |
-| SSR loaders | Auth-gate only: cookie → Go `POST /session` (no rotation) |
-| Client AT obtain | Silent `POST /api/auth/refresh` (RR BFF) + 401 single-flight retry |
-| AT TTL / RT TTL | 15m / 30d (config) |
-| Out of scope | Full API BFF, server data loaders, transfer form actions |
+| SSR loaders | Auth-gate: cookie → Go `POST /session` (no rotation); SSR AT via cache/`/session/access` |
+| Client AT renew | Silent `POST /api/auth/refresh` (RR BFF) → Go **`POST /session/access`** (AT only, cookie RT unchanged) |
+| Go `/refresh` | Optional forced RT rotation; **not** silent browser path |
+| Multi-device | Concurrent sessions; logout revokes **this** RT only |
+| AT TTL / RT TTL | 15m / 30d (config); RR cache TTL ≈ JWT TTL |
+| Out of scope | Full API BFF, domain SSR loaders, dual `aud`, logout-all |
 
-Go public auth (no ForwardAuth): `/login`, `/refresh`, `/logout`, `/session` — **JSON body**, no `Set-Cookie`.  
+Go public auth (no ForwardAuth): `/login`, `/session/access`, `/refresh`, `/logout`, `/session` — **JSON body**, no `Set-Cookie`.  
 RR BFF routes: `/api/auth/login|refresh|logout` own the cookie.
+
+Code anchors:
+
+| Layer | Location |
+|---|---|
+| Go Access (AT only) | `backend/.../auth_service.go` `Access`; `POST /session/access` |
+| Go Refresh (RT rotate) | `Refresh`; `POST /refresh` — optional |
+| Go RT store | Redis key `auth:rt:{sessionID}` |
+| RR BFF silent renew | `frontend/app/routes/api.auth.refresh.ts` → `backendSessionAccess` |
+| RR SSR AT cache | `frontend/app/lib/rr-at-cache.server.ts` → `rr:at:{sessionID}` on `redis-rr` |
 
 ---
 
 # 1. Overview
 
-This document defines the authentication architecture for a web application using:
+Authentication for:
 
-- React Router v7 (Framework/Server Mode)
-- Go Backend
-- JWT Authentication
-- Refresh Token Rotation
-- Hybrid browser+SSR cookie model (not a full BFF for domain APIs)
+- React Router v7 framework mode (SSR + Auth BFF)
+- Go auth service (JSON AT/RT only; ForwardAuth `/check` for domain APIs)
+- Dual independent access tokens (browser memory vs SSR Redis)
+- Opaque refresh session in Go Redis; HttpOnly cookie only on the RR host
 
-The goal is to support both:
+Goals:
 
-- Direct API calls from the browser (Bearer AT)
-- Server-side auth-gate loaders through React Router
-
-without duplicating authentication logic.
-
----
-
-# 2. Goals
-
-### Functional Goals
-
-- Support SSR and React Router loaders.
-- Allow browser to call backend APIs directly.
-- Support automatic token refresh.
-- Avoid storing access tokens in LocalStorage.
-- Minimize authentication state synchronization.
-- Support horizontal scaling for frontend and backend.
-
-### Non-functional Goals
-
-- Stateless frontend servers whenever possible.
-- Secure against XSS token theft.
-- Easy deployment on Kubernetes.
-- Compatible with CDN for static assets.
-- Future support for multiple frontend applications.
+- Browser calls domain APIs directly with Bearer AT (Traefik ForwardAuth)
+- SSR loaders auth-gate with cookie RT without rotating it
+- Silent browser AT renew without RT rotation or cookie rewrite
+- No access token in LocalStorage / SessionStorage
 
 ---
 
-# 3. High-Level Architecture
+# 2. High-Level Architecture
 
 ```text
-                  Browser
-                     │
-                     │
-         HttpOnly Refresh Cookie
-                     │
-        ┌────────────┴────────────┐
-        │                         │
-        ▼                         ▼
- Browser Runtime           React Router Server
- (Access Token A)          (Access Token B)
-        │                         │
-        └────────────┬────────────┘
-                     ▼
-                 Go Backend
+Browser
+   │ same-origin /api/auth/*
+   │ HttpOnly RT cookie (RR host only)
+   ▼
+React Router Node (Auth BFF)
+   │ Redis redis-rr: rr:at:{sessionID}  → AT_ssr
+   │ JSON POST to Go (refreshToken body)
+   ▼
+Go Auth
+   │ Redis redis: auth:rt:{sessionID}   → RT session hash
+   │ issues JWT AT (no Set-Cookie)
+
+Browser ──Bearer AT──► Traefik ──ForwardAuth /check──► domain APIs
 ```
 
-The Refresh Token is the only shared authentication credential.
-
-Access Tokens are independent.
+- **RT** is the only shared long-lived credential (cookie on RR; opaque string to Go).
+- **AT_browser** and **AT_ssr** are independent JWT strings (same claims shape; not shared).
 
 ---
 
-# 4. Authentication Components
+# 3. Components
 
 ## Browser
 
-Stores:
+| Stores | Responsibility |
+|---|---|
+| AT_browser (memory) | Domain API `Authorization: Bearer` |
+| RT (HttpOnly cookie, RR host) | Sent only to RR `/api/auth/*` |
 
-- Access Token (memory only)
-- Refresh Token (HttpOnly Secure Cookie)
+Never persists AT in web storage. Silent renew via same-origin `POST /api/auth/refresh`.
 
-Responsibilities:
+## React Router Node (Auth BFF)
 
-- Call backend APIs directly.
-- Refresh Access Token automatically.
-- Never persist Access Token.
+| Stores | Responsibility |
+|---|---|
+| HttpOnly RT cookie | Set/clear on login/logout |
+| `rr:at:{sid}` on `redis-rr` | SSR AT cache (TTL ≈ JWT TTL) |
 
----
+Routes: `/api/auth/login`, `/api/auth/refresh`, `/api/auth/logout`.  
+Does **not** proxy domain wallet/transfer/inbox APIs (out of scope full BFF).
 
-## React Router Server
+## Go Auth
 
-Stores:
+| Endpoint | Behavior |
+|---|---|
+| `POST /login` | Credentials → JSON `accessToken` + `refreshToken` (no cookie) |
+| `POST /session/access` | Valid RT → new **AT only** (no RT rotate) |
+| `POST /refresh` | Valid RT → new AT+RT (rotates; optional/forced) |
+| `POST /session` | Valid RT → 204 (no rotate; auth-gate probe) |
+| `POST /logout` | Revoke this RT session (idempotent) |
+| `GET /check` | ForwardAuth: Bearer AT → `X-User-ID` |
 
-- No persistent authentication state.
-
-Responsibilities:
-
-- Read Refresh Cookie.
-- Obtain Access Token when required.
-- Execute loaders/actions.
-- Call backend APIs.
-- Discard Access Token after request completes.
-
-Optional optimization:
-
-- Short-lived in-memory cache (1~5 minutes).
-
----
-
-## Go Backend
-
-Responsibilities:
-
-- Login
-- Logout
-- Refresh Token Rotation
-- JWT generation
-- JWT validation
-- Session invalidation
+RT material lives in Go Redis under `auth:rt:{sessionID}`.
 
 ---
 
-# 5. Authentication Flow
+# 4. Flows (as implemented)
 
 ## Login
 
 ```text
-Browser
-    │
-POST /login
-    │
-    ▼
-Go Backend
-    │
-    ├── Set-Cookie(refresh_token)
-    │
-    └── JSON(access_token)
-    │
-    ▼
-Browser
+Browser → RR POST /api/auth/login {email,password}
+  RR → Go POST /login → AT_browser + RT
+  RR → Go POST /session/access {RT} → AT_ssr
+  RR → SET rr:at:{sid}=AT_ssr (redis-rr)
+  RR → Set-Cookie HttpOnly RT + JSON {accessToken: AT_browser, user…}
+Browser keeps AT_browser in memory
 ```
 
-Browser stores:
-
-- Access Token → Memory
-- Refresh Token → Cookie
-
----
-
-## Browser API Request
+## Silent browser AT renew (Session 5)
 
 ```text
-Browser
-
-Authorization: Bearer access_token
-
-↓
-
-Go Backend
+Browser → RR POST /api/auth/refresh  (cookie RT, no body required)
+  RR → Go POST /session/access {refreshToken}
+  RR → JSON {accessToken} only
+  No Set-Cookie; Go RT session unchanged; does NOT call Go /refresh
 ```
 
----
+Route name `/api/auth/refresh` is FE-compat only; backend hop is **`/session/access`**.
 
-## Browser Refresh
+## Optional forced RT rotation
 
 ```text
-Browser
-
-↓
-
-POST /refresh
-
-↓
-
-Cookie automatically included
-
-↓
-
-Go Backend
-
-↓
-
-New Access Token
-
-↓
-
-Browser Memory
+Client/tooling → Go POST /refresh {refreshToken}
+  → new AT + new RT (old RT revoked)
 ```
 
----
+Not used by browser silent renew. If RR ever exposes forced rotate, it must rewrite the cookie.
 
-## React Router Loader
+## SSR auth-gate loader
 
 ```text
-Browser
-
-↓
-
-GET /dashboard
-
-↓
-
-React Router Server
-
-↓
-
-Read Refresh Cookie
-
-↓
-
-POST /refresh (if needed)
-
-↓
-
-Access Token
-
-↓
-
-GET /dashboard-data
-
-↓
-
-Render HTML
-
-↓
-
-Browser
+Browser GET /app/...
+  RR reads RT cookie
+  RR → Go POST /session {refreshToken}  (204 or 401; no rotation)
+  On success: render; SSR AT via getServerAccessToken (cache hit or /session/access)
 ```
 
-Access Token exists only during request execution.
-
----
-
-# 6. Token Lifecycle
-
-## Refresh Token
-
-Storage:
-
-- HttpOnly
-- Secure
-- SameSite=Lax (or Strict if possible)
-
-Lifetime:
-
-30~90 days
-
-Rotation:
-
-Enabled
-
-Revocable:
-
-Yes
-
----
-
-## Access Token
-
-Storage:
-
-Memory only
-
-Lifetime:
-
-10~15 minutes
-
-Revocable:
-
-By expiration or backend blacklist (optional)
-
-Persistent:
-
-No
-
----
-
-# 7. Authentication Strategy
-
-## Browser
+## Domain API
 
 ```text
-Refresh Cookie
-      │
-      ▼
-Access Token (Memory)
-      │
-      ▼
-Authorization Header
+Browser → Traefik Authorization: Bearer AT_browser
+  Traefik ForwardAuth → Go GET /check
+  Traefik → wallet/transfer/inbox with X-User-Id
 ```
 
 ---
 
-## Server
+# 5. Token lifecycle
+
+| Token | Storage | TTL (default) | Rotate on silent renew? |
+|---|---|---|---|
+| AT_browser | Browser memory | ~15m (`auth.jwt_ttl`) | Re-minted via `/session/access` |
+| AT_ssr | `redis-rr` `rr:at:{sid}` | ~15m (`RR_AT_TTL_SECONDS`) | Re-minted on cache miss |
+| RT | RR cookie + Go `auth:rt:{sid}` | ~30d | **No** on silent path; yes on Go `/refresh` |
+
+Logout: revoke this Go RT + `DEL rr:at:{sid}` + clear cookie. Other devices keep their sessions.
+
+---
+
+# 6. Security
+
+- AT never in LocalStorage / SessionStorage / IndexedDB
+- RT: HttpOnly, SameSite=Lax, Secure when `COOKIE_SECURE=true`
+- Go auth never sets browser cookies (JSON only)
+- Two Redis instances: do not share Go auth Redis with RR SSR AT cache
+- CSRF: same-site BFF + SameSite=Lax; Origin checks optional hardening
+
+---
+
+# 7. Scaling
+
+- RR Node is horizontally scalable; SSR AT state is in `redis-rr` (not sticky sessions)
+- Go auth RT store is shared Redis (`auth:rt:*`)
+- Domain APIs remain stateless behind Traefik + ForwardAuth
+
+---
+
+# 8. Sequence (login + silent renew)
 
 ```text
-Refresh Cookie
-      │
-      ▼
-Temporary Access Token
-      │
-      ▼
-Authorization Header
-```
+Login:
+  B → RR /api/auth/login
+  RR → Go /login
+  RR → Go /session/access
+  RR → redis-rr SET rr:at
+  RR → B (Set-Cookie RT + AT_browser JSON)
 
-Browser and Server never exchange Access Tokens.
+Silent renew:
+  B → RR /api/auth/refresh (cookie)
+  RR → Go /session/access
+  RR → B (AT JSON, no Set-Cookie)
 
----
-
-# 8. Authorization Header
-
-Every backend request uses:
-
-```http
-Authorization: Bearer <access_token>
-```
-
-The backend authentication mechanism remains identical regardless of caller.
-
----
-
-# 9. Refresh Strategy
-
-## Browser
-
-Refresh when:
-
-- Access Token expires.
-- Backend returns HTTP 401.
-
----
-
-## Server
-
-Preferred:
-
-Refresh only when Access Token is unavailable or expired.
-
-Optional:
-
-Cache temporary Access Token per session.
-
-Maximum cache duration:
-
-5 minutes.
-
----
-
-# 10. Security Considerations
-
-## Access Token
-
-Never store in:
-
-- LocalStorage
-- SessionStorage
-- IndexedDB
-
-Reason:
-
-Protection against XSS.
-
----
-
-## Refresh Token
-
-Must use:
-
-- HttpOnly
-- Secure
-- SameSite=Lax (or Strict)
-
-Never exposed to JavaScript.
-
----
-
-## CSRF
-
-Because cookies are used:
-
-- Validate Origin/Referer for sensitive operations.
-- Or implement CSRF Token.
-- SameSite provides additional mitigation.
-
----
-
-# 11. Horizontal Scaling
-
-React Router Server should remain stateless.
-
-Each request should be independently authenticated using the Refresh Cookie.
-
-No sticky session required.
-
-No shared frontend session store required.
-
----
-
-# 12. Sequence Diagram
-
-## Browser API
-
-```text
-Browser
-    │
-Authorization: Bearer Access Token
-    │
-    ▼
-Go Backend
+Domain:
+  B → Traefik Bearer AT → ForwardAuth /check → API
 ```
 
 ---
 
-## SSR Request
+# 9. Out of scope (still)
 
-```text
-Browser
-    │
-Cookie
-    ▼
-React Router Server
-    │
-    ├── Refresh Access Token
-    │
-    ├── Call Backend
-    │
-    ▼
-Go Backend
-```
+- Full API BFF for wallet/transfer/inbox
+- Domain data loaded only via SSR
+- Dual JWT `aud` (browser vs SSR)
+- Logout-all devices
 
 ---
 
-# 13. Advantages
+# 10. Resolved design questions
 
-- Secure authentication model.
-- No Access Token persistence.
-- SSR compatible.
-- Browser and Server remain independent.
-- Simple backend validation.
-- Easy Kubernetes deployment.
-- No frontend sticky sessions.
-- Works with React Router loaders/actions.
-- Supports both SSR and SPA interactions.
-
----
-
-# 14. Future Enhancements
-
-- Silent refresh scheduling.
-- Multi-device session management.
-- Device fingerprint tracking.
-- Risk-based authentication.
-- Session dashboard.
-- OAuth2 / OpenID Connect integration.
-- WebAuthn / Passkey support.
-- Redis-backed short-lived Access Token cache (optional).
-- Token introspection endpoint (optional).
-
----
-
-# 15. Open Questions
-
-1. Should the React Router Server cache temporary Access Tokens?
-2. What should be the Access Token TTL (10 vs 15 minutes)?
-3. Should Refresh Token rotation invalidate previous tokens immediately?
-4. Should backend expose a dedicated `/session` endpoint?
-5. Should browser proactively refresh tokens before expiration or only on HTTP 401?
+| Question | Decision |
+|---|---|
+| Cache SSR AT? | Yes — `redis-rr` `rr:at:{sid}`, TTL ≈ JWT |
+| AT TTL | 15m (config) |
+| Silent renew rotates RT? | **No** — Go `/session/access` only |
+| Dedicated `/session`? | Yes — probe without rotation |
+| Proactive vs 401 refresh | Client may refresh on 401 via BFF; path is still `/session/access` |

@@ -2,11 +2,12 @@ import type { Route } from './+types/api.auth.logout'
 import {
   backendLogout,
   buildRefreshClearCookie,
+  clearServerAccessTokenForRefresh,
   getRefreshTokenFromRequest,
 } from '../lib/auth.server'
 
 /**
- * BFF logout: revoke RT at Go auth + clear cookie.
+ * BFF logout: revoke this RT at Go auth + clear cookie + DEL this rr:at key.
  */
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== 'POST') {
@@ -15,6 +16,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const refreshToken = getRefreshTokenFromRequest(request)
   await backendLogout(refreshToken)
+  await clearServerAccessTokenForRefresh(refreshToken)
 
   return new Response(null, {
     status: 204,

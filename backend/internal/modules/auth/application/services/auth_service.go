@@ -71,6 +71,27 @@ func (s *AuthService) ValidateRefresh(ctx context.Context, refreshToken string) 
 	return err
 }
 
+// Access validates the refresh token and mints a new access token only.
+// The refresh session is left intact (no RT rotation). Used by RR BFF for
+// login dual-AT hop, browser silent AT renew, and SSR AT cache miss.
+func (s *AuthService) Access(ctx context.Context, refreshToken string) (*dto.ServerAccessResponse, error) {
+	session, userName, err := s.loadValidSession(ctx, refreshToken)
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := s.tokens.Issue(session.UserID, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ServerAccessResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+		UserID:      session.UserID.String(),
+		UserName:    userName,
+	}, nil
+}
+
 // Refresh validates and rotates the refresh token, returning a new AT+RT pair.
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.LoginResponse, error) {
 	session, userName, err := s.loadValidSession(ctx, refreshToken)
@@ -85,28 +106,29 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.Lo
 	return s.issueSession(ctx, session.UserID, userName)
 }
 
+func invalidRefreshToken() error {
+	return apperror.NewUnauthorizedError("invalid or expired refresh token")
+}
+
 func (s *AuthService) loadValidSession(
 	ctx context.Context,
 	refreshToken string,
 ) (*interfaces.RefreshSession, string, error) {
 	sessionID, secret, ok := parseRefreshToken(refreshToken)
 	if !ok {
-		return nil, "", apperror.NewUnauthorizedError("invalid or expired refresh token")
+		return nil, "", invalidRefreshToken()
 	}
 
 	session, err := s.sessions.Get(ctx, sessionID)
 	if err != nil {
 		return nil, "", apperror.NewInternalError("refresh session lookup failed")
 	}
-	if session == nil {
-		return nil, "", apperror.NewUnauthorizedError("invalid or expired refresh token")
-	}
-	if !secureHashEqual(session.TokenHash, hashSecret(secret)) {
-		return nil, "", apperror.NewUnauthorizedError("invalid or expired refresh token")
+	if session == nil || !secureHashEqual(session.TokenHash, hashSecret(secret)) {
+		return nil, "", invalidRefreshToken()
 	}
 	if !session.ExpiresAt.IsZero() && time.Now().After(session.ExpiresAt) {
 		_ = s.sessions.Delete(ctx, sessionID)
-		return nil, "", apperror.NewUnauthorizedError("invalid or expired refresh token")
+		return nil, "", invalidRefreshToken()
 	}
 
 	user, err := s.users.FindByID(ctx, session.UserID)
@@ -115,7 +137,7 @@ func (s *AuthService) loadValidSession(
 	}
 	if user == nil {
 		_ = s.sessions.Delete(ctx, sessionID)
-		return nil, "", apperror.NewUnauthorizedError("invalid or expired refresh token")
+		return nil, "", invalidRefreshToken()
 	}
 	return session, user.Name, nil
 }

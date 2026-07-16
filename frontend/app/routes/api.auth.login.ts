@@ -1,12 +1,16 @@
 import type { Route } from './+types/api.auth.login'
 import {
   backendLogin,
+  backendSessionAccess,
   buildRefreshSetCookie,
+  parseSessionId,
+  putServerAccessToken,
 } from '../lib/auth.server'
 
 /**
  * BFF login: Browser → RR → Go auth.
- * Sets HttpOnly refresh cookie on FE origin; returns AT JSON to client memory.
+ * Dual AT: login yields AT_browser + RT; /session/access yields AT_ssr (cached).
+ * Cookie = login RT (unrotated). Browser JSON = AT_browser only.
  */
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== 'POST') {
@@ -28,17 +32,24 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   try {
-    const tokens = await backendLogin(body.email, body.password)
+    const pair = await backendLogin(body.email, body.password)
+    // Fail closed: if SSR AT mint fails, do not Set-Cookie.
+    const ssr = await backendSessionAccess(pair.refreshToken)
+    const sid = parseSessionId(pair.refreshToken)
+    if (sid) {
+      await putServerAccessToken(sid, ssr.accessToken)
+    }
+
     return Response.json(
       {
-        accessToken: tokens.accessToken,
-        tokenType: tokens.tokenType ?? 'Bearer',
-        userId: tokens.userId,
-        userName: tokens.userName,
+        accessToken: pair.accessToken,
+        tokenType: pair.tokenType ?? 'Bearer',
+        userId: pair.userId,
+        userName: pair.userName,
       },
       {
         headers: {
-          'Set-Cookie': buildRefreshSetCookie(tokens.refreshToken),
+          'Set-Cookie': buildRefreshSetCookie(pair.refreshToken),
         },
       },
     )
