@@ -29,14 +29,11 @@ type App struct {
 }
 
 // Auth configures the auth service: JWT signing (HS256), access-token lifetime,
-// and refresh-cookie sessions stored in Redis (hybrid auth).
+// and opaque refresh sessions in Redis. Cookie ownership lives on the RR BFF.
 type Auth struct {
-	JWTSecret      string        `yaml:"jwt_secret"       mapstructure:"jwt_secret"`
-	JWTTTL         time.Duration `yaml:"jwt_ttl"          mapstructure:"jwt_ttl"` // e.g. 15m access token
-	RefreshTTL     time.Duration `yaml:"refresh_ttl"      mapstructure:"refresh_ttl"`
-	CookieName     string        `yaml:"cookie_name"      mapstructure:"cookie_name"`
-	CookieSecure   bool          `yaml:"cookie_secure"    mapstructure:"cookie_secure"`
-	CookieSameSite string        `yaml:"cookie_same_site" mapstructure:"cookie_same_site"` // none|lax|strict
+	JWTSecret  string        `yaml:"jwt_secret"  mapstructure:"jwt_secret"`
+	JWTTTL     time.Duration `yaml:"jwt_ttl"     mapstructure:"jwt_ttl"` // e.g. 15m access token
+	RefreshTTL time.Duration `yaml:"refresh_ttl" mapstructure:"refresh_ttl"`
 }
 
 type HTTP struct {
@@ -195,16 +192,9 @@ func Load(configPath string) (Config, error) {
 	if cfg.Redis.Addr == "" {
 		cfg.Redis.Addr = "localhost:6379"
 	}
-	// Auth cookie/session defaults for hybrid auth (refresh in Redis).
+	// Auth refresh session default (opaque RT hash TTL in Redis).
 	if cfg.Auth.RefreshTTL == 0 {
 		cfg.Auth.RefreshTTL = 30 * 24 * time.Hour
-	}
-	if cfg.Auth.CookieName == "" {
-		cfg.Auth.CookieName = "refresh_token"
-	}
-	if cfg.Auth.CookieSameSite == "" {
-		// Cross-origin FE (:3000) → API (:4000) needs None; pair with Secure in non-local.
-		cfg.Auth.CookieSameSite = "none"
 	}
 
 	return cfg, nil

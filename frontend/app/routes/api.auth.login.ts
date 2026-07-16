@@ -1,4 +1,5 @@
 import type { Route } from './+types/api.auth.login'
+import { z } from 'zod'
 import {
   backendLogin,
   backendSessionAccess,
@@ -6,6 +7,11 @@ import {
   parseSessionId,
   putServerAccessToken,
 } from '../lib/auth.server'
+
+const LoginBodySchema = z.object({
+  email: z.string().min(1, 'email is required'),
+  password: z.string().min(1, 'password is required'),
+})
 
 /**
  * BFF login: Browser → RR → Go auth.
@@ -17,18 +23,19 @@ export async function action({ request }: Route.ActionArgs) {
     return new Response('Method Not Allowed', { status: 405 })
   }
 
-  let body: { email?: string; password?: string }
+  let body: z.infer<typeof LoginBodySchema>
   try {
-    body = (await request.json()) as { email?: string; password?: string }
+    const json: unknown = await request.json()
+    const result = LoginBodySchema.safeParse(json)
+    if (!result.success) {
+      return Response.json(
+        { message: 'email and password are required' },
+        { status: 400 },
+      )
+    }
+    body = result.data
   } catch {
     return Response.json({ message: 'invalid JSON body' }, { status: 400 })
-  }
-
-  if (!body.email || !body.password) {
-    return Response.json(
-      { message: 'email and password are required' },
-      { status: 400 },
-    )
   }
 
   try {

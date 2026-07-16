@@ -4,6 +4,7 @@
  * Silent browser AT renew uses Go POST /session/access (no RT rotate).
  */
 
+import { parse as parseCookie } from 'cookie'
 import {
   deleteServerAccessToken,
   getServerAccessTokenBySession,
@@ -41,14 +42,9 @@ export function backendAuthBaseURL(): string {
 export function getRefreshTokenFromRequest(request: Request): string | null {
   const header = request.headers.get('Cookie')
   if (!header) return null
-  for (const part of header.split(';')) {
-    const [rawName, ...rest] = part.trim().split('=')
-    if (rawName === REFRESH_COOKIE) {
-      const value = rest.join('=')
-      return value ? decodeURIComponent(value) : null
-    }
-  }
-  return null
+  const cookies = parseCookie(header)
+  const value = cookies[REFRESH_COOKIE]
+  return value ? value : null
 }
 
 function buildRefreshCookie(value: string, maxAge: number): string {

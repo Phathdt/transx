@@ -100,7 +100,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.Lo
 	}
 
 	if err := s.sessions.Delete(ctx, session.SessionID); err != nil {
-		return nil, apperror.NewInternalError("refresh session rotate failed")
+		return nil, apperror.NewInternalError("refresh session rotate failed", err)
 	}
 
 	return s.issueSession(ctx, session.UserID, userName)
@@ -121,7 +121,7 @@ func (s *AuthService) loadValidSession(
 
 	session, err := s.sessions.Get(ctx, sessionID)
 	if err != nil {
-		return nil, "", apperror.NewInternalError("refresh session lookup failed")
+		return nil, "", apperror.NewInternalError("refresh session lookup failed", err)
 	}
 	if session == nil || !secureHashEqual(session.TokenHash, hashSecret(secret)) {
 		return nil, "", invalidRefreshToken()
@@ -150,7 +150,7 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	}
 	session, err := s.sessions.Get(ctx, sessionID)
 	if err != nil {
-		return apperror.NewInternalError("refresh session lookup failed")
+		return apperror.NewInternalError("refresh session lookup failed", err)
 	}
 	if session == nil {
 		return nil
@@ -159,7 +159,7 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 		return nil
 	}
 	if err := s.sessions.Delete(ctx, sessionID); err != nil {
-		return apperror.NewInternalError("refresh session delete failed")
+		return apperror.NewInternalError("refresh session delete failed", err)
 	}
 	return nil
 }
@@ -181,7 +181,7 @@ func (s *AuthService) issueSession(ctx context.Context, userID uuid.UUID, userNa
 
 	sessionID, secret, err := newRefreshPair()
 	if err != nil {
-		return nil, apperror.NewInternalError("failed to mint refresh token")
+		return nil, apperror.NewInternalError("failed to mint refresh token", err)
 	}
 	expiresAt := time.Now().Add(s.refreshTTL)
 	if err := s.sessions.Create(ctx, interfaces.RefreshSession{
@@ -190,7 +190,7 @@ func (s *AuthService) issueSession(ctx context.Context, userID uuid.UUID, userNa
 		TokenHash: hashSecret(secret),
 		ExpiresAt: expiresAt,
 	}, s.refreshTTL); err != nil {
-		return nil, apperror.NewInternalError("failed to store refresh session")
+		return nil, apperror.NewInternalError("failed to store refresh session", err)
 	}
 
 	return &dto.LoginResponse{
