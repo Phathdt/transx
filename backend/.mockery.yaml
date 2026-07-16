@@ -17,6 +17,12 @@ packages:
           outpkg: testmocks
           filename: refresh_session_store.go
           mockname: RefreshSessionStore
+      TokenService:
+        config:
+          dir: internal/testmocks
+          outpkg: testmocks
+          filename: token_service.go
+          mockname: TokenService
   transx/internal/modules/wallet/domain/interfaces:
     interfaces:
       AccountRepository:

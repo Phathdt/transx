@@ -10,6 +10,7 @@ import (
 
 // TokenService issues and verifies HS256 JWTs. The subject claim carries the
 // user id, which the ForwardAuth check propagates as X-User-ID.
+// Implements interfaces.TokenService.
 type TokenService struct {
 	secret []byte
 	ttl    time.Duration

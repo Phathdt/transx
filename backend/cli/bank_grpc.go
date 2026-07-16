@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 
 	cmdgrpc "transx/cmd/grpc"
+	"transx/internal/common/provider"
 	"transx/internal/platform/config"
 	platformgrpc "transx/internal/platform/grpc"
 	bankv1 "transx/internal/platform/grpc/gen/bank/v1"
@@ -42,6 +43,9 @@ func runBankGRPCService(ctx context.Context, configPath string) error {
 	logger.SetDefault(log)
 
 	return platformgrpc.Serve(ctx, cfg.Bank.ListenAddress, log, func(s *grpc.Server) {
-		bankv1.RegisterBankServiceServer(s, cmdgrpc.NewBankServer(cfg.Bank.Mode))
+		bankv1.RegisterBankServiceServer(
+			s,
+			cmdgrpc.NewBankServer(provider.NewFakeProviderClient(cfg.Bank.Mode)),
+		)
 	})
 }

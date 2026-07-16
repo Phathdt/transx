@@ -22,14 +22,14 @@ import (
 // Cookie ownership lives in the React Router BFF, not here.
 type AuthService struct {
 	users      interfaces.UserRepository
-	tokens     *TokenService
+	tokens     interfaces.TokenService
 	sessions   interfaces.RefreshSessionStore
 	refreshTTL time.Duration
 }
 
 func NewAuthService(
 	users interfaces.UserRepository,
-	tokens *TokenService,
+	tokens interfaces.TokenService,
 	sessions interfaces.RefreshSessionStore,
 	refreshTTL time.Duration,
 ) *AuthService {

@@ -19,7 +19,7 @@ func TestBankServerSubmit(t *testing.T) {
 	transferID := uuid.New()
 
 	t.Run("always_success returns SUCCESS with a reference id", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysSuccess)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysSuccess))
 		resp, err := server.Submit(ctx, &bankv1.SubmitRequest{
 			TransferId: transferID.String(),
 			Amount:     "100",
@@ -33,7 +33,7 @@ func TestBankServerSubmit(t *testing.T) {
 	})
 
 	t.Run("always_failure returns FAILURE with a reason", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysFailure)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysFailure))
 		resp, err := server.Submit(ctx, &bankv1.SubmitRequest{
 			TransferId: transferID.String(),
 			Amount:     "100",
@@ -46,7 +46,7 @@ func TestBankServerSubmit(t *testing.T) {
 	})
 
 	t.Run("always_timeout returns a transient gRPC error", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysTimeout)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysTimeout))
 		_, err := server.Submit(ctx, &bankv1.SubmitRequest{
 			TransferId: transferID.String(),
 			Amount:     "100",
@@ -57,13 +57,13 @@ func TestBankServerSubmit(t *testing.T) {
 	})
 
 	t.Run("invalid transfer_id returns InvalidArgument", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysSuccess)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysSuccess))
 		_, err := server.Submit(ctx, &bankv1.SubmitRequest{TransferId: "not-a-uuid", Amount: "100"})
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
 	t.Run("invalid amount returns InvalidArgument", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysSuccess)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysSuccess))
 		_, err := server.Submit(ctx, &bankv1.SubmitRequest{
 			TransferId: transferID.String(),
 			Amount:     "not-a-number",
@@ -77,7 +77,7 @@ func TestBankServerQuery(t *testing.T) {
 	transferID := uuid.New()
 
 	t.Run("derives the same outcome as Submit for the configured mode", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysSuccess)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysSuccess))
 		resp, err := server.Query(ctx, &bankv1.QueryRequest{TransferId: transferID.String()})
 
 		require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestBankServerQuery(t *testing.T) {
 	})
 
 	t.Run("stateless: an unknown transfer_id still resolves from mode", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysFailure)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysFailure))
 		resp, err := server.Query(ctx, &bankv1.QueryRequest{TransferId: uuid.New().String()})
 
 		require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestBankServerQuery(t *testing.T) {
 	})
 
 	t.Run("invalid transfer_id returns InvalidArgument", func(t *testing.T) {
-		server := NewBankServer(provider.ModeAlwaysSuccess)
+		server := NewBankServer(provider.NewFakeProviderClient(provider.ModeAlwaysSuccess))
 		_, err := server.Query(ctx, &bankv1.QueryRequest{TransferId: "not-a-uuid"})
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
@@ -102,7 +102,7 @@ func TestBankServerQuery(t *testing.T) {
 func TestBankServerRandomMode(t *testing.T) {
 	ctx := context.Background()
 	transferID := uuid.New()
-	server := NewBankServer(provider.ModeRandom)
+	server := NewBankServer(provider.NewFakeProviderClient(provider.ModeRandom))
 
 	submit, err := server.Submit(ctx, &bankv1.SubmitRequest{
 		TransferId: transferID.String(),
