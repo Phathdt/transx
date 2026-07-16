@@ -2,19 +2,35 @@
  * React Router BFF auth helpers.
  * Owns the HttpOnly refresh-token cookie. Go auth only speaks JSON tokens.
  * Silent browser AT renew uses Go POST /session/access (no RT rotate).
+ *
+ * Go HTTP calls go through Orval server client (app/lib/api/generated/auth).
+ * Cookie + Redis dual-AT stay here — Orval does not own those.
  */
 
 import { parseCookie } from 'cookie'
+import {
+  login as goLogin,
+  logout as goLogout,
+  refresh as goRefresh,
+  session as goSession,
+  sessionAccess as goSessionAccess,
+} from './api/generated/auth/auth'
+import type {
+  DtoLoginResponse,
+  DtoServerAccessResponse,
+} from './api/generated/models'
 import {
   deleteServerAccessToken,
   getServerAccessTokenBySession,
   parseSessionId,
   putServerAccessToken,
 } from './rr-at-cache.server'
+import { authApiBaseURL } from './api/server-http-mutator'
 
 const REFRESH_COOKIE = 'refresh_token'
 const DEFAULT_MAX_AGE = 60 * 60 * 24 // 1d (match auth.refresh_ttl)
 
+/** Login/refresh pair from Go (AT + RT). */
 export type TokenPair = {
   accessToken: string
   refreshToken: string
@@ -31,12 +47,34 @@ export type AccessTokenOnly = {
   userName?: string
 }
 
-export function backendAuthBaseURL(): string {
-  return (
-    process.env.AUTH_API_BASE_URL ??
-    process.env.VITE_API_BASE_URL ??
-    'http://localhost:4000/api/v1'
-  )
+export { authApiBaseURL as backendAuthBaseURL }
+
+function requireTokenPair(data: DtoLoginResponse, failMessage: string): TokenPair {
+  if (!data.accessToken || !data.refreshToken) {
+    throw new Response(failMessage, { status: 502 })
+  }
+  return {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    tokenType: data.tokenType,
+    userId: data.userId,
+    userName: data.userName,
+  }
+}
+
+function requireAccessToken(
+  data: DtoServerAccessResponse,
+  failMessage: string,
+): AccessTokenOnly {
+  if (!data.accessToken) {
+    throw new Response(failMessage, { status: 502 })
+  }
+  return {
+    accessToken: data.accessToken,
+    tokenType: data.tokenType,
+    userId: data.userId,
+    userName: data.userName,
+  }
 }
 
 export function getRefreshTokenFromRequest(request: Request): string | null {
@@ -70,71 +108,42 @@ export function buildRefreshClearCookie(): string {
   return buildRefreshCookie('', 0)
 }
 
-async function authFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${backendAuthBaseURL()}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  })
-}
-
-async function authJSON<T>(
-  path: string,
-  body: unknown,
-  failMessage: string,
-): Promise<T> {
-  const res = await authFetch(path, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const text = path === '/login' ? await res.text() : ''
-    throw new Response(text || failMessage, { status: res.status })
-  }
-  return (await res.json()) as T
-}
-
 export async function backendLogin(
   email: string,
   password: string,
 ): Promise<TokenPair> {
-  return authJSON<TokenPair>('/login', { email, password }, 'login failed')
+  const data = await goLogin({ email, password })
+  return requireTokenPair(data, 'login failed')
 }
 
 /** Optional forced RT rotation; silent renew must use backendSessionAccess. */
 export async function backendRefresh(refreshToken: string): Promise<TokenPair> {
-  return authJSON<TokenPair>('/refresh', { refreshToken }, 'refresh failed')
+  const data = await goRefresh({ refreshToken })
+  return requireTokenPair(data, 'refresh failed')
 }
 
 /** Mint a new access token only; RT session unchanged. */
 export async function backendSessionAccess(
   refreshToken: string,
 ): Promise<AccessTokenOnly> {
-  return authJSON<AccessTokenOnly>(
-    '/session/access',
-    { refreshToken },
-    'session access failed',
-  )
+  const data = await goSessionAccess({ refreshToken })
+  return requireAccessToken(data, 'session access failed')
 }
 
 export async function backendValidateSession(
   refreshToken: string,
 ): Promise<boolean> {
-  const res = await authFetch('/session', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken }),
-  })
-  return res.ok
+  try {
+    await goSession({ refreshToken })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function backendLogout(refreshToken: string | null): Promise<void> {
   if (!refreshToken) return
-  await authFetch('/logout', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken }),
-  }).catch(() => undefined)
+  await goLogout({ refreshToken }).catch(() => undefined)
 }
 
 export async function probeSessionFromRequest(

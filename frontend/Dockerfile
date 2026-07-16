@@ -5,7 +5,9 @@ RUN corepack enable && corepack prepare pnpm@11.13.1 --activate
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+# pnpm-workspace.yaml carries trustLockfile / allowBuilds; without it, Docker
+# installs re-check package publish age and fail on a freshly committed lockfile.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .

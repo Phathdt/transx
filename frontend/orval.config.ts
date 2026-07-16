@@ -1,8 +1,11 @@
 import { defineConfig } from 'orval'
 
+const openapi = '../backend/openapi.yaml'
+
 export default defineConfig({
+  // Browser domain APIs (wallet/transfer/inbox) + React Query hooks.
   api: {
-    input: { target: '../backend/openapi.yaml' },
+    input: { target: openapi },
     output: {
       mode: 'tags-split',
       target: 'src/lib/api/generated',
@@ -17,8 +20,37 @@ export default defineConfig({
       },
     },
   },
+
+  // Server-only fetch client for RR loaders/actions (BFF → Go).
+  // Extend tags/filters later when SSR calls more domain APIs.
+  apiServer: {
+    input: {
+      target: openapi,
+      filters: {
+        mode: 'include',
+        tags: ['auth'],
+      },
+    },
+    output: {
+      mode: 'tags-split',
+      target: 'app/lib/api/generated',
+      schemas: 'app/lib/api/generated/models',
+      client: 'fetch',
+      clean: true,
+      override: {
+        mutator: {
+          path: 'app/lib/api/server-http-mutator.ts',
+          name: 'serverApiClient',
+        },
+        fetch: {
+          includeHttpResponseReturnType: false,
+        },
+      },
+    },
+  },
+
   apiZod: {
-    input: { target: '../backend/openapi.yaml' },
+    input: { target: openapi },
     output: {
       mode: 'tags-split',
       target: 'src/lib/api/generated',

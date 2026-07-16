@@ -6,7 +6,9 @@
  * OpenAPI spec version: 1.0.0
  */
 
-export interface DtoCreateAccountCommand {
-  currency: string;
-  name?: string;
+export interface DtoServerAccessResponse {
+  accessToken?: string;
+  tokenType?: string;
+  userId?: string;
+  userName?: string;
 }
