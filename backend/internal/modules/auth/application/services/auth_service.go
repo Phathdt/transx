@@ -34,7 +34,7 @@ func NewAuthService(
 	refreshTTL time.Duration,
 ) *AuthService {
 	if refreshTTL <= 0 {
-		refreshTTL = 30 * 24 * time.Hour
+		refreshTTL = 24 * time.Hour
 	}
 	return &AuthService{
 		users:      users,

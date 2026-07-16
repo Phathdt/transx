@@ -58,7 +58,7 @@ func runAuth(ctx context.Context, configPath string) error {
 	}
 	refreshTTL := cfg.Auth.RefreshTTL
 	if refreshTTL == 0 {
-		refreshTTL = 30 * 24 * time.Hour
+		refreshTTL = 24 * time.Hour
 	}
 
 	db, err := postgres.Connect(ctx, cfg.Postgres)

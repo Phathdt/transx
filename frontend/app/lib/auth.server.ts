@@ -13,7 +13,7 @@ import {
 } from './rr-at-cache.server'
 
 const REFRESH_COOKIE = 'refresh_token'
-const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30 // 30d
+const DEFAULT_MAX_AGE = 60 * 60 * 24 // 1d (match auth.refresh_ttl)
 
 export type TokenPair = {
   accessToken: string

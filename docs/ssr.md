@@ -19,7 +19,7 @@
 | Client AT renew | Silent `POST /api/auth/refresh` (RR BFF) → Go **`POST /session/access`** (AT only, cookie RT unchanged) |
 | Go `/refresh` | Optional forced RT rotation; **not** silent browser path |
 | Multi-device | Concurrent sessions; logout revokes **this** RT only |
-| AT TTL / RT TTL | 15m / 30d (config); RR cache TTL ≈ JWT TTL |
+| AT TTL / RT TTL | 15m / 1d (config); RR cache TTL ≈ JWT TTL |
 | Out of scope | Full API BFF, domain SSR loaders, dual `aud`, logout-all |
 
 Go public auth (no ForwardAuth): `/login`, `/session/access`, `/refresh`, `/logout`, `/session` — **JSON body**, no `Set-Cookie`.  
@@ -172,7 +172,7 @@ Browser → Traefik Authorization: Bearer AT_browser
 |---|---|---|---|
 | AT_browser | Browser memory | ~15m (`auth.jwt_ttl`) | Re-minted via `/session/access` |
 | AT_ssr | `redis-rr` `rr:at:{sid}` | ~15m (`RR_AT_TTL_SECONDS`) | Re-minted on cache miss |
-| RT | RR cookie + Go `auth:rt:{sid}` | ~30d | **No** on silent path; yes on Go `/refresh` |
+| RT | RR cookie + Go `auth:rt:{sid}` | ~1d (`auth.refresh_ttl`) | **No** on silent path; yes on Go `/refresh` |
 
 Logout: revoke this Go RT + `DEL rr:at:{sid}` + clear cookie. Other devices keep their sessions.
 

@@ -27,7 +27,7 @@ auth:
   jwt_secret: 'dev-secret-change-me'
   jwt_ttl: 15m
   # Opaque refresh session TTL in Redis (cookie ownership is on the RR BFF).
-  refresh_ttl: 720h
+  refresh_ttl: 24h
 
 fx:
   # Static MVP rates. Key direction is FROM_TO; same-currency quotes use rate 1.

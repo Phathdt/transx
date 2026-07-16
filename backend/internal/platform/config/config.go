@@ -194,7 +194,7 @@ func Load(configPath string) (Config, error) {
 	}
 	// Auth refresh session default (opaque RT hash TTL in Redis).
 	if cfg.Auth.RefreshTTL == 0 {
-		cfg.Auth.RefreshTTL = 30 * 24 * time.Hour
+		cfg.Auth.RefreshTTL = 24 * time.Hour
 	}
 
 	return cfg, nil
