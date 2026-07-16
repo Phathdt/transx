@@ -27,8 +27,8 @@ Browser ──Bearer AT────► Traefik → wallet/transfer/inbox
 - **Silent renew** (`POST /api/auth/refresh`): cookie RT → Go **`/session/access`** → AT only; **no Set-Cookie**; does **not** call Go `/refresh`
 - **Logout:** revoke this RT + DEL this `rr:at` key + clear cookie
 - **Multi-device:** concurrent sessions; logout A keeps B
-- **Domain APIs:** browser → Traefik with Bearer AT
-- **SSR loaders:** auth-gate via cookie → Go `POST /session` (no rotation)
+- **Domain APIs (browser):** browser → Traefik with Bearer AT_browser
+- **SSR loaders:** auth-gate via cookie → Go `POST /session`; domain pages (e.g. `/app/transfers`, `/app/accounts`) fetch with AT_ssr on Node and render HTML; layout seeds inbox unread badge (then React Query polls with AT_browser)
 
 ## Prerequisites
 
@@ -81,8 +81,10 @@ Password `password123`: `alice@transx.dev`, `bob@transx.dev`, …
 | ---------------------------------- | -------------------------------- |
 | `/login`                           | Public login                     |
 | `/api/auth/login\|refresh\|logout` | RR auth BFF                      |
-| `/app/transfers` …                 | Protected app (layout auth-gate) |
-| `/app/accounts` …                  | Accounts                         |
+| `/app/transfers`                   | Transfer list (SSR loader + HTML) |
+| `/app/transfers/new\|:id` …        | Protected app (layout auth-gate) |
+| `/app/accounts`                    | Account list (SSR loader + HTML) |
+| `/app/accounts/:accountRef`        | Account detail (client fetch)    |
 
 ## Scripts
 

@@ -22,13 +22,13 @@ export default defineConfig({
   },
 
   // Server-only fetch client for RR loaders/actions (BFF → Go).
-  // Extend tags/filters later when SSR calls more domain APIs.
+  // auth / wallet lists / inbox unread for SSR shell badge.
   apiServer: {
     input: {
       target: openapi,
       filters: {
         mode: 'include',
-        tags: ['auth'],
+        tags: ['auth', 'wallet', 'inbox'],
       },
     },
     output: {

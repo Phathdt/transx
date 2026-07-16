@@ -1,4 +1,4 @@
-# PRD: Hybrid Authentication Architecture for React Router v7 + Go Backend
+# PRD: Hybrid Authentication Architecture for React Router v8 + Go Backend
 
 ## Status
 
@@ -8,19 +8,19 @@
 
 | Item | Choice |
 |---|---|
-| FE runtime | React Router v7 framework mode (`app/`, SSR) |
+| FE runtime | React Router v8 framework mode (`app/`, SSR) |
 | Access token (browser) | Memory only; never web storage |
 | Access token (SSR) | RR Redis `rr:at:{sessionID}` (dedicated `redis-rr`) |
 | Refresh token | Redis-backed opaque session on **Go**; **HttpOnly cookie on RR host** |
 | Topology | `Browser → RR Node (cookie RT) → Go Auth (JSON)` |
-| Domain APIs | Browser → Traefik with **Bearer AT** (not full BFF) |
+| Domain APIs | Hybrid: browser → Traefik with **Bearer AT_browser**; selected pages SSR → Traefik with **AT_ssr** |
 | Cookie SameSite | `Lax` on FE origin (same-site auth BFF routes) |
-| SSR loaders | Auth-gate: cookie → Go `POST /session` (no rotation); SSR AT via cache/`/session/access` |
+| SSR loaders | Auth-gate: cookie → Go `POST /session` (no rotation); domain loaders use AT_ssr via cache/`/session/access` |
 | Client AT renew | Silent `POST /api/auth/refresh` (RR BFF) → Go **`POST /session/access`** (AT only, cookie RT unchanged) |
 | Go `/refresh` | Optional forced RT rotation; **not** silent browser path |
 | Multi-device | Concurrent sessions; logout revokes **this** RT only |
 | AT TTL / RT TTL | 15m / 1d (config); RR cache TTL ≈ JWT TTL |
-| Out of scope | Full API BFF, domain SSR loaders, dual `aud`, logout-all |
+| Out of scope | Full API BFF for all mutations, dual `aud`, logout-all |
 
 Go public auth (no ForwardAuth): `/login`, `/session/access`, `/refresh`, `/logout`, `/session` — **JSON body**, no `Set-Cookie`.  
 RR BFF routes: `/api/auth/login|refresh|logout` own the cookie.
@@ -34,6 +34,7 @@ Code anchors:
 | Go RT store | Redis key `auth:rt:{sessionID}` |
 | RR BFF silent renew | `frontend/app/routes/api.auth.refresh.ts` → `backendSessionAccess` |
 | RR SSR AT cache | `frontend/app/lib/rr-at-cache.server.ts` → `rr:at:{sessionID}` on `redis-rr` |
+| RR domain SSR | `frontend/app/lib/server-domain.server.ts` + Orval server `wallet`/`inbox`; lists + layout unread badge |
 
 ---
 
@@ -41,7 +42,7 @@ Code anchors:
 
 Authentication for:
 
-- React Router v7 framework mode (SSR + Auth BFF)
+- React Router v8 framework mode (SSR + Auth BFF)
 - Go auth service (JSON AT/RT only; ForwardAuth `/check` for domain APIs)
 - Dual independent access tokens (browser memory vs SSR Redis)
 - Opaque refresh session in Go Redis; HttpOnly cookie only on the RR host
@@ -159,9 +160,18 @@ Browser GET /app/...
 ## Domain API
 
 ```text
-Browser → Traefik Authorization: Bearer AT_browser
-  Traefik ForwardAuth → Go GET /check
-  Traefik → wallet/transfer/inbox with X-User-Id
+Browser (client components / mutations):
+  Browser → Traefik Authorization: Bearer AT_browser
+    Traefik ForwardAuth → Go GET /check
+    Traefik → wallet/transfer/inbox with X-User-Id
+
+SSR domain loaders (e.g. GET /app/transfers, /app/accounts):
+  Browser → RR Node (cookie RT)
+  RR layout: POST /session (auth-gate) + GET /inbox/unread-count (AT_ssr) → badge in HTML
+  RR page loader: getServerAccessToken → AT_ssr → listTransfers/listAccounts
+  RR renders HTML with loader data (no browser XHR for initial list)
+  AppShell always renders chrome+children so SSR HTML is not blocked by AT_browser bootstrap
+  InboxBell: SSR count first; after silent-renew, React Query polls with AT_browser
 ```
 
 ---
@@ -219,8 +229,8 @@ Domain:
 
 # 9. Out of scope (still)
 
-- Full API BFF for wallet/transfer/inbox
-- Domain data loaded only via SSR
+- Full API BFF for all wallet/transfer/inbox mutations
+- Every domain page loaded only via SSR (lists: `/app/transfers`, `/app/accounts`; detail/create still client)
 - Dual JWT `aud` (browser vs SSR)
 - Logout-all devices
 

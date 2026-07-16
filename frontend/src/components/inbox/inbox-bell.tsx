@@ -29,29 +29,54 @@ function badgeLabel(count: number): string {
   return count > 9 ? '9+' : String(count)
 }
 
+export type InboxBellProps = {
+  /** SSR seed from layout loader (AT_ssr). */
+  initialUnreadCount?: number
+  /**
+   * True once AT_browser is ready (silent renew). Until then show SSR badge
+   * only — do not hit Traefik without a bearer.
+   */
+  clientReady?: boolean
+}
+
 /**
- * Header bell: polls unread-count, opens a popover of recent inbox items, and
- * routes item clicks into a detail sheet (server auto-marks read on GET).
+ * Header bell: SSR unread for first paint, then React Query polls with AT_browser.
+ * Opening the popover loads the inbox list; item clicks open a detail sheet.
  */
-export function InboxBell() {
+export function InboxBell({
+  initialUnreadCount = 0,
+  clientReady = false,
+}: InboxBellProps) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Stable "fetchedAt" for SSR seed so RQ does not treat layout data as age 0.
+  const [ssrSeededAt] = useState(() => Date.now())
+
+  const initialUnread: DtoUnreadCountResponse = { count: initialUnreadCount }
 
   const { data: unread } = useGetInboxUnreadCount<DtoUnreadCountResponse>({
     query: {
-      refetchInterval: POLL_MS,
-      refetchOnWindowFocus: true,
+      // SSR layout loader seeds the badge; client must not re-hit unread-count
+      // on reload/mount just because AT_browser became ready.
+      initialData: initialUnread,
+      initialDataUpdatedAt: ssrSeededAt,
+      staleTime: POLL_MS,
+      enabled: clientReady,
+      refetchInterval: clientReady ? POLL_MS : false,
+      refetchOnWindowFocus: clientReady,
+      refetchOnMount: false,
+      refetchOnReconnect: clientReady,
     },
   })
-  const count = unread?.count ?? 0
+  const count = unread?.count ?? initialUnreadCount
 
   const { data: listData, isLoading } = useListInbox<DtoInboxListResponse>(
     { page: 1, pageSize: 20 },
     {
       query: {
-        enabled: open,
-        refetchOnWindowFocus: true,
+        enabled: open && clientReady,
+        refetchOnWindowFocus: clientReady,
       },
     },
   )
@@ -98,14 +123,18 @@ export function InboxBell() {
               type="button"
               variant="ghost"
               size="xs"
-              disabled={count === 0 || markAll.isPending}
+              disabled={!clientReady || count === 0 || markAll.isPending}
               onClick={() => markAll.mutate()}
             >
               Mark all read
             </Button>
           </div>
           <div className="max-h-80 overflow-y-auto">
-            {isLoading ? (
+            {!clientReady ? (
+              <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                Loading session…
+              </p>
+            ) : isLoading ? (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">
                 Loading…
               </p>

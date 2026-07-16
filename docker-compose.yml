@@ -191,7 +191,7 @@ services:
       # GET /api/v1/check without a bearer on OPTIONS, so preflight would 401
       # before the real request. headers middleware short-circuits OPTIONS.
       - traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,OPTIONS
-      - traefik.http.middlewares.cors.headers.accesscontrolallowheaders=Authorization,Content-Type,Accept,Origin
+      - traefik.http.middlewares.cors.headers.accesscontrolallowheaders=Authorization,Content-Type,Accept,Origin,Idempotency-Key
       - traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://127.0.0.1:3000
       - traefik.http.middlewares.cors.headers.accesscontrolallowcredentials=true
       - traefik.http.middlewares.cors.headers.accesscontrolmaxage=100

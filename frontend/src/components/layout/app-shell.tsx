@@ -18,13 +18,19 @@ const NAV_ITEMS = [
 ] as const
 
 /**
- * Authenticated app chrome: frosted top nav (Transfers, New Transfer, Accounts),
- * inbox bell, plus logout. Logout is intentionally separated from transfer
- * actions.
+ * Authenticated app chrome. Layout loader already auth-gates via cookie RT, so
+ * we always render shell + children (including SSR HTML from domain loaders).
+ * InboxBell shows SSR unread immediately; client polling waits for AT_browser.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  initialUnreadCount = 0,
+}: {
+  children: ReactNode
+  initialUnreadCount?: number
+}) {
   const navigate = useNavigate()
-  const { logout, status, isAuthenticated } = useAuth()
+  const { logout, status } = useAuth()
 
   async function handleLogout() {
     // useAuth.logout already navigates to /login after clearing session.
@@ -37,20 +43,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [status, navigate])
 
-  // Wait for silent AT bootstrap (cookie RT → BFF /api/auth/refresh) before
-  // mounting domain queries. Otherwise InboxBell / list pages fire without
-  // Authorization and Traefik ForwardAuth returns 401 ("missing bearer token").
-  if (status === 'loading' || status === 'guest') {
+  // After silent-renew fails, leave the SSR shell and bounce to login.
+  if (status === 'guest') {
     return (
       <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
-        {status === 'guest' ? 'Redirecting to sign in…' : 'Loading session…'}
+        Redirecting to sign in…
       </div>
     )
   }
 
-  if (!isAuthenticated) {
-    return null
-  }
+  // status is 'loading' (SSR + first paint / silent renew) or 'authenticated'.
+  // Keep chrome identical so SSR HTML matches hydration.
+  const browserReady = status === 'authenticated'
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -88,8 +92,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <InboxBell />
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
+            <InboxBell
+              initialUnreadCount={initialUnreadCount}
+              clientReady={browserReady}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              disabled={!browserReady}
+            >
               <LogOut className="size-4" />
               <span className="hidden sm:inline">Logout</span>
             </Button>
