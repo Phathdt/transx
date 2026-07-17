@@ -5,28 +5,30 @@
 package gen
 
 import (
+	"time"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Notification struct {
-	ID         pgtype.UUID        `db:"id"`
-	TransferID pgtype.UUID        `db:"transfer_id"`
-	EventType  string             `db:"event_type"`
-	Channel    string             `db:"channel"`
-	Recipient  string             `db:"recipient"`
-	Status     string             `db:"status"`
-	Error      string             `db:"error"`
-	CreatedAt  pgtype.Timestamptz `db:"created_at"`
+	ID         pgtype.UUID `db:"id"`
+	TransferID pgtype.UUID `db:"transfer_id"`
+	EventType  string      `db:"event_type"`
+	Channel    string      `db:"channel"`
+	Recipient  string      `db:"recipient"`
+	Status     string      `db:"status"`
+	Error      string      `db:"error"`
+	CreatedAt  time.Time   `db:"created_at"`
 }
 
 type UserInboxItem struct {
-	ID          pgtype.UUID        `db:"id"`
-	UserID      pgtype.UUID        `db:"user_id"`
-	Type        string             `db:"type"`
-	Title       string             `db:"title"`
-	Body        string             `db:"body"`
-	TransferID  pgtype.UUID        `db:"transfer_id"`
-	TransferRef *string            `db:"transfer_ref"`
-	ReadAt      pgtype.Timestamptz `db:"read_at"`
-	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	ID          pgtype.UUID `db:"id"`
+	UserID      pgtype.UUID `db:"user_id"`
+	Type        string      `db:"type"`
+	Title       string      `db:"title"`
+	Body        string      `db:"body"`
+	TransferID  pgtype.UUID `db:"transfer_id"`
+	TransferRef *string     `db:"transfer_ref"`
+	ReadAt      *time.Time  `db:"read_at"`
+	CreatedAt   time.Time   `db:"created_at"`
 }

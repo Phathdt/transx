@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -113,10 +112,6 @@ func (r *PostgresUserInboxRepository) MarkAllInboxRead(ctx context.Context, user
 }
 
 func inboxRowToEntity(row *gen.UserInboxItem) *entities.InboxItem {
-	var readAt *time.Time
-	if row.ReadAt.Valid {
-		readAt = &row.ReadAt.Time
-	}
 	var transferRef string
 	if row.TransferRef != nil {
 		transferRef = *row.TransferRef
@@ -129,7 +124,8 @@ func inboxRowToEntity(row *gen.UserInboxItem) *entities.InboxItem {
 		Body:        row.Body,
 		TransferID:  uuid.UUID(row.TransferID.Bytes),
 		TransferRef: transferRef,
-		ReadAt:      readAt,
-		CreatedAt:   row.CreatedAt.Time,
+		// ReadAt is already *time.Time from sqlc (nullable timestamptz).
+		ReadAt:    row.ReadAt,
+		CreatedAt: row.CreatedAt,
 	}
 }

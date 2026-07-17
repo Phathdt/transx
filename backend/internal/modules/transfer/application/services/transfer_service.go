@@ -404,7 +404,9 @@ func (s *TransferService) CancelTransfer(
 		return transferToResponse(transfer), nil
 	}
 	if transfer.Status != entities.TransferStatusScheduled {
-		return nil, apperror.NewConflictError("transfer is not scheduled")
+		return nil, apperror.NewConflictError(
+			"transfer cannot be cancelled because it has already executed or is processing",
+		)
 	}
 
 	cancelled, err := s.transfers.CancelScheduled(ctx, transfer.ID)
@@ -421,7 +423,9 @@ func (s *TransferService) CancelTransfer(
 			return nil, apperror.NewNotFoundError("transfer not found")
 		}
 		if current.Status != entities.TransferStatusCancelled {
-			return nil, apperror.NewConflictError("transfer is not scheduled")
+			return nil, apperror.NewConflictError(
+				"transfer cannot be cancelled because it has already executed or is processing",
+			)
 		}
 		return transferToResponse(current), nil
 	}

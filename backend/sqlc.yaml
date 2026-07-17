@@ -2,6 +2,7 @@ version: '2'
 overrides:
   go:
     overrides:
+      # timestamp without time zone (rarely used in this schema)
       - db_type: 'pg_catalog.timestamp'
         engine: 'postgresql'
         go_type:
@@ -13,9 +14,27 @@ overrides:
         engine: 'postgresql'
         nullable: true
         go_type:
-          import: github.com/guregu/null/v5
-          package: 'null'
-          type: Time
+          import: 'time'
+          type: 'Time'
+          pointer: true
+
+      # timestamptz — used by created_at/updated_at/execute_at/read_at/etc.
+      # sqlc matches the bare type name for timestamptz (pg_catalog.timestamptz
+      # does not apply with sqlc v1.30 + pgx/v5).
+      - db_type: 'timestamptz'
+        engine: 'postgresql'
+        go_type:
+          import: 'time'
+          type: 'Time'
+          pointer: false
+
+      - db_type: 'timestamptz'
+        engine: 'postgresql'
+        nullable: true
+        go_type:
+          import: 'time'
+          type: 'Time'
+          pointer: true
 
       - db_type: 'pg_catalog.bool'
         nullable: true

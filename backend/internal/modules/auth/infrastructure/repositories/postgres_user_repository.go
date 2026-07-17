@@ -53,7 +53,7 @@ func toEntity(row *gen.User) *entities.User {
 		Email:        row.Email,
 		PasswordHash: row.PasswordHash,
 		Name:         row.Name,
-		CreatedAt:    row.CreatedAt.Time,
-		UpdatedAt:    row.UpdatedAt.Time,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
 	}
 }

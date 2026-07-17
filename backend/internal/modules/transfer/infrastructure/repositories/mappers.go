@@ -1,8 +1,6 @@
 package repositories
 
 import (
-	"time"
-
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -32,22 +30,6 @@ func textValue(s *string) string {
 	return *s
 }
 
-// timePtr dereferences a nullable timestamptz column, mapping NULL to nil.
-func timePtr(ts pgtype.Timestamptz) *time.Time {
-	if !ts.Valid {
-		return nil
-	}
-	return &ts.Time
-}
-
-// pgTimestamptzOrNil maps a nil time to a NULL timestamptz column parameter.
-func pgTimestamptzOrNil(t *time.Time) pgtype.Timestamptz {
-	if t == nil {
-		return pgtype.Timestamptz{}
-	}
-	return pgtype.Timestamptz{Time: *t, Valid: true}
-}
-
 func transferToEntity(row *gen.Transfer) *entities.Transfer {
 	return &entities.Transfer{
 		ID:                  row.ID.Bytes,
@@ -74,8 +56,9 @@ func transferToEntity(row *gen.Transfer) *entities.Transfer {
 		UserID:              row.UserID.Bytes,
 		IdempotencyKey:      row.IdempotencyKey,
 		RequestHash:         row.RequestHash,
-		ExecuteAt:           timePtr(row.ExecuteAt),
-		CreatedAt:           row.CreatedAt.Time,
-		UpdatedAt:           row.UpdatedAt.Time,
+		// ExecuteAt is already *time.Time from sqlc (nullable timestamptz).
+		ExecuteAt: row.ExecuteAt,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
 	}
 }

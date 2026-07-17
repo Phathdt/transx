@@ -35,23 +35,43 @@ import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 // amount: positive decimal, max 4 fraction digits, max 16 integer digits.
 const AMOUNT_RE = /^\d{1,16}(\.\d{1,4})?$/
 
-const formSchema = z.object({
-  fromAccountRef: z.string().min(1, 'Select a source account'),
-  amount: z
-    .string()
-    .min(1, 'Amount is required')
-    .regex(AMOUNT_RE, 'Enter a positive amount with up to 4 decimals')
-    .refine((v) => Number(v) > 0, 'Amount must be greater than zero'),
-  currency: z.string().min(1, 'Currency is required'),
-  message: z
-    .string()
-    .min(1, 'Message is required')
-    .max(255, 'Message too long'),
-  scheduled: z.boolean(),
-  // datetime-local input value (e.g. "2026-08-01T14:30"), local time; converted
-  // to a UTC ISO string at submit. Empty unless `scheduled` is checked.
-  executeAt: z.string(),
-})
+const formSchema = z
+  .object({
+    fromAccountRef: z.string().min(1, 'Select a source account'),
+    amount: z
+      .string()
+      .min(1, 'Amount is required')
+      .regex(AMOUNT_RE, 'Enter a positive amount with up to 4 decimals')
+      .refine((v) => Number(v) > 0, 'Amount must be greater than zero'),
+    currency: z.string().min(1, 'Currency is required'),
+    message: z
+      .string()
+      .min(1, 'Message is required')
+      .max(255, 'Message too long'),
+    scheduled: z.boolean(),
+    // datetime-local input value (e.g. "2026-08-01T14:30"), local time; converted
+    // to a UTC ISO string at submit. Empty unless `scheduled` is checked.
+    executeAt: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.scheduled) return
+    if (!data.executeAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Pick a date and time',
+        path: ['executeAt'],
+      })
+      return
+    }
+    const parsed = new Date(data.executeAt)
+    if (Number.isNaN(parsed.getTime()) || parsed <= new Date()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Scheduled time must be in the future',
+        path: ['executeAt'],
+      })
+    }
+  })
 
 type FormValues = z.infer<typeof formSchema>
 

@@ -71,7 +71,7 @@ func (r *PostgresTransferRepository) Create(
 			FeeCurrency:         t.FeeCurrency,
 			ToAccountName:       textOrNull(t.ToAccountName),
 			Message:             textOrNull(t.Message),
-			ExecuteAt:           pgTimestamptzOrNil(t.ExecuteAt),
+			ExecuteAt:           t.ExecuteAt,
 		})
 		if err != nil {
 			return err

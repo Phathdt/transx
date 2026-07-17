@@ -7,6 +7,7 @@ package gen
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
@@ -111,22 +112,22 @@ RETURNING
 `
 
 type CreateTransferParams struct {
-	FromAccountRef      string             `db:"from_account_ref"`
-	ToAccountRef        *string            `db:"to_account_ref"`
-	TransactionAmount   decimal.Decimal    `db:"transaction_amount"`
-	TransactionCurrency string             `db:"transaction_currency"`
-	TransferType        string             `db:"transfer_type"`
-	Provider            string             `db:"provider"`
-	Status              string             `db:"status"`
-	UserID              pgtype.UUID        `db:"user_id"`
-	IdempotencyKey      string             `db:"idempotency_key"`
-	RequestHash         string             `db:"request_hash"`
-	Reference           string             `db:"reference"`
-	FeeAmount           decimal.Decimal    `db:"fee_amount"`
-	FeeCurrency         string             `db:"fee_currency"`
-	ToAccountName       *string            `db:"to_account_name"`
-	Message             *string            `db:"message"`
-	ExecuteAt           pgtype.Timestamptz `db:"execute_at"`
+	FromAccountRef      string          `db:"from_account_ref"`
+	ToAccountRef        *string         `db:"to_account_ref"`
+	TransactionAmount   decimal.Decimal `db:"transaction_amount"`
+	TransactionCurrency string          `db:"transaction_currency"`
+	TransferType        string          `db:"transfer_type"`
+	Provider            string          `db:"provider"`
+	Status              string          `db:"status"`
+	UserID              pgtype.UUID     `db:"user_id"`
+	IdempotencyKey      string          `db:"idempotency_key"`
+	RequestHash         string          `db:"request_hash"`
+	Reference           string          `db:"reference"`
+	FeeAmount           decimal.Decimal `db:"fee_amount"`
+	FeeCurrency         string          `db:"fee_currency"`
+	ToAccountName       *string         `db:"to_account_name"`
+	Message             *string         `db:"message"`
+	ExecuteAt           *time.Time      `db:"execute_at"`
 }
 
 func (q *Queries) CreateTransfer(ctx context.Context, arg CreateTransferParams) (*Transfer, error) {

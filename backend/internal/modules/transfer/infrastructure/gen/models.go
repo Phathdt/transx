@@ -5,17 +5,19 @@
 package gen
 
 import (
+	"time"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
 
 type OutboxEvent struct {
-	ID            pgtype.UUID        `db:"id"`
-	AggregateType string             `db:"aggregate_type"`
-	AggregateID   pgtype.UUID        `db:"aggregate_id"`
-	EventType     string             `db:"event_type"`
-	Payload       []byte             `db:"payload"`
-	CreatedAt     pgtype.Timestamptz `db:"created_at"`
+	ID            pgtype.UUID `db:"id"`
+	AggregateType string      `db:"aggregate_type"`
+	AggregateID   pgtype.UUID `db:"aggregate_id"`
+	EventType     string      `db:"event_type"`
+	Payload       []byte      `db:"payload"`
+	CreatedAt     time.Time   `db:"created_at"`
 }
 
 type Transfer struct {
@@ -31,8 +33,8 @@ type Transfer struct {
 	UserID              pgtype.UUID         `db:"user_id"`
 	IdempotencyKey      string              `db:"idempotency_key"`
 	RequestHash         string              `db:"request_hash"`
-	CreatedAt           pgtype.Timestamptz  `db:"created_at"`
-	UpdatedAt           pgtype.Timestamptz  `db:"updated_at"`
+	CreatedAt           time.Time           `db:"created_at"`
+	UpdatedAt           time.Time           `db:"updated_at"`
 	Reference           string              `db:"reference"`
 	SourceAmount        decimal.NullDecimal `db:"source_amount"`
 	SourceCurrency      string              `db:"source_currency"`
@@ -46,5 +48,5 @@ type Transfer struct {
 	ToAccountRef        *string             `db:"to_account_ref"`
 	ToAccountName       *string             `db:"to_account_name"`
 	Message             *string             `db:"message"`
-	ExecuteAt           pgtype.Timestamptz  `db:"execute_at"`
+	ExecuteAt           *time.Time          `db:"execute_at"`
 }

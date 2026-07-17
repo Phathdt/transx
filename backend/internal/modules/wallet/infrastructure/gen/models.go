@@ -5,30 +5,32 @@
 package gen
 
 import (
+	"time"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
 
 type Account struct {
-	ID               pgtype.UUID        `db:"id"`
-	UserID           pgtype.UUID        `db:"user_id"`
-	Name             string             `db:"name"`
-	Currency         string             `db:"currency"`
-	AvailableBalance decimal.Decimal    `db:"available_balance"`
-	HoldBalance      decimal.Decimal    `db:"hold_balance"`
-	Status           string             `db:"status"`
-	CreatedAt        pgtype.Timestamptz `db:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `db:"updated_at"`
-	AccountRef       string             `db:"account_ref"`
+	ID               pgtype.UUID     `db:"id"`
+	UserID           pgtype.UUID     `db:"user_id"`
+	Name             string          `db:"name"`
+	Currency         string          `db:"currency"`
+	AvailableBalance decimal.Decimal `db:"available_balance"`
+	HoldBalance      decimal.Decimal `db:"hold_balance"`
+	Status           string          `db:"status"`
+	CreatedAt        time.Time       `db:"created_at"`
+	UpdatedAt        time.Time       `db:"updated_at"`
+	AccountRef       string          `db:"account_ref"`
 }
 
 type LedgerEntry struct {
-	ID           pgtype.UUID        `db:"id"`
-	TransferID   pgtype.UUID        `db:"transfer_id"`
-	AccountID    pgtype.UUID        `db:"account_id"`
-	Direction    string             `db:"direction"`
-	Amount       decimal.Decimal    `db:"amount"`
-	BalanceAfter decimal.Decimal    `db:"balance_after"`
-	CreatedAt    pgtype.Timestamptz `db:"created_at"`
-	Currency     string             `db:"currency"`
+	ID           pgtype.UUID     `db:"id"`
+	TransferID   pgtype.UUID     `db:"transfer_id"`
+	AccountID    pgtype.UUID     `db:"account_id"`
+	Direction    string          `db:"direction"`
+	Amount       decimal.Decimal `db:"amount"`
+	BalanceAfter decimal.Decimal `db:"balance_after"`
+	CreatedAt    time.Time       `db:"created_at"`
+	Currency     string          `db:"currency"`
 }
