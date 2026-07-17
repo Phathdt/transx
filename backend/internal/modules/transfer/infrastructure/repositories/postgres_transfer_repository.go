@@ -63,7 +63,7 @@ func (r *PostgresTransferRepository) Create(
 			TransferType:        t.TransferType,
 			Provider:            t.Provider,
 			Status:              string(t.Status),
-			UserID:              pgUUID(t.UserID),
+			UserID:              t.UserID,
 			IdempotencyKey:      t.IdempotencyKey,
 			RequestHash:         t.RequestHash,
 			Reference:           t.Reference,
@@ -89,7 +89,7 @@ func (r *PostgresTransferRepository) GetByID(
 	ctx context.Context,
 	id uuid.UUID,
 ) (*entities.Transfer, error) {
-	row, err := r.q.GetTransferByID(ctx, pgUUID(id))
+	row, err := r.q.GetTransferByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -106,7 +106,7 @@ func (r *PostgresTransferRepository) GetByReferenceForUser(
 ) (*entities.Transfer, error) {
 	row, err := r.q.GetTransferByReferenceForUser(ctx, gen.GetTransferByReferenceForUserParams{
 		Reference: reference,
-		OwnerID:   pgUUID(userID),
+		OwnerID:   userID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -123,7 +123,7 @@ func (r *PostgresTransferRepository) FindByUserAndKey(
 	key string,
 ) (*entities.Transfer, error) {
 	row, err := r.q.GetTransferByUserAndKey(ctx, gen.GetTransferByUserAndKeyParams{
-		UserID:         pgUUID(userID),
+		UserID:         userID,
 		IdempotencyKey: key,
 	})
 	if err != nil {
@@ -155,7 +155,7 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		q := r.q.WithTx(tx)
 		wq := r.walletQ.WithTx(tx)
 
-		t, err := q.LockTransferByID(ctx, pgUUID(transferID))
+		t, err := q.LockTransferByID(ctx, transferID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Unknown transfer: nothing to do, commit and move on.
@@ -189,8 +189,8 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		if from == nil || to == nil {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
-		fromID := uuid.UUID(from.ID.Bytes)
-		toID := uuid.UUID(to.ID.Bytes)
+		fromID := from.ID
+		toID := to.ID
 		if from.Status != string(walletentities.AccountStatusActive) {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
@@ -233,14 +233,14 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			DestinationFxRate:   decimal.NewNullDecimal(destinationQuote.Rate),
 			FeeAmount:           feeQuote.Amount,
 			FeeCurrency:         feeQuote.Currency,
-			ID:                  pgUUID(transferID),
+			ID:                  transferID,
 		}); err != nil {
 			return err
 		}
 
 		if err := q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
 			Status: string(entities.TransferStatusProcessing),
-			ID:     pgUUID(transferID),
+			ID:     transferID,
 		}); err != nil {
 			return err
 		}
@@ -252,7 +252,7 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		totalDebit := sourceQuote.Amount.Add(feeQuote.Amount)
 		fromBalance, err := wq.DebitAvailableIfSufficient(ctx, walletgen.DebitAvailableIfSufficientParams{
 			Amount: totalDebit,
-			ID:     pgUUID(fromID),
+			ID:     fromID,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -263,7 +263,7 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 
 		toBalance, err := wq.CreditAvailable(ctx, walletgen.CreditAvailableParams{
 			Amount: destinationQuote.Amount,
-			ID:     pgUUID(toID),
+			ID:     toID,
 		})
 		if err != nil {
 			// The destination was validated ACTIVE and locked FOR UPDATE before the
@@ -276,8 +276,8 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		// two audit steps: after principal the balance is the final balance plus the
 		// not-yet-deducted fee; after the fee it is the final balance.
 		if _, err := wq.InsertLedgerEntry(ctx, walletgen.InsertLedgerEntryParams{
-			TransferID:   pgUUID(transferID),
-			AccountID:    pgUUID(fromID),
+			TransferID:   transferID,
+			AccountID:    fromID,
 			Direction:    string(walletentities.LedgerDebit),
 			Amount:       sourceQuote.Amount,
 			Currency:     sourceQuote.Currency,
@@ -287,8 +287,8 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 		}
 		if feeQuote.Amount.IsPositive() {
 			if _, err := wq.InsertLedgerEntry(ctx, walletgen.InsertLedgerEntryParams{
-				TransferID:   pgUUID(transferID),
-				AccountID:    pgUUID(fromID),
+				TransferID:   transferID,
+				AccountID:    fromID,
 				Direction:    string(walletentities.LedgerFee),
 				Amount:       feeQuote.Amount,
 				Currency:     feeQuote.Currency,
@@ -298,8 +298,8 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 			}
 		}
 		if _, err := wq.InsertLedgerEntry(ctx, walletgen.InsertLedgerEntryParams{
-			TransferID:   pgUUID(transferID),
-			AccountID:    pgUUID(toID),
+			TransferID:   transferID,
+			AccountID:    toID,
 			Direction:    string(walletentities.LedgerCredit),
 			Amount:       destinationQuote.Amount,
 			Currency:     destinationQuote.Currency,
@@ -310,7 +310,7 @@ func (r *PostgresTransferRepository) ExecuteInternalTransfer(
 
 		if err := q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
 			Status: string(entities.TransferStatusSucceeded),
-			ID:     pgUUID(transferID),
+			ID:     transferID,
 		}); err != nil {
 			return err
 		}
@@ -330,7 +330,7 @@ func (r *PostgresTransferRepository) failTx(
 ) error {
 	if err := q.FailTransfer(ctx, gen.FailTransferParams{
 		FailureReason: reason,
-		ID:            pgUUID(transferID),
+		ID:            transferID,
 	}); err != nil {
 		return err
 	}
@@ -349,7 +349,7 @@ func insertTransferOutbox(
 	}
 	_, err = q.InsertOutboxEvent(ctx, gen.InsertOutboxEventParams{
 		AggregateType: entities.AggregateTypeTransfer,
-		AggregateID:   pgUUID(transferID),
+		AggregateID:   transferID,
 		EventType:     eventType,
 		Payload:       payload,
 	})
@@ -375,7 +375,7 @@ func (r *PostgresTransferRepository) MarkTerminal(
 	return postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
 
-		t, err := q.LockTransferByID(ctx, pgUUID(transferID))
+		t, err := q.LockTransferByID(ctx, transferID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -398,14 +398,14 @@ func (r *PostgresTransferRepository) MarkTerminal(
 			if providerReferenceID != "" {
 				if err := q.SetProviderReference(ctx, gen.SetProviderReferenceParams{
 					ProviderReferenceID: providerReferenceID,
-					ID:                  pgUUID(transferID),
+					ID:                  transferID,
 				}); err != nil {
 					return err
 				}
 			}
 			if err := q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
 				Status: string(entities.TransferStatusSucceeded),
-				ID:     pgUUID(transferID),
+				ID:     transferID,
 			}); err != nil {
 				return err
 			}
@@ -427,7 +427,7 @@ func (r *PostgresTransferRepository) CancelScheduled(
 	var cancelled *entities.Transfer
 	err := postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
-		row, err := q.CancelScheduledTransfer(ctx, pgUUID(transferID))
+		row, err := q.CancelScheduledTransfer(ctx, transferID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -458,7 +458,7 @@ func (r *PostgresTransferRepository) SetSettlementSnapshot(
 	return postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
 
-		t, err := q.LockTransferByID(ctx, pgUUID(transferID))
+		t, err := q.LockTransferByID(ctx, transferID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -493,13 +493,13 @@ func (r *PostgresTransferRepository) SetSettlementSnapshot(
 			DestinationFxRate:   destRate,
 			FeeAmount:           feeAmount,
 			FeeCurrency:         feeCurrency,
-			ID:                  pgUUID(transferID),
+			ID:                  transferID,
 		}); err != nil {
 			return err
 		}
 		return q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
 			Status: string(entities.TransferStatusProcessing),
-			ID:     pgUUID(transferID),
+			ID:     transferID,
 		})
 	})
 }
@@ -511,7 +511,7 @@ func (r *PostgresTransferRepository) ListByUser(
 	limit, offset int32,
 ) ([]*entities.Transfer, error) {
 	rows, err := r.q.ListTransfersByUser(ctx, gen.ListTransfersByUserParams{
-		OwnerID:    pgUUID(userID),
+		OwnerID:    userID,
 		Status:     status,
 		AccountRef: accountRef,
 		Lim:        limit,
@@ -533,7 +533,7 @@ func (r *PostgresTransferRepository) CountByUser(
 	status, accountRef *string,
 ) (int64, error) {
 	return r.q.CountTransfersByUser(ctx, gen.CountTransfersByUserParams{
-		OwnerID:    pgUUID(userID),
+		OwnerID:    userID,
 		Status:     status,
 		AccountRef: accountRef,
 	})

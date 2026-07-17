@@ -9,7 +9,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -30,7 +30,7 @@ RETURNING
 // Cancels a SCHEDULED transfer before it wakes up; a no-op (no row returned)
 // for any other status, so a race with the workflow's own timer-fire is safe:
 // whichever side observes SCHEDULED first wins.
-func (q *Queries) CancelScheduledTransfer(ctx context.Context, id pgtype.UUID) (*Transfer, error) {
+func (q *Queries) CancelScheduledTransfer(ctx context.Context, id uuid.UUID) (*Transfer, error) {
 	row := q.db.QueryRow(ctx, cancelScheduledTransfer, id)
 	var i Transfer
 	err := row.Scan(
@@ -92,9 +92,9 @@ AND ($3::text IS NULL
 `
 
 type CountTransfersByUserParams struct {
-	OwnerID    pgtype.UUID `db:"owner_id"`
-	Status     *string     `db:"status"`
-	AccountRef *string     `db:"account_ref"`
+	OwnerID    uuid.UUID `db:"owner_id"`
+	Status     *string   `db:"status"`
+	AccountRef *string   `db:"account_ref"`
 }
 
 func (q *Queries) CountTransfersByUser(ctx context.Context, arg CountTransfersByUserParams) (int64, error) {
@@ -119,7 +119,7 @@ type CreateTransferParams struct {
 	TransferType        string          `db:"transfer_type"`
 	Provider            string          `db:"provider"`
 	Status              string          `db:"status"`
-	UserID              pgtype.UUID     `db:"user_id"`
+	UserID              uuid.UUID       `db:"user_id"`
 	IdempotencyKey      string          `db:"idempotency_key"`
 	RequestHash         string          `db:"request_hash"`
 	Reference           string          `db:"reference"`
@@ -194,8 +194,8 @@ WHERE
 `
 
 type FailTransferParams struct {
-	FailureReason string      `db:"failure_reason"`
-	ID            pgtype.UUID `db:"id"`
+	FailureReason string    `db:"failure_reason"`
+	ID            uuid.UUID `db:"id"`
 }
 
 func (q *Queries) FailTransfer(ctx context.Context, arg FailTransferParams) error {
@@ -212,7 +212,7 @@ WHERE
     id = $1
 `
 
-func (q *Queries) GetTransferByID(ctx context.Context, id pgtype.UUID) (*Transfer, error) {
+func (q *Queries) GetTransferByID(ctx context.Context, id uuid.UUID) (*Transfer, error) {
 	row := q.db.QueryRow(ctx, getTransferByID, id)
 	var i Transfer
 	err := row.Scan(
@@ -271,8 +271,8 @@ WHERE
 `
 
 type GetTransferByReferenceForUserParams struct {
-	Reference string      `db:"reference"`
-	OwnerID   pgtype.UUID `db:"owner_id"`
+	Reference string    `db:"reference"`
+	OwnerID   uuid.UUID `db:"owner_id"`
 }
 
 // A transfer is visible to a caller who owns either end of it: the source
@@ -325,8 +325,8 @@ WHERE
 `
 
 type GetTransferByUserAndKeyParams struct {
-	UserID         pgtype.UUID `db:"user_id"`
-	IdempotencyKey string      `db:"idempotency_key"`
+	UserID         uuid.UUID `db:"user_id"`
+	IdempotencyKey string    `db:"idempotency_key"`
 }
 
 func (q *Queries) GetTransferByUserAndKey(ctx context.Context, arg GetTransferByUserAndKeyParams) (*Transfer, error) {
@@ -395,11 +395,11 @@ LIMIT $5 OFFSET $4
 `
 
 type ListTransfersByUserParams struct {
-	OwnerID    pgtype.UUID `db:"owner_id"`
-	Status     *string     `db:"status"`
-	AccountRef *string     `db:"account_ref"`
-	Off        int32       `db:"off"`
-	Lim        int32       `db:"lim"`
+	OwnerID    uuid.UUID `db:"owner_id"`
+	Status     *string   `db:"status"`
+	AccountRef *string   `db:"account_ref"`
+	Off        int32     `db:"off"`
+	Lim        int32     `db:"lim"`
 }
 
 // Owner-scoped by account ownership (either end), not by the creator's user_id,
@@ -471,7 +471,7 @@ FOR UPDATE
 
 // Serializes concurrent processing of the same transfer; paired with the
 // status='PENDING' guard to prevent double-credit on redelivery.
-func (q *Queries) LockTransferByID(ctx context.Context, id pgtype.UUID) (*Transfer, error) {
+func (q *Queries) LockTransferByID(ctx context.Context, id uuid.UUID) (*Transfer, error) {
 	row := q.db.QueryRow(ctx, lockTransferByID, id)
 	var i Transfer
 	err := row.Scan(
@@ -517,8 +517,8 @@ WHERE
 `
 
 type SetProviderReferenceParams struct {
-	ProviderReferenceID string      `db:"provider_reference_id"`
-	ID                  pgtype.UUID `db:"id"`
+	ProviderReferenceID string    `db:"provider_reference_id"`
+	ID                  uuid.UUID `db:"id"`
 }
 
 // Stores the reference id returned by the provider on a successful submit.
@@ -553,7 +553,7 @@ type SetTransferSettlementSnapshotParams struct {
 	DestinationFxRate   decimal.NullDecimal `db:"destination_fx_rate"`
 	FeeAmount           decimal.Decimal     `db:"fee_amount"`
 	FeeCurrency         string              `db:"fee_currency"`
-	ID                  pgtype.UUID         `db:"id"`
+	ID                  uuid.UUID           `db:"id"`
 }
 
 func (q *Queries) SetTransferSettlementSnapshot(ctx context.Context, arg SetTransferSettlementSnapshotParams) error {
@@ -582,8 +582,8 @@ WHERE
 `
 
 type UpdateTransferStatusParams struct {
-	Status string      `db:"status"`
-	ID     pgtype.UUID `db:"id"`
+	Status string    `db:"status"`
+	ID     uuid.UUID `db:"id"`
 }
 
 func (q *Queries) UpdateTransferStatus(ctx context.Context, arg UpdateTransferStatusParams) error {

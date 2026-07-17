@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"transx/internal/modules/notification/application/dto"
 	"transx/internal/modules/notification/domain/entities"
@@ -31,7 +30,7 @@ func (r *PostgresNotificationRepository) InsertNotification(
 	n *entities.Notification,
 ) error {
 	_, err := r.q.InsertNotification(ctx, gen.InsertNotificationParams{
-		TransferID: pgUUID(n.TransferID),
+		TransferID: n.TransferID,
 		EventType:  n.EventType,
 		Channel:    string(n.Channel),
 		Recipient:  n.Recipient,
@@ -45,7 +44,7 @@ func (r *PostgresNotificationRepository) GetTransferContext(
 	ctx context.Context,
 	transferID uuid.UUID,
 ) (*dto.TransferNotificationContext, error) {
-	row, err := r.q.GetTransferNotificationContext(ctx, pgUUID(transferID))
+	row, err := r.q.GetTransferNotificationContext(ctx, transferID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -62,13 +61,9 @@ func (r *PostgresNotificationRepository) GetTransferContext(
 		TransferType:    row.TransferType,
 		RecipientEmail:  row.RecipientEmail,
 		RecipientName:   row.RecipientName,
-		RecipientUserID: uuidString(row.RecipientUserID),
-		ToUserID:        uuidString(row.ToUserID),
+		RecipientUserID: row.RecipientUserID.String(),
+		ToUserID:        uuidPtrString(row.ToUserID),
 	}, nil
-}
-
-func pgUUID(id uuid.UUID) pgtype.UUID {
-	return pgtype.UUID{Bytes: id, Valid: true}
 }
 
 func textValue(s *string) string {
@@ -78,9 +73,9 @@ func textValue(s *string) string {
 	return *s
 }
 
-func uuidString(id pgtype.UUID) string {
-	if !id.Valid {
+func uuidPtrString(id *uuid.UUID) string {
+	if id == nil {
 		return ""
 	}
-	return uuid.UUID(id.Bytes).String()
+	return id.String()
 }

@@ -7,14 +7,14 @@ package gen
 import (
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 )
 
 type User struct {
-	ID           pgtype.UUID `db:"id"`
-	Email        string      `db:"email"`
-	PasswordHash string      `db:"password_hash"`
-	Name         string      `db:"name"`
-	CreatedAt    time.Time   `db:"created_at"`
-	UpdatedAt    time.Time   `db:"updated_at"`
+	ID           uuid.UUID `db:"id"`
+	Email        string    `db:"email"`
+	PasswordHash string    `db:"password_hash"`
+	Name         string    `db:"name"`
+	CreatedAt    time.Time `db:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at"`
 }

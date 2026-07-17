@@ -564,7 +564,7 @@ func TestPostgresTransferRepository(t *testing.T) {
 		// Set from account to frozen before executing in the repository-owned transaction.
 		err := accountQueries.UpdateAccountStatus(ctx, walletquery.UpdateAccountStatusParams{
 			Status: string(walletentities.AccountStatusFrozen),
-			ID:     walletrepos.PgUUID(fromAcct.ID),
+			ID:     fromAcct.ID,
 		})
 		require.NoError(t, err)
 

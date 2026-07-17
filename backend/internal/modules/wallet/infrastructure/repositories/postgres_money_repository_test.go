@@ -46,12 +46,12 @@ func createTestTransfer(
 		TransactionCurrency: "USD",
 		TransferType:        "INTERNAL",
 		Status:              "PENDING",
-		UserID:              walletrepos.PgUUID(userID),
+		UserID:              userID,
 		IdempotencyKey:      uuid.New().String(),
 		Reference:           "ITN-" + uuid.New().String(),
 	})
 	require.NoError(t, err)
-	return created.ID.Bytes
+	return created.ID
 }
 
 func TestPostgresMoneyRepository(t *testing.T) {

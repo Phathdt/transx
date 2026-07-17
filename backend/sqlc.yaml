@@ -36,6 +36,22 @@ overrides:
           type: 'Time'
           pointer: true
 
+      # uuid — same bare-name rule as timestamptz with sqlc v1.30 + pgx/v5.
+      - db_type: 'uuid'
+        engine: 'postgresql'
+        go_type:
+          import: 'github.com/google/uuid'
+          type: 'UUID'
+          pointer: false
+
+      - db_type: 'uuid'
+        engine: 'postgresql'
+        nullable: true
+        go_type:
+          import: 'github.com/google/uuid'
+          type: 'UUID'
+          pointer: true
+
       - db_type: 'pg_catalog.bool'
         nullable: true
         go_type:

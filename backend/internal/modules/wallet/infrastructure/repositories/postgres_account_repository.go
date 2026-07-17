@@ -29,7 +29,7 @@ func (r *PostgresAccountRepository) Create(
 	a *entities.Account,
 ) (*entities.Account, error) {
 	row, err := r.q.CreateAccount(ctx, gen.CreateAccountParams{
-		UserID:           pgUUID(a.UserID),
+		UserID:           a.UserID,
 		Name:             a.Name,
 		Currency:         a.Currency,
 		AvailableBalance: a.AvailableBalance,
@@ -47,7 +47,7 @@ func (r *PostgresAccountRepository) GetByID(
 	ctx context.Context,
 	id uuid.UUID,
 ) (*entities.Account, error) {
-	row, err := r.q.GetAccountByID(ctx, pgUUID(id))
+	row, err := r.q.GetAccountByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -78,7 +78,7 @@ func (r *PostgresAccountRepository) GetByRefForUser(
 ) (*entities.Account, error) {
 	row, err := r.q.GetAccountByRefForUser(ctx, gen.GetAccountByRefForUserParams{
 		AccountRef: ref,
-		UserID:     pgUUID(userID),
+		UserID:     userID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -115,7 +115,7 @@ func (r *PostgresAccountRepository) ListByUser(
 	limit, offset int32,
 ) ([]*entities.Account, error) {
 	rows, err := r.q.ListAccountsByUser(ctx, gen.ListAccountsByUserParams{
-		UserID:   pgUUID(userID),
+		UserID:   userID,
 		Currency: currency,
 		Status:   status,
 		Lim:      limit,
@@ -137,7 +137,7 @@ func (r *PostgresAccountRepository) CountByUser(
 	currency, status *string,
 ) (int64, error) {
 	return r.q.CountAccountsByUser(ctx, gen.CountAccountsByUserParams{
-		UserID:   pgUUID(userID),
+		UserID:   userID,
 		Currency: currency,
 		Status:   status,
 	})

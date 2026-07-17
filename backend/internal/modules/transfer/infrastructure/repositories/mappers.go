@@ -1,17 +1,9 @@
 package repositories
 
 import (
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"transx/internal/modules/transfer/domain/entities"
 	"transx/internal/modules/transfer/infrastructure/gen"
 )
-
-// pgUUID wraps a uuid.UUID as a pgtype.UUID for query parameters.
-func pgUUID(id uuid.UUID) pgtype.UUID {
-	return pgtype.UUID{Bytes: id, Valid: true}
-}
 
 // textOrNull maps an empty string to a NULL text column pointer, used for the
 // optional to_account_ref (EXTERNAL transfers may carry no destination).
@@ -32,7 +24,7 @@ func textValue(s *string) string {
 
 func transferToEntity(row *gen.Transfer) *entities.Transfer {
 	return &entities.Transfer{
-		ID:                  row.ID.Bytes,
+		ID:                  row.ID,
 		Reference:           row.Reference,
 		FromAccountRef:      row.FromAccountRef,
 		ToAccountRef:        textValue(row.ToAccountRef),
@@ -53,7 +45,7 @@ func transferToEntity(row *gen.Transfer) *entities.Transfer {
 		Status:              entities.TransferStatus(row.Status),
 		FailureReason:       row.FailureReason,
 		Message:             textValue(row.Message),
-		UserID:              row.UserID.Bytes,
+		UserID:              row.UserID,
 		IdempotencyKey:      row.IdempotencyKey,
 		RequestHash:         row.RequestHash,
 		// ExecuteAt is already *time.Time from sqlc (nullable timestamptz).

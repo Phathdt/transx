@@ -7,21 +7,21 @@ package gen
 import (
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
 type OutboxEvent struct {
-	ID            pgtype.UUID `db:"id"`
-	AggregateType string      `db:"aggregate_type"`
-	AggregateID   pgtype.UUID `db:"aggregate_id"`
-	EventType     string      `db:"event_type"`
-	Payload       []byte      `db:"payload"`
-	CreatedAt     time.Time   `db:"created_at"`
+	ID            uuid.UUID `db:"id"`
+	AggregateType string    `db:"aggregate_type"`
+	AggregateID   uuid.UUID `db:"aggregate_id"`
+	EventType     string    `db:"event_type"`
+	Payload       []byte    `db:"payload"`
+	CreatedAt     time.Time `db:"created_at"`
 }
 
 type Transfer struct {
-	ID                  pgtype.UUID     `db:"id"`
+	ID                  uuid.UUID       `db:"id"`
 	TransactionAmount   decimal.Decimal `db:"transaction_amount"`
 	TransactionCurrency string          `db:"transaction_currency"`
 	TransferType        string          `db:"transfer_type"`
@@ -30,7 +30,7 @@ type Transfer struct {
 	// PENDING | SCHEDULED | RESERVED | PROCESSING | SUBMITTED | SUCCEEDED | FAILED | CANCELLED | REVERSED | UNKNOWN
 	Status              string              `db:"status"`
 	FailureReason       string              `db:"failure_reason"`
-	UserID              pgtype.UUID         `db:"user_id"`
+	UserID              uuid.UUID           `db:"user_id"`
 	IdempotencyKey      string              `db:"idempotency_key"`
 	RequestHash         string              `db:"request_hash"`
 	CreatedAt           time.Time           `db:"created_at"`

@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
 	"transx/internal/modules/wallet/domain/entities"
@@ -48,7 +47,7 @@ func (r *PostgresMoneyRepository) Move(
 		q := r.q.WithTx(tx)
 
 		done, err := q.WalletOperationGuardExists(ctx, gen.WalletOperationGuardExistsParams{
-			TransferID: pgUUID(transferID),
+			TransferID: transferID,
 			Operation:  operation,
 		})
 		if err != nil {
@@ -111,7 +110,7 @@ func (r *PostgresMoneyRepository) Move(
 		}
 
 		if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
-			TransferID:   pgUUID(transferID),
+			TransferID:   transferID,
 			AccountID:    fromID,
 			Direction:    string(entities.LedgerDebit),
 			Amount:       in.SourceAmount,
@@ -122,7 +121,7 @@ func (r *PostgresMoneyRepository) Move(
 		}
 		if in.FeeAmount.IsPositive() {
 			if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
-				TransferID:   pgUUID(transferID),
+				TransferID:   transferID,
 				AccountID:    fromID,
 				Direction:    string(entities.LedgerFee),
 				Amount:       in.FeeAmount,
@@ -133,7 +132,7 @@ func (r *PostgresMoneyRepository) Move(
 			}
 		}
 		if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
-			TransferID:   pgUUID(transferID),
+			TransferID:   transferID,
 			AccountID:    toID,
 			Direction:    string(entities.LedgerCredit),
 			Amount:       in.DestinationAmount,
@@ -144,7 +143,7 @@ func (r *PostgresMoneyRepository) Move(
 		}
 
 		if err := q.InsertWalletOperationGuard(ctx, gen.InsertWalletOperationGuardParams{
-			TransferID: pgUUID(transferID),
+			TransferID: transferID,
 			Operation:  operation,
 		}); err != nil {
 			return err
@@ -198,7 +197,7 @@ func (r *PostgresMoneyRepository) Hold(
 		q := r.q.WithTx(tx)
 
 		done, err := q.WalletOperationGuardExists(ctx, gen.WalletOperationGuardExistsParams{
-			TransferID: pgUUID(transferID),
+			TransferID: transferID,
 			Operation:  operation,
 		})
 		if err != nil {
@@ -236,7 +235,7 @@ func (r *PostgresMoneyRepository) Hold(
 		}
 
 		if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
-			TransferID:   pgUUID(transferID),
+			TransferID:   transferID,
 			AccountID:    account.ID,
 			Direction:    string(entities.LedgerHold),
 			Amount:       amount,
@@ -247,7 +246,7 @@ func (r *PostgresMoneyRepository) Hold(
 		}
 
 		if err := q.InsertWalletOperationGuard(ctx, gen.InsertWalletOperationGuardParams{
-			TransferID: pgUUID(transferID),
+			TransferID: transferID,
 			Operation:  operation,
 		}); err != nil {
 			return err
@@ -275,7 +274,7 @@ func (r *PostgresMoneyRepository) SettleHold(
 ) (interfaces.HoldResult, error) {
 	return r.adjustHold(ctx, transferID, operation, accountRef, amount, currency, entities.LedgerDebit, func(
 		q *gen.Queries,
-		accountID pgtype.UUID,
+		accountID uuid.UUID,
 	) (interfaces.HoldResult, error) {
 		row, err := q.DebitHold(ctx, gen.DebitHoldParams{Amount: amount, ID: accountID})
 		if err != nil {
@@ -296,7 +295,7 @@ func (r *PostgresMoneyRepository) ReleaseHold(
 ) (interfaces.HoldResult, error) {
 	return r.adjustHold(ctx, transferID, operation, accountRef, amount, currency, entities.LedgerRelease, func(
 		q *gen.Queries,
-		accountID pgtype.UUID,
+		accountID uuid.UUID,
 	) (interfaces.HoldResult, error) {
 		row, err := q.ReleaseHold(ctx, gen.ReleaseHoldParams{Amount: amount, ID: accountID})
 		if err != nil {
@@ -316,14 +315,14 @@ func (r *PostgresMoneyRepository) adjustHold(
 	amount decimal.Decimal,
 	currency string,
 	direction entities.LedgerDirection,
-	apply func(q *gen.Queries, accountID pgtype.UUID) (interfaces.HoldResult, error),
+	apply func(q *gen.Queries, accountID uuid.UUID) (interfaces.HoldResult, error),
 ) (interfaces.HoldResult, error) {
 	var result interfaces.HoldResult
 	err := postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
 
 		done, err := q.WalletOperationGuardExists(ctx, gen.WalletOperationGuardExistsParams{
-			TransferID: pgUUID(transferID),
+			TransferID: transferID,
 			Operation:  operation,
 		})
 		if err != nil {
@@ -349,7 +348,7 @@ func (r *PostgresMoneyRepository) adjustHold(
 		}
 
 		if _, err := q.InsertLedgerEntry(ctx, gen.InsertLedgerEntryParams{
-			TransferID:   pgUUID(transferID),
+			TransferID:   transferID,
 			AccountID:    account.ID,
 			Direction:    string(direction),
 			Amount:       amount,
@@ -360,7 +359,7 @@ func (r *PostgresMoneyRepository) adjustHold(
 		}
 
 		if err := q.InsertWalletOperationGuard(ctx, gen.InsertWalletOperationGuardParams{
-			TransferID: pgUUID(transferID),
+			TransferID: transferID,
 			Operation:  operation,
 		}); err != nil {
 			return err

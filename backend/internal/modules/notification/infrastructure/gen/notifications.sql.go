@@ -8,7 +8,7 @@ package gen
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -43,10 +43,10 @@ type GetTransferNotificationContextRow struct {
 	TransactionCurrency string          `db:"transaction_currency"`
 	ToAccountRef        *string         `db:"to_account_ref"`
 	TransferType        string          `db:"transfer_type"`
-	RecipientUserID     pgtype.UUID     `db:"recipient_user_id"`
+	RecipientUserID     uuid.UUID       `db:"recipient_user_id"`
 	RecipientEmail      string          `db:"recipient_email"`
 	RecipientName       string          `db:"recipient_name"`
-	ToUserID            pgtype.UUID     `db:"to_user_id"`
+	ToUserID            *uuid.UUID      `db:"to_user_id"`
 }
 
 // Reloads the data needed to build a transfer notification / inbox item by
@@ -57,7 +57,7 @@ type GetTransferNotificationContextRow struct {
 // accounts.user_id NOT NULL + users.email NOT NULL), so a matched row always
 // has a sender email and user id. Destination is LEFT JOINed so EXTERNAL
 // free-text refs leave to_user_id NULL.
-func (q *Queries) GetTransferNotificationContext(ctx context.Context, id pgtype.UUID) (*GetTransferNotificationContextRow, error) {
+func (q *Queries) GetTransferNotificationContext(ctx context.Context, id uuid.UUID) (*GetTransferNotificationContextRow, error) {
 	row := q.db.QueryRow(ctx, getTransferNotificationContext, id)
 	var i GetTransferNotificationContextRow
 	err := row.Scan(
@@ -84,12 +84,12 @@ RETURNING
 `
 
 type InsertNotificationParams struct {
-	TransferID pgtype.UUID `db:"transfer_id"`
-	EventType  string      `db:"event_type"`
-	Channel    string      `db:"channel"`
-	Recipient  string      `db:"recipient"`
-	Status     string      `db:"status"`
-	Error      string      `db:"error"`
+	TransferID uuid.UUID `db:"transfer_id"`
+	EventType  string    `db:"event_type"`
+	Channel    string    `db:"channel"`
+	Recipient  string    `db:"recipient"`
+	Status     string    `db:"status"`
+	Error      string    `db:"error"`
 }
 
 func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotificationParams) (*Notification, error) {

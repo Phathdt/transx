@@ -8,7 +8,7 @@ package gen
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -26,9 +26,9 @@ WHERE
 `
 
 type CountAccountsByUserParams struct {
-	UserID   pgtype.UUID `db:"user_id"`
-	Currency *string     `db:"currency"`
-	Status   *string     `db:"status"`
+	UserID   uuid.UUID `db:"user_id"`
+	Currency *string   `db:"currency"`
+	Status   *string   `db:"status"`
 }
 
 func (q *Queries) CountAccountsByUser(ctx context.Context, arg CountAccountsByUserParams) (int64, error) {
@@ -46,7 +46,7 @@ RETURNING
 `
 
 type CreateAccountParams struct {
-	UserID           pgtype.UUID     `db:"user_id"`
+	UserID           uuid.UUID       `db:"user_id"`
 	Name             string          `db:"name"`
 	Currency         string          `db:"currency"`
 	AvailableBalance decimal.Decimal `db:"available_balance"`
@@ -96,7 +96,7 @@ RETURNING
 
 type CreditAvailableParams struct {
 	Amount decimal.Decimal `db:"amount"`
-	ID     pgtype.UUID     `db:"id"`
+	ID     uuid.UUID       `db:"id"`
 }
 
 // Credit only lands on an ACTIVE account; a non-ACTIVE destination yields no row.
@@ -123,7 +123,7 @@ RETURNING
 
 type DebitAvailableIfSufficientParams struct {
 	Amount decimal.Decimal `db:"amount"`
-	ID     pgtype.UUID     `db:"id"`
+	ID     uuid.UUID       `db:"id"`
 }
 
 // Conditional debit: only succeeds for an ACTIVE account with enough funds. The
@@ -150,7 +150,7 @@ RETURNING
 
 type DebitHoldParams struct {
 	Amount decimal.Decimal `db:"amount"`
-	ID     pgtype.UUID     `db:"id"`
+	ID     uuid.UUID       `db:"id"`
 }
 
 type DebitHoldRow struct {
@@ -177,7 +177,7 @@ WHERE
     id = $1
 `
 
-func (q *Queries) GetAccountByID(ctx context.Context, id pgtype.UUID) (*Account, error) {
+func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (*Account, error) {
 	row := q.db.QueryRow(ctx, getAccountByID, id)
 	var i Account
 	err := row.Scan(
@@ -233,8 +233,8 @@ WHERE
 `
 
 type GetAccountByRefForUserParams struct {
-	AccountRef string      `db:"account_ref"`
-	UserID     pgtype.UUID `db:"user_id"`
+	AccountRef string    `db:"account_ref"`
+	UserID     uuid.UUID `db:"user_id"`
 }
 
 func (q *Queries) GetAccountByRefForUser(ctx context.Context, arg GetAccountByRefForUserParams) (*Account, error) {
@@ -310,11 +310,11 @@ LIMIT $5 OFFSET $4
 `
 
 type ListAccountsByUserParams struct {
-	UserID   pgtype.UUID `db:"user_id"`
-	Currency *string     `db:"currency"`
-	Status   *string     `db:"status"`
-	Off      int32       `db:"off"`
-	Lim      int32       `db:"lim"`
+	UserID   uuid.UUID `db:"user_id"`
+	Currency *string   `db:"currency"`
+	Status   *string   `db:"status"`
+	Off      int32     `db:"off"`
+	Lim      int32     `db:"lim"`
 }
 
 func (q *Queries) ListAccountsByUser(ctx context.Context, arg ListAccountsByUserParams) ([]*Account, error) {
@@ -368,7 +368,7 @@ FOR UPDATE
 
 // Locks the given accounts in a deterministic order (ORDER BY id) so two
 // crossing transfers (A->B and B->A) cannot deadlock on lock acquisition.
-func (q *Queries) LockAccountsByIDs(ctx context.Context, ids []pgtype.UUID) ([]*Account, error) {
+func (q *Queries) LockAccountsByIDs(ctx context.Context, ids []uuid.UUID) ([]*Account, error) {
 	rows, err := q.db.Query(ctx, lockAccountsByIDs, ids)
 	if err != nil {
 		return nil, err
@@ -461,7 +461,7 @@ RETURNING
 
 type ReleaseHoldParams struct {
 	Amount decimal.Decimal `db:"amount"`
-	ID     pgtype.UUID     `db:"id"`
+	ID     uuid.UUID       `db:"id"`
 }
 
 type ReleaseHoldRow struct {
@@ -495,7 +495,7 @@ RETURNING
 
 type ReserveHoldIfSufficientParams struct {
 	Amount decimal.Decimal `db:"amount"`
-	ID     pgtype.UUID     `db:"id"`
+	ID     uuid.UUID       `db:"id"`
 }
 
 type ReserveHoldIfSufficientRow struct {
@@ -524,8 +524,8 @@ WHERE
 `
 
 type UpdateAccountStatusParams struct {
-	Status string      `db:"status"`
-	ID     pgtype.UUID `db:"id"`
+	Status string    `db:"status"`
+	ID     uuid.UUID `db:"id"`
 }
 
 func (q *Queries) UpdateAccountStatus(ctx context.Context, arg UpdateAccountStatusParams) error {

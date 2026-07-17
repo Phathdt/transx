@@ -7,13 +7,13 @@ package gen
 import (
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
 type Account struct {
-	ID               pgtype.UUID     `db:"id"`
-	UserID           pgtype.UUID     `db:"user_id"`
+	ID               uuid.UUID       `db:"id"`
+	UserID           uuid.UUID       `db:"user_id"`
 	Name             string          `db:"name"`
 	Currency         string          `db:"currency"`
 	AvailableBalance decimal.Decimal `db:"available_balance"`
@@ -25,9 +25,9 @@ type Account struct {
 }
 
 type LedgerEntry struct {
-	ID           pgtype.UUID     `db:"id"`
-	TransferID   pgtype.UUID     `db:"transfer_id"`
-	AccountID    pgtype.UUID     `db:"account_id"`
+	ID           uuid.UUID       `db:"id"`
+	TransferID   uuid.UUID       `db:"transfer_id"`
+	AccountID    uuid.UUID       `db:"account_id"`
 	Direction    string          `db:"direction"`
 	Amount       decimal.Decimal `db:"amount"`
 	BalanceAfter decimal.Decimal `db:"balance_after"`
