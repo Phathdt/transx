@@ -24,7 +24,11 @@ const (
 	refreshTTL   = 24 * time.Hour
 )
 
-func newTestAuthService(t *testing.T, users *testmocks.UserRepository, sessions *testmocks.RefreshSessionStore) *AuthService {
+func newTestAuthService(
+	t *testing.T,
+	users *testmocks.UserRepository,
+	sessions *testmocks.RefreshSessionStore,
+) *AuthService {
 	t.Helper()
 	return NewAuthService(users, NewTokenService("test-secret-key-12345", time.Hour), sessions, refreshTTL)
 }
@@ -44,7 +48,11 @@ func newTestUser(t *testing.T) *entities.User {
 	}
 }
 
-func expectSessionCreate(sessions *testmocks.RefreshSessionStore, ctx context.Context, times int) *interfaces.RefreshSession {
+func expectSessionCreate(
+	sessions *testmocks.RefreshSessionStore,
+	ctx context.Context,
+	times int,
+) *interfaces.RefreshSession {
 	var created interfaces.RefreshSession
 	call := sessions.EXPECT().
 		Create(ctx, mock.AnythingOfType("interfaces.RefreshSession"), refreshTTL).
