@@ -4,6 +4,7 @@
  */
 export const NON_TERMINAL_STATUSES = [
   'PENDING',
+  'SCHEDULED',
   'RESERVED',
   'PROCESSING',
   'SUBMITTED',
@@ -12,6 +13,7 @@ export const NON_TERMINAL_STATUSES = [
 export const TERMINAL_STATUSES = [
   'SUCCEEDED',
   'FAILED',
+  'CANCELLED',
   'REVERSED',
   'UNKNOWN',
 ] as const

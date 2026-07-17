@@ -213,7 +213,9 @@ Represents transfer intent.
 
 **Status values:**
 
-`PENDING` · `RESERVED` · `PROCESSING` · `SUBMITTED` · `SUCCEEDED` · `FAILED` · `REVERSED` · `UNKNOWN`
+`PENDING` · `SCHEDULED` · `RESERVED` · `PROCESSING` · `SUBMITTED` · `SUCCEEDED` · `FAILED` · `CANCELLED` · `REVERSED` · `UNKNOWN`
+
+`SCHEDULED` is set when create includes a future `executeAt` (no funds held until execute). `CANCELLED` is terminal for a schedule cancelled before execute (emits `transfer.failed` with reason `CANCELLED`).
 
 ### Ledger Entry
 

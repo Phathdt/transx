@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -68,20 +69,50 @@ func NewTransferReference(transferType string) string {
 // followed by a 26-char Crockford base32 ULID (the alphabet excludes I, L, O, U).
 var transferReferencePattern = regexp.MustCompile(`^(ETN|ITN)-[0-9A-HJKMNP-TV-Z]{26}$`)
 
+// maxScheduleHorizon bounds how far in the future executeAt may be. Anything
+// beyond this is rejected at create time rather than accepted and left to
+// drift for months in SCHEDULED.
+const maxScheduleHorizon = 90 * 24 * time.Hour
+
+// WorkflowCanceller signals the running Temporal workflow for a SCHEDULED
+// transfer to cancel, after the DB-side CancelScheduled CAS has already
+// committed. It is best-effort: the DB row is the source of truth, so a
+// canceller error is logged, not surfaced to the caller — the workflow's own
+// wait loop is idempotent and eventually observes CANCELLED on its own re-read.
+type WorkflowCanceller interface {
+	CancelWorkflow(ctx context.Context, transferID uuid.UUID) error
+}
+
+// TransferServiceOption configures optional TransferService dependencies.
+type TransferServiceOption func(*TransferService)
+
+// WithWorkflowCanceller wires a WorkflowCanceller so CancelTransfer signals
+// the in-flight Temporal workflow after its DB cancel succeeds. Omitted in
+// unit tests and any process that does not dial Temporal.
+func WithWorkflowCanceller(c WorkflowCanceller) TransferServiceOption {
+	return func(s *TransferService) { s.canceller = c }
+}
+
 // TransferService creates transfers with authorization and idempotency, and
 // reads them back owner-scoped.
 type TransferService struct {
 	transfers    interfaces.TransferRepository
 	accounts     walletinterfaces.AccountRepository
 	providerName string
+	canceller    WorkflowCanceller
 }
 
 func NewTransferService(
 	transfers interfaces.TransferRepository,
 	accounts walletinterfaces.AccountRepository,
 	providerName string,
+	opts ...TransferServiceOption,
 ) *TransferService {
-	return &TransferService{transfers: transfers, accounts: accounts, providerName: providerName}
+	s := &TransferService{transfers: transfers, accounts: accounts, providerName: providerName}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // CreateTransfer validates, authorizes and idempotently creates a transfer in
@@ -114,11 +145,37 @@ func (s *TransferService) CreateTransfer(
 	if !currency.IsSupported(txCurrency) {
 		return nil, apperror.NewBadRequestError("unsupported currency")
 	}
+	executeAt, err := parseExecuteAt(cmd.ExecuteAt)
+	if err != nil {
+		return nil, err
+	}
 
 	if tType == transferTypeExternal {
-		return s.createExternal(ctx, userID, key, fromRef, amount, txCurrency, cmd.ToAccountRef, cmd.Message)
+		return s.createExternal(ctx, userID, key, fromRef, amount, txCurrency, cmd.ToAccountRef, cmd.Message, executeAt)
 	}
-	return s.createInternal(ctx, userID, key, fromRef, cmd.ToAccountRef, amount, txCurrency, cmd.Message)
+	return s.createInternal(ctx, userID, key, fromRef, cmd.ToAccountRef, amount, txCurrency, cmd.Message, executeAt)
+}
+
+// parseExecuteAt parses an optional RFC3339 executeAt. Empty means immediate
+// (nil, no error). When present it must be strictly in the future (no epsilon
+// buffer) and no further out than maxScheduleHorizon, so the error message can
+// name the actual bound instead of a generic "invalid".
+func parseExecuteAt(raw string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, apperror.NewBadRequestError("executeAt must be RFC3339")
+	}
+	now := time.Now()
+	if !parsed.After(now) {
+		return nil, apperror.NewBadRequestError("executeAt must be in the future")
+	}
+	if parsed.After(now.Add(maxScheduleHorizon)) {
+		return nil, apperror.NewBadRequestError("executeAt must be within 90 days")
+	}
+	return &parsed, nil
 }
 
 // createInternal handles an INTERNAL transfer: it requires a destination account
@@ -132,6 +189,7 @@ func (s *TransferService) createInternal(
 	amount decimal.Decimal,
 	txCurrency string,
 	message string,
+	executeAt *time.Time,
 ) (*dto.TransferResponse, error) {
 	// An INTERNAL destination must be an in-system account ref; a free-text id is
 	// only valid for EXTERNAL transfers.
@@ -142,7 +200,7 @@ func (s *TransferService) createInternal(
 		return nil, apperror.NewBadRequestError("from and to accounts must differ")
 	}
 
-	hash := requestHash(fromRef, toRef, amount, txCurrency, transferTypeInternal, "")
+	hash := requestHash(fromRef, toRef, amount, txCurrency, transferTypeInternal, "", executeAt)
 
 	if existing, err := s.transfers.FindByUserAndKey(ctx, userID, key); err != nil {
 		return nil, err
@@ -170,6 +228,9 @@ func (s *TransferService) createInternal(
 	if !from.IsActive() || !to.IsActive() {
 		return nil, apperror.NewUnprocessableError("account not active")
 	}
+	if executeAt != nil && from.Currency == txCurrency && from.AvailableBalance.LessThan(amount) {
+		return nil, apperror.NewUnprocessableError("insufficient funds")
+	}
 
 	// Snapshot the destination holder name at create time so the receiver shown
 	// on the transfer stays stable even if the account is later renamed. This is
@@ -183,6 +244,10 @@ func (s *TransferService) createInternal(
 		toName = lookup.HolderName
 	}
 
+	status := entities.TransferStatusPending
+	if executeAt != nil {
+		status = entities.TransferStatusScheduled
+	}
 	return s.persist(ctx, &entities.Transfer{
 		FromAccountRef:      fromRef,
 		ToAccountRef:        toRef,
@@ -193,11 +258,12 @@ func (s *TransferService) createInternal(
 		FeeCurrency:         txCurrency,
 		TransferType:        transferTypeInternal,
 		Reference:           NewTransferReference(transferTypeInternal),
-		Status:              entities.TransferStatusPending,
+		Status:              status,
 		Message:             message,
 		UserID:              userID,
 		IdempotencyKey:      key,
 		RequestHash:         hash,
+		ExecuteAt:           executeAt,
 	}, userID, key, hash)
 }
 
@@ -214,8 +280,9 @@ func (s *TransferService) createExternal(
 	txCurrency string,
 	toRef string,
 	message string,
+	executeAt *time.Time,
 ) (*dto.TransferResponse, error) {
-	hash := requestHash(fromRef, toRef, amount, txCurrency, transferTypeExternal, s.providerName)
+	hash := requestHash(fromRef, toRef, amount, txCurrency, transferTypeExternal, s.providerName, executeAt)
 
 	if existing, err := s.transfers.FindByUserAndKey(ctx, userID, key); err != nil {
 		return nil, err
@@ -236,7 +303,14 @@ func (s *TransferService) createExternal(
 	if from.Currency != txCurrency {
 		return nil, apperror.NewUnprocessableError("currency mismatch")
 	}
+	if executeAt != nil && from.AvailableBalance.LessThan(amount) {
+		return nil, apperror.NewUnprocessableError("insufficient funds")
+	}
 
+	status := entities.TransferStatusPending
+	if executeAt != nil {
+		status = entities.TransferStatusScheduled
+	}
 	return s.persist(ctx, &entities.Transfer{
 		FromAccountRef:      fromRef,
 		ToAccountRef:        toRef, // free-text beneficiary or empty; no in-ledger destination.
@@ -247,11 +321,12 @@ func (s *TransferService) createExternal(
 		TransferType:        transferTypeExternal,
 		Reference:           NewTransferReference(transferTypeExternal),
 		Provider:            s.providerName,
-		Status:              entities.TransferStatusPending,
+		Status:              status,
 		Message:             message,
 		UserID:              userID,
 		IdempotencyKey:      key,
 		RequestHash:         hash,
+		ExecuteAt:           executeAt,
 	}, userID, key, hash)
 }
 
@@ -306,6 +381,59 @@ func (s *TransferService) GetTransfer(
 	return transferToResponse(transfer), nil
 }
 
+// CancelTransfer cancels a SCHEDULED transfer the caller owns, transitioning
+// it to CANCELLED before its execute time. Already-CANCELLED is idempotent
+// (200 with the current body); any other status is a conflict since the
+// transfer either already ran or never had an execute time to cancel before.
+func (s *TransferService) CancelTransfer(
+	ctx context.Context,
+	reference string,
+	userID uuid.UUID,
+) (*dto.TransferResponse, error) {
+	if !transferReferencePattern.MatchString(reference) {
+		return nil, apperror.NewBadRequestError("invalid transferId")
+	}
+	transfer, err := s.transfers.GetByReferenceForUser(ctx, reference, userID)
+	if err != nil {
+		return nil, err
+	}
+	if transfer == nil {
+		return nil, apperror.NewNotFoundError("transfer not found")
+	}
+	if transfer.Status == entities.TransferStatusCancelled {
+		return transferToResponse(transfer), nil
+	}
+	if transfer.Status != entities.TransferStatusScheduled {
+		return nil, apperror.NewConflictError("transfer is not scheduled")
+	}
+
+	cancelled, err := s.transfers.CancelScheduled(ctx, transfer.ID)
+	if err != nil {
+		return nil, err
+	}
+	if cancelled == nil {
+		// Lost the race to a concurrent cancel/execute; re-read for the current state.
+		current, err := s.transfers.GetByReferenceForUser(ctx, reference, userID)
+		if err != nil {
+			return nil, err
+		}
+		if current == nil {
+			return nil, apperror.NewNotFoundError("transfer not found")
+		}
+		if current.Status != entities.TransferStatusCancelled {
+			return nil, apperror.NewConflictError("transfer is not scheduled")
+		}
+		return transferToResponse(current), nil
+	}
+	// Best-effort wake: the DB row is already CANCELLED regardless of whether
+	// this succeeds. If the workflow has not started yet or already finished
+	// its wait, its own re-read still lands on CANCELLED.
+	if s.canceller != nil {
+		_ = s.canceller.CancelWorkflow(ctx, transfer.ID)
+	}
+	return transferToResponse(cancelled), nil
+}
+
 // parseTransferCommon validates and parses the fields shared by both transfer
 // types: the source account ref and the amount. The source is always an
 // in-system account, so its ref must match the ACC- pattern. Destination
@@ -347,9 +475,20 @@ func transferType(t string) string {
 // EXTERNAL transfers with no destination; provider is empty for INTERNAL — both
 // feed the hash so the same key cannot be replayed across differing transfer
 // shapes. Account refs are stable, so the hash is stable across the UUID split.
-func requestHash(fromRef, toRef string, amount decimal.Decimal, currency, tType, provider string) string {
-	canonical := fmt.Sprintf("%s|%s|%s|%s|%s|%s",
-		fromRef, toRef, amount.String(), currency, tType, provider)
+// executeAt is nil for an immediate transfer; a scheduled retry with a
+// different execute time is a different logical request, not a replay.
+func requestHash(
+	fromRef, toRef string,
+	amount decimal.Decimal,
+	currency, tType, provider string,
+	executeAt *time.Time,
+) string {
+	var executeAtCanonical string
+	if executeAt != nil {
+		executeAtCanonical = executeAt.UTC().Format(time.RFC3339Nano)
+	}
+	canonical := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
+		fromRef, toRef, amount.String(), currency, tType, provider, executeAtCanonical)
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])
 }
@@ -369,6 +508,10 @@ func isUniqueViolation(err error) bool {
 }
 
 func transferToResponse(t *entities.Transfer) *dto.TransferResponse {
+	var executeAt string
+	if t.ExecuteAt != nil {
+		executeAt = t.ExecuteAt.UTC().Format(time.RFC3339)
+	}
 	return &dto.TransferResponse{
 		TransferID:          t.Reference,
 		Status:              string(t.Status),
@@ -387,6 +530,7 @@ func transferToResponse(t *entities.Transfer) *dto.TransferResponse {
 		FeeCurrency:         t.FeeCurrency,
 		Message:             t.Message,
 		FailureReason:       t.FailureReason,
+		ExecuteAt:           executeAt,
 	}
 }
 

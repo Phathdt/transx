@@ -6,13 +6,13 @@ import {
 
 describe('isTerminalStatus', () => {
   it('treats lifecycle statuses as non-terminal', () => {
-    for (const s of ['PENDING', 'RESERVED', 'PROCESSING', 'SUBMITTED']) {
+    for (const s of ['PENDING', 'SCHEDULED', 'RESERVED', 'PROCESSING', 'SUBMITTED']) {
       expect(isTerminalStatus(s)).toBe(false)
     }
   })
 
   it('treats settled statuses as terminal', () => {
-    for (const s of ['SUCCEEDED', 'FAILED', 'REVERSED', 'UNKNOWN']) {
+    for (const s of ['SUCCEEDED', 'FAILED', 'CANCELLED', 'REVERSED', 'UNKNOWN']) {
       expect(isTerminalStatus(s)).toBe(true)
     }
   })

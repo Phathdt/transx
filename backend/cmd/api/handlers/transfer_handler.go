@@ -56,6 +56,20 @@ func (h *TransferHandler) GetTransfer(c *fiber.Ctx) error {
 	return c.JSON(resp)
 }
 
+// CancelTransfer handles POST /transfers/:transferId/cancel, where transferId
+// is the business reference. Only a SCHEDULED transfer can be cancelled.
+func (h *TransferHandler) CancelTransfer(c *fiber.Ctx) error {
+	userID, ok := middleware.UserIDFrom(c)
+	if !ok {
+		return apperror.NewUnauthorizedError("missing X-User-Id")
+	}
+	resp, err := h.transfers.CancelTransfer(c.Context(), c.Params("transferId"), userID)
+	if err != nil {
+		return err
+	}
+	return c.JSON(resp)
+}
+
 // ListTransfers handles GET /transfers: an owner-scoped, paginated list of the
 // caller's transfers with optional status and accountRef filters.
 func (h *TransferHandler) ListTransfers(c *fiber.Ctx) error {

@@ -5,6 +5,7 @@ package repositories_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -747,5 +748,209 @@ func TestPostgresTransferRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, page2, 1)
 		assert.NotEqual(t, page1[0].Reference, page2[0].Reference)
+	})
+
+	t.Run("Create with ExecuteAt persists SCHEDULED transfer round-trip", func(t *testing.T) {
+		repo := transferRepo
+
+		executeAt := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Microsecond)
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        toAccount.Ref,
+			TransactionAmount:   decimal.NewFromInt(75),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusScheduled,
+			UserID:              userID,
+			IdempotencyKey:      "scheduled-key-" + uuid.New().String(),
+			RequestHash:         "hash-scheduled",
+			Reference:           transferservices.NewTransferReference("INTERNAL"),
+			ExecuteAt:           &executeAt,
+		}
+
+		created, err := repo.Create(ctx, transfer)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusScheduled, created.Status)
+		require.NotNil(t, created.ExecuteAt)
+		assert.WithinDuration(t, executeAt, *created.ExecuteAt, time.Second)
+
+		found, err := repo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		require.NotNil(t, found.ExecuteAt)
+		assert.WithinDuration(t, executeAt, *found.ExecuteAt, time.Second)
+	})
+
+	t.Run("Create without ExecuteAt leaves it nil (immediate path unchanged)", func(t *testing.T) {
+		repo := transferRepo
+
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        toAccount.Ref,
+			TransactionAmount:   decimal.NewFromInt(20),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "immediate-key-" + uuid.New().String(),
+			RequestHash:         "hash-immediate",
+			Reference:           transferservices.NewTransferReference("INTERNAL"),
+		}
+
+		created, err := repo.Create(ctx, transfer)
+		require.NoError(t, err)
+		assert.Nil(t, created.ExecuteAt)
+	})
+
+	t.Run("CancelScheduled cancels a SCHEDULED transfer and stages transfer.failed", func(t *testing.T) {
+		repo := transferRepo
+
+		executeAt := time.Now().Add(24 * time.Hour)
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        toAccount.Ref,
+			TransactionAmount:   decimal.NewFromInt(30),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusScheduled,
+			UserID:              userID,
+			IdempotencyKey:      "cancel-key-" + uuid.New().String(),
+			RequestHash:         "hash-cancel",
+			Reference:           transferservices.NewTransferReference("INTERNAL"),
+			ExecuteAt:           &executeAt,
+		}
+		created, err := repo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		cancelled, err := repo.CancelScheduled(ctx, created.ID)
+		require.NoError(t, err)
+		require.NotNil(t, cancelled)
+		assert.Equal(t, entities.TransferStatusCancelled, cancelled.Status)
+		assert.Equal(t, entities.FailureCancelled, cancelled.FailureReason)
+
+		var outboxCount int
+		err = pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM outbox_events
+			WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3
+		`, entities.AggregateTypeTransfer, created.ID, entities.EventTransferFailed).Scan(&outboxCount)
+		require.NoError(t, err)
+		assert.Equal(t, 1, outboxCount)
+	})
+
+	t.Run("CancelScheduled is a no-op on a non-SCHEDULED transfer", func(t *testing.T) {
+		repo := transferRepo
+
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        toAccount.Ref,
+			TransactionAmount:   decimal.NewFromInt(15),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusPending,
+			UserID:              userID,
+			IdempotencyKey:      "no-cancel-key-" + uuid.New().String(),
+			RequestHash:         "hash-no-cancel",
+			Reference:           transferservices.NewTransferReference("INTERNAL"),
+		}
+		created, err := repo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		cancelled, err := repo.CancelScheduled(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Nil(t, cancelled)
+
+		found, err := repo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusPending, found.Status)
+	})
+
+	t.Run("CancelScheduled on unknown id is a no-op", func(t *testing.T) {
+		repo := transferRepo
+
+		cancelled, err := repo.CancelScheduled(ctx, uuid.New())
+		require.NoError(t, err)
+		assert.Nil(t, cancelled)
+	})
+
+	t.Run("SetSettlementSnapshot accepts SCHEDULED and advances to PROCESSING", func(t *testing.T) {
+		repo := transferRepo
+
+		executeAt := time.Now().Add(time.Hour)
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        toAccount.Ref,
+			TransactionAmount:   decimal.NewFromInt(40),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusScheduled,
+			UserID:              userID,
+			IdempotencyKey:      "snapshot-scheduled-key-" + uuid.New().String(),
+			RequestHash:         "hash-snapshot-scheduled",
+			Reference:           transferservices.NewTransferReference("INTERNAL"),
+			ExecuteAt:           &executeAt,
+		}
+		created, err := repo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		err = repo.SetSettlementSnapshot(
+			ctx, created.ID,
+			decimal.NewFromInt(40), decimal.NewFromInt(40), decimal.NewFromInt(1), decimal.NewFromInt(1),
+			"USD", "USD", decimal.Zero, "USD",
+		)
+		require.NoError(t, err)
+
+		found, err := repo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusProcessing, found.Status)
+		require.True(t, found.SourceAmount.Valid)
+		assert.True(t, found.SourceAmount.Decimal.Equal(decimal.NewFromInt(40)))
+	})
+
+	t.Run("SetSettlementSnapshot is a no-op on a CANCELLED transfer", func(t *testing.T) {
+		repo := transferRepo
+
+		executeAt := time.Now().Add(time.Hour)
+		transfer := &entities.Transfer{
+			FromAccountRef:      fromAccount.Ref,
+			ToAccountRef:        toAccount.Ref,
+			TransactionAmount:   decimal.NewFromInt(10),
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			TransferType:        "INTERNAL",
+			Status:              entities.TransferStatusScheduled,
+			UserID:              userID,
+			IdempotencyKey:      "snapshot-cancelled-key-" + uuid.New().String(),
+			RequestHash:         "hash-snapshot-cancelled",
+			Reference:           transferservices.NewTransferReference("INTERNAL"),
+			ExecuteAt:           &executeAt,
+		}
+		created, err := repo.Create(ctx, transfer)
+		require.NoError(t, err)
+
+		cancelled, err := repo.CancelScheduled(ctx, created.ID)
+		require.NoError(t, err)
+		require.NotNil(t, cancelled)
+
+		err = repo.SetSettlementSnapshot(
+			ctx, created.ID,
+			decimal.NewFromInt(10), decimal.NewFromInt(10), decimal.NewFromInt(1), decimal.NewFromInt(1),
+			"USD", "USD", decimal.Zero, "USD",
+		)
+		require.NoError(t, err)
+
+		found, err := repo.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entities.TransferStatusCancelled, found.Status)
+		assert.False(t, found.SourceAmount.Valid)
 	})
 }

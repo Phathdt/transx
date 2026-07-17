@@ -20,6 +20,11 @@ type TransferWorkflowInput struct {
 	TransferID string
 }
 
+// CancelSignalName is the Temporal signal a SCHEDULED transfer's workflow
+// waits on. The cancel API dials Temporal and calls SignalWorkflow after its
+// own DB-side CancelScheduled CAS succeeds.
+const CancelSignalName = "cancel"
+
 const (
 	transferTypeInternal = "INTERNAL"
 	transferTypeExternal = "EXTERNAL"
@@ -76,6 +81,33 @@ func TransferWorkflow(ctx workflow.Context, input TransferWorkflowInput) error {
 		return nil
 	}
 
+	if loaded.Status == string(transferentities.TransferStatusScheduled) {
+		cancelled, err := waitForSchedule(ctx, actx, activities, transferID, loaded.ExecuteAt)
+		if err != nil {
+			return err
+		}
+		if cancelled {
+			logger.Info("scheduled transfer cancelled, skipping", "transferID", input.TransferID)
+			return nil
+		}
+		// Re-load: the wait only ends on timer fire or cancel; on timer fire the
+		// transfer is still SCHEDULED (or was raced to CANCELLED by the API,
+		// handled by cancelled=true above) so this reflects the post-wait state.
+		if err := workflow.ExecuteActivity(actx, activities.LoadTransfer, transferID).Get(ctx, &loaded); err != nil {
+			return err
+		}
+		if loaded.AlreadyTerminal {
+			logger.Info(
+				"transfer already terminal after wait, skipping",
+				"transferID",
+				input.TransferID,
+				"status",
+				loaded.Status,
+			)
+			return nil
+		}
+	}
+
 	switch loaded.TransferType {
 	case transferTypeInternal:
 		return runInternalTransfer(ctx, actx, activities, transferID)
@@ -96,6 +128,51 @@ func TransferWorkflow(ctx workflow.Context, input TransferWorkflowInput) error {
 			nil,
 		)
 	}
+}
+
+// waitForSchedule blocks until executeAt (or a cancel signal, whichever comes
+// first) for a SCHEDULED transfer. A past/zero executeAt (clock skew, or a
+// workflow replay long after the original timer) fires the timer immediately
+// rather than blocking. On cancel it runs the same CancelScheduled DB CAS the
+// API uses, so whichever side (signal vs. API) wins the race, the DB ends up
+// CANCELLED exactly once. Returns cancelled=true when the wait ended via
+// cancel; false when it ended via timer fire (proceed to the saga).
+func waitForSchedule(
+	ctx workflow.Context,
+	actx workflow.Context,
+	activities *Activities,
+	transferID uuid.UUID,
+	executeAt *time.Time,
+) (bool, error) {
+	logger := workflow.GetLogger(ctx)
+
+	wait := time.Duration(0)
+	if executeAt != nil {
+		if d := executeAt.Sub(workflow.Now(ctx)); d > 0 {
+			wait = d
+		}
+	}
+
+	cancelled := false
+	timer := workflow.NewTimer(ctx, wait)
+	cancelCh := workflow.GetSignalChannel(ctx, CancelSignalName)
+
+	selector := workflow.NewSelector(ctx)
+	selector.AddFuture(timer, func(workflow.Future) {})
+	selector.AddReceive(cancelCh, func(c workflow.ReceiveChannel, more bool) {
+		c.Receive(ctx, nil)
+		cancelled = true
+	})
+	selector.Select(ctx)
+
+	if cancelled {
+		logger.Info("cancel signal received, cancelling scheduled transfer", "transferID", transferID.String())
+		if err := workflow.ExecuteActivity(actx, activities.CancelScheduled, transferID).Get(ctx, nil); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func defaultActivityOptions() workflow.ActivityOptions {

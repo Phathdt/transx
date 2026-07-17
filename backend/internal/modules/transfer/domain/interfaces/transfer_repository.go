@@ -41,6 +41,12 @@ type TransferRepository interface {
 	// PENDING/PROCESSING; EXTERNAL Temporal uses PROCESSING after hold).
 	// providerReferenceID is stored on success when non-empty.
 	MarkTerminal(ctx context.Context, transferID uuid.UUID, succeeded bool, reason, providerReferenceID string) error
+	// CancelScheduled cancels a SCHEDULED transfer: sets status CANCELLED with
+	// failure_reason CANCELLED and stages a transfer.failed outbox event, all in
+	// one transaction. Idempotent: a transfer not in SCHEDULED is a no-op and
+	// returns (nil, nil) so both the cancel API and the workflow's own cancel
+	// activity can call it safely regardless of which one wins the race.
+	CancelScheduled(ctx context.Context, transferID uuid.UUID) (*entities.Transfer, error)
 	// SetSettlementSnapshot freezes quoted source/destination amounts, FX rates
 	// and fee on the transfer, and advances PENDING → PROCESSING. Used by the
 	// Temporal INTERNAL path before Wallet.Move so the transfer row matches the

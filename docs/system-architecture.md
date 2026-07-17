@@ -15,13 +15,14 @@ provider/retry processors:
 
 ```text
 HTTP transfer API
-  → transfers(PENDING) + outbox(transfer.requested)
+  → transfers(PENDING|SCHEDULED) + outbox(transfer.requested)
 iris CDC
   → Kafka topic transfer.requested
 consumer (bridge only)
   → Temporal StartWorkflow(WorkflowID=transfer-{id})
 transfer-worker
-  → activities: FX Quote, Wallet gRPC (Move/Hold/Settle/Release),
+  → (SCHEDULED: timer+cancel selector, then) activities: FX Quote,
+                Wallet gRPC (Move/Hold/Settle/Release),
                 Bank gRPC (Submit/Query), MarkTerminal (status+outbox)
 iris
   → transfer.completed / transfer.failed → notification
@@ -40,6 +41,31 @@ iris
 `consumer` is only the Kafka→Temporal bridge (inbox dedup + `ExecuteWorkflow` +
 start-failure retry tiers). It does not move money. The HTTP `stub-provider`
 and the provider/retry Kafka consumers are removed; Bank gRPC replaces them.
+
+### Scheduled transfers
+
+A transfer created with `executeAt` (now < executeAt <= now+90d) starts in
+`SCHEDULED` instead of `PENDING`. No funds are held at schedule time; available
+balance is soft-checked at create only when source currency matches the
+transaction currency (cross-currency scheduled INTERNAL skips that check —
+intentional gap). `TransferWorkflow` starts immediately as usual but waits on a
+Temporal timer (`workflow.NewTimer`) before running the normal INTERNAL/EXTERNAL
+saga, racing that timer against a `cancel` signal via `workflow.NewSelector`.
+If the timer fires first, the workflow re-reads the transfer and proceeds
+through the saga exactly like an immediate transfer (`SCHEDULED` accepts the
+same prepare/settlement-snapshot transitions as `PENDING`). If `cancel` arrives
+first, the workflow calls the `CancelScheduled` repository method (a
+status-guarded CAS) and exits without moving money.
+
+`POST /transfers/{transferId}/cancel` drives the same `CancelScheduled` CAS
+from the API side, then best-effort signals the workflow through a
+`WorkflowCanceller` (wired only in the `transfer` process, which dials
+Temporal for this purpose) so an already-waiting workflow wakes up promptly
+instead of waiting for its next re-read. Whichever side loses the race is a
+no-op: the DB row is the source of truth, and cancelling a not-found or
+already-terminated workflow is swallowed. `CANCELLED` is a terminal status
+that emits `transfer.failed` with reason `CANCELLED`; v1 supports cancel only,
+no edit/reschedule.
 
 ## gRPC services
 

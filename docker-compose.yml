@@ -233,11 +233,16 @@ services:
     <<: *backend
     container_name: transx-transfer
     command: ["transfer"]
+    environment:
+      <<: *backend-env
+      TEMPORAL__HOST_PORT: "temporal:7233"
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
     restart: unless-stopped
     labels:
       - traefik.enable=true

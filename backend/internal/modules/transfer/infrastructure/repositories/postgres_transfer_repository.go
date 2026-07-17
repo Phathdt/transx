@@ -71,6 +71,7 @@ func (r *PostgresTransferRepository) Create(
 			FeeCurrency:         t.FeeCurrency,
 			ToAccountName:       textOrNull(t.ToAccountName),
 			Message:             textOrNull(t.Message),
+			ExecuteAt:           pgTimestamptzOrNil(t.ExecuteAt),
 		})
 		if err != nil {
 			return err
@@ -414,6 +415,34 @@ func (r *PostgresTransferRepository) MarkTerminal(
 	})
 }
 
+// CancelScheduled cancels a SCHEDULED transfer (CAS to CANCELLED with
+// failure_reason CANCELLED) and stages a transfer.failed outbox event in the
+// same transaction. Idempotent: a transfer not in SCHEDULED returns (nil, nil)
+// so a race between the cancel API and the workflow's own cancel activity is
+// safe — whichever call observes SCHEDULED first wins, the other is a no-op.
+func (r *PostgresTransferRepository) CancelScheduled(
+	ctx context.Context,
+	transferID uuid.UUID,
+) (*entities.Transfer, error) {
+	var cancelled *entities.Transfer
+	err := postgres.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+		row, err := q.CancelScheduledTransfer(ctx, pgUUID(transferID))
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		cancelled = transferToEntity(row)
+		return insertTransferOutbox(ctx, q, transferID, entities.EventTransferFailed)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return cancelled, nil
+}
+
 // SetSettlementSnapshot freezes quoted source/destination amounts, FX rates and
 // fee on the transfer, and advances PENDING → PROCESSING. Used by the Temporal
 // INTERNAL path before Wallet.Move so the transfer row matches the legacy
@@ -436,7 +465,10 @@ func (r *PostgresTransferRepository) SetSettlementSnapshot(
 			}
 			return err
 		}
-		if t.Status != string(entities.TransferStatusPending) {
+		// SCHEDULED is accepted alongside PENDING so a scheduled transfer's
+		// timer-fire can freeze the settlement snapshot and enter PROCESSING in
+		// one CAS, without an intermediate SCHEDULED->PENDING hop.
+		if t.Status != string(entities.TransferStatusPending) && t.Status != string(entities.TransferStatusScheduled) {
 			return nil
 		}
 

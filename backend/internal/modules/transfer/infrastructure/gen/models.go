@@ -19,12 +19,13 @@ type OutboxEvent struct {
 }
 
 type Transfer struct {
-	ID                  pgtype.UUID         `db:"id"`
-	TransactionAmount   decimal.Decimal     `db:"transaction_amount"`
-	TransactionCurrency string              `db:"transaction_currency"`
-	TransferType        string              `db:"transfer_type"`
-	Provider            string              `db:"provider"`
-	ProviderReferenceID string              `db:"provider_reference_id"`
+	ID                  pgtype.UUID     `db:"id"`
+	TransactionAmount   decimal.Decimal `db:"transaction_amount"`
+	TransactionCurrency string          `db:"transaction_currency"`
+	TransferType        string          `db:"transfer_type"`
+	Provider            string          `db:"provider"`
+	ProviderReferenceID string          `db:"provider_reference_id"`
+	// PENDING | SCHEDULED | RESERVED | PROCESSING | SUBMITTED | SUCCEEDED | FAILED | CANCELLED | REVERSED | UNKNOWN
 	Status              string              `db:"status"`
 	FailureReason       string              `db:"failure_reason"`
 	UserID              pgtype.UUID         `db:"user_id"`
@@ -45,4 +46,5 @@ type Transfer struct {
 	ToAccountRef        *string             `db:"to_account_ref"`
 	ToAccountName       *string             `db:"to_account_name"`
 	Message             *string             `db:"message"`
+	ExecuteAt           pgtype.Timestamptz  `db:"execute_at"`
 }

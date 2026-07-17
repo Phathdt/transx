@@ -245,11 +245,12 @@ func registerWalletRoutes(r fiberopenapi.Router, walletH *handlers.WalletHandler
 func registerTransferRoutes(r fiberopenapi.Router, transferH *handlers.TransferHandler) {
 	v1 := r.Group("/api/v1")
 
-	var createTransfer, getTransfer, listTransfers fiber.Handler
+	var createTransfer, getTransfer, listTransfers, cancelTransfer fiber.Handler
 	if transferH != nil {
 		createTransfer = transferH.CreateTransfer
 		getTransfer = transferH.GetTransfer
 		listTransfers = transferH.ListTransfers
+		cancelTransfer = transferH.CancelTransfer
 	}
 
 	v1.Post("/transfers", createTransfer).With(
@@ -285,6 +286,18 @@ func registerTransferRoutes(r fiberopenapi.Router, transferH *handlers.TransferH
 		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
+	)
+
+	v1.Post("/transfers/:transferId/cancel", cancelTransfer).With(
+		option.Tags("wallet"),
+		option.OperationID("cancelTransfer"),
+		option.Summary("Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED"),
+		option.Response(fiber.StatusOK, new(transferdto.TransferResponse)),
+		option.Response(fiber.StatusBadRequest, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusUnauthorized, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusNotFound, new(handlers.ErrorResponse)),
+		option.Response(fiber.StatusConflict, new(handlers.ErrorResponse)),
 		option.Response(fiber.StatusInternalServerError, new(handlers.ErrorResponse)),
 	)
 }

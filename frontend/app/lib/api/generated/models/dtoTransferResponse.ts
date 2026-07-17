@@ -10,6 +10,7 @@ export interface DtoTransferResponse {
   destinationAmount?: string;
   destinationCurrency?: string;
   destinationFxRate?: string;
+  executeAt?: string;
   failureReason?: string;
   feeAmount?: string;
   feeCurrency?: string;
