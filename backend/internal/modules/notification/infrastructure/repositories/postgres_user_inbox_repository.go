@@ -3,11 +3,9 @@ package repositories
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"transx/internal/modules/notification/domain/entities"
 	"transx/internal/modules/notification/domain/interfaces"
@@ -27,16 +25,17 @@ func NewPostgresUserInboxRepository(q *gen.Queries) *PostgresUserInboxRepository
 var _ interfaces.UserInboxRepository = (*PostgresUserInboxRepository)(nil)
 
 func (r *PostgresUserInboxRepository) InsertInboxItem(ctx context.Context, item *entities.InboxItem) error {
-	var transferID pgtype.UUID
+	var transferID *uuid.UUID
 	if item.TransferID != uuid.Nil {
-		transferID = pgUUID(item.TransferID)
+		id := item.TransferID
+		transferID = &id
 	}
 	var transferRef *string
 	if item.TransferRef != "" {
 		transferRef = &item.TransferRef
 	}
 	_, err := r.q.InsertInboxItem(ctx, gen.InsertInboxItemParams{
-		UserID:      pgUUID(item.UserID),
+		UserID:      item.UserID,
 		Type:        item.Type,
 		Title:       item.Title,
 		Body:        item.Body,
@@ -51,8 +50,8 @@ func (r *PostgresUserInboxRepository) GetInboxItemByUserAndID(
 	id, userID uuid.UUID,
 ) (*entities.InboxItem, error) {
 	row, err := r.q.GetInboxItemByUserAndID(ctx, gen.GetInboxItemByUserAndIDParams{
-		ID:     pgUUID(id),
-		UserID: pgUUID(userID),
+		ID:     id,
+		UserID: userID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -69,7 +68,7 @@ func (r *PostgresUserInboxRepository) ListInboxByUser(
 	limit, offset int32,
 ) ([]*entities.InboxItem, error) {
 	rows, err := r.q.ListInboxByUser(ctx, gen.ListInboxByUserParams{
-		UserID: pgUUID(userID),
+		UserID: userID,
 		Off:    offset,
 		Lim:    limit,
 	})
@@ -84,11 +83,11 @@ func (r *PostgresUserInboxRepository) ListInboxByUser(
 }
 
 func (r *PostgresUserInboxRepository) CountInboxByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
-	return r.q.CountInboxByUser(ctx, pgUUID(userID))
+	return r.q.CountInboxByUser(ctx, userID)
 }
 
 func (r *PostgresUserInboxRepository) CountUnreadByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
-	return r.q.CountUnreadByUser(ctx, pgUUID(userID))
+	return r.q.CountUnreadByUser(ctx, userID)
 }
 
 func (r *PostgresUserInboxRepository) MarkInboxRead(
@@ -96,8 +95,8 @@ func (r *PostgresUserInboxRepository) MarkInboxRead(
 	id, userID uuid.UUID,
 ) (*entities.InboxItem, error) {
 	row, err := r.q.MarkInboxRead(ctx, gen.MarkInboxReadParams{
-		ID:     pgUUID(id),
-		UserID: pgUUID(userID),
+		ID:     id,
+		UserID: userID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -109,27 +108,28 @@ func (r *PostgresUserInboxRepository) MarkInboxRead(
 }
 
 func (r *PostgresUserInboxRepository) MarkAllInboxRead(ctx context.Context, userID uuid.UUID) (int64, error) {
-	return r.q.MarkAllInboxRead(ctx, pgUUID(userID))
+	return r.q.MarkAllInboxRead(ctx, userID)
 }
 
 func inboxRowToEntity(row *gen.UserInboxItem) *entities.InboxItem {
-	var readAt *time.Time
-	if row.ReadAt.Valid {
-		readAt = &row.ReadAt.Time
-	}
 	var transferRef string
 	if row.TransferRef != nil {
 		transferRef = *row.TransferRef
 	}
+	var transferID uuid.UUID
+	if row.TransferID != nil {
+		transferID = *row.TransferID
+	}
 	return &entities.InboxItem{
-		ID:          uuid.UUID(row.ID.Bytes),
-		UserID:      uuid.UUID(row.UserID.Bytes),
+		ID:          row.ID,
+		UserID:      row.UserID,
 		Type:        row.Type,
 		Title:       row.Title,
 		Body:        row.Body,
-		TransferID:  uuid.UUID(row.TransferID.Bytes),
+		TransferID:  transferID,
 		TransferRef: transferRef,
-		ReadAt:      readAt,
-		CreatedAt:   row.CreatedAt.Time,
+		// ReadAt is already *time.Time from sqlc (nullable timestamptz).
+		ReadAt:    row.ReadAt,
+		CreatedAt: row.CreatedAt,
 	}
 }

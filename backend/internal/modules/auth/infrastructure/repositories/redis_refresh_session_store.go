@@ -30,7 +30,11 @@ func NewRedisRefreshSessionStore(client *platredis.Client) *RedisRefreshSessionS
 	return &RedisRefreshSessionStore{client: client}
 }
 
-func (s *RedisRefreshSessionStore) Create(ctx context.Context, session interfaces.RefreshSession, ttl time.Duration) error {
+func (s *RedisRefreshSessionStore) Create(
+	ctx context.Context,
+	session interfaces.RefreshSession,
+	ttl time.Duration,
+) error {
 	if session.SessionID == "" || session.TokenHash == "" || session.UserID == uuid.Nil {
 		return fmt.Errorf("refresh session: missing required fields")
 	}

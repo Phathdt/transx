@@ -97,6 +97,7 @@ export const ListTransfersResponse = zod.object({
   "destinationAmount": zod.string().optional(),
   "destinationCurrency": zod.string().optional(),
   "destinationFxRate": zod.string().optional(),
+  "executeAt": zod.string().optional(),
   "failureReason": zod.string().optional(),
   "feeAmount": zod.string().optional(),
   "feeCurrency": zod.string().optional(),
@@ -128,6 +129,7 @@ export const CreateTransferHeader = zod.object({
 export const CreateTransferBody = zod.object({
   "amount": zod.string(),
   "currency": zod.string(),
+  "executeAt": zod.string().optional(),
   "fromAccountRef": zod.string(),
   "message": zod.string(),
   "toAccountRef": zod.string().optional(),
@@ -138,6 +140,7 @@ export const CreateTransferResponse = zod.object({
   "destinationAmount": zod.string().optional(),
   "destinationCurrency": zod.string().optional(),
   "destinationFxRate": zod.string().optional(),
+  "executeAt": zod.string().optional(),
   "failureReason": zod.string().optional(),
   "feeAmount": zod.string().optional(),
   "feeCurrency": zod.string().optional(),
@@ -166,6 +169,36 @@ export const GetTransferResponse = zod.object({
   "destinationAmount": zod.string().optional(),
   "destinationCurrency": zod.string().optional(),
   "destinationFxRate": zod.string().optional(),
+  "executeAt": zod.string().optional(),
+  "failureReason": zod.string().optional(),
+  "feeAmount": zod.string().optional(),
+  "feeCurrency": zod.string().optional(),
+  "fromAccountRef": zod.string().optional(),
+  "message": zod.string().optional(),
+  "sourceAmount": zod.string().optional(),
+  "sourceCurrency": zod.string().optional(),
+  "sourceFxRate": zod.string().optional(),
+  "status": zod.string().optional(),
+  "toAccountName": zod.string().optional(),
+  "toAccountRef": zod.string().optional(),
+  "transactionAmount": zod.string().optional(),
+  "transactionCurrency": zod.string().optional(),
+  "transferId": zod.string().optional()
+})
+
+/**
+ * Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED
+ * @summary Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED
+ */
+export const CancelTransferParams = zod.object({
+  "transferId": zod.string()
+})
+
+export const CancelTransferResponse = zod.object({
+  "destinationAmount": zod.string().optional(),
+  "destinationCurrency": zod.string().optional(),
+  "destinationFxRate": zod.string().optional(),
+  "executeAt": zod.string().optional(),
   "failureReason": zod.string().optional(),
   "feeAmount": zod.string().optional(),
   "feeCurrency": zod.string().optional(),

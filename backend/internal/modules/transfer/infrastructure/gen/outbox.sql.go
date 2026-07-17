@@ -8,7 +8,7 @@ package gen
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 )
 
 const insertOutboxEvent = `-- name: InsertOutboxEvent :one
@@ -19,10 +19,10 @@ RETURNING
 `
 
 type InsertOutboxEventParams struct {
-	AggregateType string      `db:"aggregate_type"`
-	AggregateID   pgtype.UUID `db:"aggregate_id"`
-	EventType     string      `db:"event_type"`
-	Payload       []byte      `db:"payload"`
+	AggregateType string    `db:"aggregate_type"`
+	AggregateID   uuid.UUID `db:"aggregate_id"`
+	EventType     string    `db:"event_type"`
+	Payload       []byte    `db:"payload"`
 }
 
 // Staged in the same transaction as the state change it describes; iris (CDC)

@@ -26,11 +26,13 @@ const ALL = 'ALL'
 
 const TRANSFER_STATUSES = [
   'PENDING',
+  'SCHEDULED',
   'RESERVED',
   'PROCESSING',
   'SUBMITTED',
   'SUCCEEDED',
   'FAILED',
+  'CANCELLED',
   'REVERSED',
   'UNKNOWN',
 ]

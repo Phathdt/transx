@@ -203,3 +203,27 @@ export const getTransfer = async (transferId: string, options?: RequestInit): Pr
 );}
 
 
+export const getCancelTransferUrl = (transferId: string,) => {
+
+
+
+
+  return `/transfers/${transferId}/cancel`
+}
+
+/**
+ * Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED
+ * @summary Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED
+ */
+export const cancelTransfer = async (transferId: string, options?: RequestInit): Promise<DtoTransferResponse> => {
+
+  return serverApiClient<DtoTransferResponse>(getCancelTransferUrl(transferId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+

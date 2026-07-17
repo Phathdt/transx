@@ -38,6 +38,10 @@ The next phase aims to transform TransX from a transfer engine into a complete p
 
 ## Feature 1 — Scheduled Transfer
 
+**Status: Implemented** (v1 scope: create with `executeAt`, cancel-only, no
+edit/reschedule — see `plans/260716-1504-scheduled-transfer/plan.md` and
+`docs/system-architecture.md#scheduled-transfers`).
+
 ### Problem
 
 Users should be able to schedule transfers for a future date and time.
@@ -48,10 +52,9 @@ Users should be able to schedule transfers for a future date and time.
 
 ### Requirements
 
-- User specifies execution time.
-- Transfer remains editable until execution.
-- User can cancel before execution.
-- Automatically execute at scheduled time.
+- User specifies execution time (`executeAt`, optional, RFC3339, now < t <= now+90d).
+- v1 is **cancel-only** while `SCHEDULED` (no edit/reschedule).
+- Automatically execute at scheduled time (no funds held until execute).
 - Retry on transient failures.
 - Preserve idempotency.
 

@@ -10,19 +10,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func UUIDFromString(value string) (pgtype.UUID, error) {
-	parsed, err := uuid.Parse(value)
-	if err != nil {
-		return pgtype.UUID{}, err
-	}
-	return pgtype.UUID{Bytes: parsed, Valid: true}, nil
+func UUIDFromString(value string) (uuid.UUID, error) {
+	return uuid.Parse(value)
 }
 
-func UUIDToString(value pgtype.UUID) string {
-	if !value.Valid {
+func UUIDToString(value uuid.UUID) string {
+	if value == uuid.Nil {
 		return ""
 	}
-	return uuid.UUID(value.Bytes).String()
+	return value.String()
 }
 
 func NumericFromString(value string) (pgtype.Numeric, error) {

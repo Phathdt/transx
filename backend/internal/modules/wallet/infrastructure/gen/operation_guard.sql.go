@@ -8,7 +8,7 @@ package gen
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 )
 
 const insertWalletOperationGuard = `-- name: InsertWalletOperationGuard :exec
@@ -17,8 +17,8 @@ INSERT INTO wallet_operation_guards (transfer_id, operation)
 `
 
 type InsertWalletOperationGuardParams struct {
-	TransferID pgtype.UUID `db:"transfer_id"`
-	Operation  string      `db:"operation"`
+	TransferID uuid.UUID `db:"transfer_id"`
+	Operation  string    `db:"operation"`
 }
 
 // Recorded after a money movement commits, inside the same transaction as the
@@ -44,8 +44,8 @@ SELECT
 `
 
 type WalletOperationGuardExistsParams struct {
-	TransferID pgtype.UUID `db:"transfer_id"`
-	Operation  string      `db:"operation"`
+	TransferID uuid.UUID `db:"transfer_id"`
+	Operation  string    `db:"operation"`
 }
 
 // Checked before a money movement, inside the same transaction as the movement

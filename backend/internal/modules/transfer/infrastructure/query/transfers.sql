@@ -1,6 +1,6 @@
 -- name: CreateTransfer :one
-INSERT INTO transfers (from_account_ref, to_account_ref, transaction_amount, transaction_currency, transfer_type, provider, status, user_id, idempotency_key, request_hash, reference, fee_amount, fee_currency, to_account_name, message)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO transfers (from_account_ref, to_account_ref, transaction_amount, transaction_currency, transfer_type, provider, status, user_id, idempotency_key, request_hash, reference, fee_amount, fee_currency, to_account_name, message, execute_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING
     *;
 
@@ -92,6 +92,22 @@ SET
     updated_at = now()
 WHERE
     id = @id;
+
+-- name: CancelScheduledTransfer :one
+-- Cancels a SCHEDULED transfer before it wakes up; a no-op (no row returned)
+-- for any other status, so a race with the workflow's own timer-fire is safe:
+-- whichever side observes SCHEDULED first wins.
+UPDATE
+    transfers
+SET
+    status = 'CANCELLED',
+    failure_reason = 'CANCELLED',
+    updated_at = now()
+WHERE
+    id = @id
+    AND status = 'SCHEDULED'
+RETURNING
+    *;
 
 -- name: SetProviderReference :exec
 -- Stores the reference id returned by the provider on a successful submit.

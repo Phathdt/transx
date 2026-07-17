@@ -8,7 +8,7 @@ package gen
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -20,8 +20,8 @@ RETURNING
 `
 
 type InsertLedgerEntryParams struct {
-	TransferID   pgtype.UUID     `db:"transfer_id"`
-	AccountID    pgtype.UUID     `db:"account_id"`
+	TransferID   uuid.UUID       `db:"transfer_id"`
+	AccountID    uuid.UUID       `db:"account_id"`
 	Direction    string          `db:"direction"`
 	Amount       decimal.Decimal `db:"amount"`
 	Currency     string          `db:"currency"`

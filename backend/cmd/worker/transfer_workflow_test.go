@@ -3,6 +3,7 @@ package worker_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -186,6 +187,153 @@ func (s *TransferWorkflowTestSuite) TestInternalFXUnavailableMarksFailed() {
 		TransferID: transferID,
 		Succeeded:  false,
 		Reason:     transferentities.FailureFXRateUnavailable,
+	}).Return(nil)
+
+	s.env.ExecuteWorkflow(worker.TransferWorkflow, worker.TransferWorkflowInput{
+		TransferID: transferID.String(),
+	})
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+}
+
+func (s *TransferWorkflowTestSuite) TestScheduledTimerFiresThenInternalSuccess() {
+	transferID := uuid.New()
+	var a *worker.Activities
+	s.env.RegisterActivity(a.LoadTransfer)
+	s.env.RegisterActivity(a.PrepareInternalMove)
+	s.env.RegisterActivity(a.WalletMove)
+	s.env.RegisterActivity(a.MarkTerminal)
+
+	executeAt := s.env.Now().Add(time.Hour)
+	s.env.OnActivity(a.LoadTransfer, mock.Anything, transferID).Return(
+		worker.LoadTransferResult{
+			TransferID:          transferID,
+			TransferType:        "INTERNAL",
+			Status:              string(transferentities.TransferStatusScheduled),
+			FromAccountRef:      "ACC-FROM",
+			ToAccountRef:        "ACC-TO",
+			TransactionAmount:   decimal.NewFromInt(100),
+			TransactionCurrency: "USD",
+			ExecuteAt:           &executeAt,
+		}, nil,
+	).Once()
+	// Second LoadTransfer (post-wait re-load) reflects the same SCHEDULED row;
+	// the workflow proceeds into the saga using this snapshot.
+	s.env.OnActivity(a.LoadTransfer, mock.Anything, transferID).Return(
+		worker.LoadTransferResult{
+			TransferID:          transferID,
+			TransferType:        "INTERNAL",
+			Status:              string(transferentities.TransferStatusScheduled),
+			FromAccountRef:      "ACC-FROM",
+			ToAccountRef:        "ACC-TO",
+			TransactionAmount:   decimal.NewFromInt(100),
+			TransactionCurrency: "USD",
+			ExecuteAt:           &executeAt,
+		}, nil,
+	).Once()
+	s.env.OnActivity(a.PrepareInternalMove, mock.Anything, worker.PrepareInternalMoveInput{
+		TransferID: transferID,
+	}).Return(
+		worker.PrepareInternalMoveResult{
+			FromAccountRef:      "ACC-FROM",
+			ToAccountRef:        "ACC-TO",
+			SourceAmount:        decimal.NewFromInt(100),
+			SourceCurrency:      "USD",
+			DestinationAmount:   decimal.NewFromInt(100),
+			DestinationCurrency: "USD",
+			SourceFXRate:        decimal.NewFromInt(1),
+			DestinationFXRate:   decimal.NewFromInt(1),
+		}, nil,
+	)
+	s.env.OnActivity(a.WalletMove, mock.Anything, mock.Anything).Return(worker.WalletMoveResult{}, nil)
+	s.env.OnActivity(a.MarkTerminal, mock.Anything, worker.MarkTerminalInput{
+		TransferID: transferID,
+		Succeeded:  true,
+	}).Return(nil)
+
+	s.env.ExecuteWorkflow(worker.TransferWorkflow, worker.TransferWorkflowInput{
+		TransferID: transferID.String(),
+	})
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+}
+
+func (s *TransferWorkflowTestSuite) TestScheduledCancelSignalSkipsMoney() {
+	transferID := uuid.New()
+	var a *worker.Activities
+	s.env.RegisterActivity(a.LoadTransfer)
+	s.env.RegisterActivity(a.CancelScheduled)
+
+	executeAt := s.env.Now().Add(24 * time.Hour)
+	s.env.OnActivity(a.LoadTransfer, mock.Anything, transferID).Return(
+		worker.LoadTransferResult{
+			TransferID:          transferID,
+			TransferType:        "INTERNAL",
+			Status:              string(transferentities.TransferStatusScheduled),
+			FromAccountRef:      "ACC-FROM",
+			ToAccountRef:        "ACC-TO",
+			TransactionAmount:   decimal.NewFromInt(100),
+			TransactionCurrency: "USD",
+			ExecuteAt:           &executeAt,
+		}, nil,
+	)
+	s.env.OnActivity(a.CancelScheduled, mock.Anything, transferID).Return(nil)
+
+	// Deliver the cancel signal almost immediately (workflow clock), well
+	// before the 24h timer would fire, proving the selector picks the signal
+	// branch and never touches PrepareInternalMove/WalletMove/MarkTerminal
+	// (none of those activities are registered, so a call would fail the test).
+	s.env.RegisterDelayedCallback(func() {
+		s.env.SignalWorkflow(worker.CancelSignalName, nil)
+	}, time.Minute)
+
+	s.env.ExecuteWorkflow(worker.TransferWorkflow, worker.TransferWorkflowInput{
+		TransferID: transferID.String(),
+	})
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+}
+
+func (s *TransferWorkflowTestSuite) TestScheduledPastExecuteAtFiresImmediately() {
+	// Clock skew / long-delayed start: executeAt already in the past when the
+	// workflow first runs. The timer must fire without blocking.
+	transferID := uuid.New()
+	var a *worker.Activities
+	s.env.RegisterActivity(a.LoadTransfer)
+	s.env.RegisterActivity(a.PrepareInternalMove)
+	s.env.RegisterActivity(a.WalletMove)
+	s.env.RegisterActivity(a.MarkTerminal)
+
+	pastExecuteAt := s.env.Now().Add(-time.Hour)
+	loadResult := worker.LoadTransferResult{
+		TransferID:          transferID,
+		TransferType:        "INTERNAL",
+		Status:              string(transferentities.TransferStatusScheduled),
+		FromAccountRef:      "ACC-FROM",
+		ToAccountRef:        "ACC-TO",
+		TransactionAmount:   decimal.NewFromInt(100),
+		TransactionCurrency: "USD",
+		ExecuteAt:           &pastExecuteAt,
+	}
+	s.env.OnActivity(a.LoadTransfer, mock.Anything, transferID).Return(loadResult, nil).Twice()
+	s.env.OnActivity(a.PrepareInternalMove, mock.Anything, worker.PrepareInternalMoveInput{
+		TransferID: transferID,
+	}).Return(
+		worker.PrepareInternalMoveResult{
+			FromAccountRef:      "ACC-FROM",
+			ToAccountRef:        "ACC-TO",
+			SourceAmount:        decimal.NewFromInt(100),
+			SourceCurrency:      "USD",
+			DestinationAmount:   decimal.NewFromInt(100),
+			DestinationCurrency: "USD",
+			SourceFXRate:        decimal.NewFromInt(1),
+			DestinationFXRate:   decimal.NewFromInt(1),
+		}, nil,
+	)
+	s.env.OnActivity(a.WalletMove, mock.Anything, mock.Anything).Return(worker.WalletMoveResult{}, nil)
+	s.env.OnActivity(a.MarkTerminal, mock.Anything, worker.MarkTerminalInput{
+		TransferID: transferID,
+		Succeeded:  true,
 	}).Return(nil)
 
 	s.env.ExecuteWorkflow(worker.TransferWorkflow, worker.TransferWorkflowInput{

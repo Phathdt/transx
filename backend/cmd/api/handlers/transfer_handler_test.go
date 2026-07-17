@@ -117,3 +117,67 @@ func TestTransferHandlerCreateTransferAmountValidation(t *testing.T) {
 		assert.Equal(t, "invalid amount", response["error"])
 	})
 }
+
+func TestTransferHandlerCancelTransfer(t *testing.T) {
+	t.Run("cancels a scheduled transfer", func(t *testing.T) {
+		app := fiber.New(fiber.Config{ErrorHandler: DomainErrorHandler})
+		app.Use(middleware.UserID())
+
+		userID := uuid.New()
+		id := uuid.New()
+		ref := "ITN-01K00000000000000000000000"
+
+		transferRepo := testmocks.NewTransferRepository(t)
+		accountRepo := testmocks.NewAccountRepository(t)
+		transferRepo.EXPECT().GetByReferenceForUser(mock.Anything, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil)
+		transferRepo.EXPECT().CancelScheduled(mock.Anything, id).Return(&entities.Transfer{
+			Reference:     ref,
+			Status:        entities.TransferStatusCancelled,
+			FailureReason: entities.FailureCancelled,
+		}, nil)
+
+		h := NewTransferHandler(transferservices.NewTransferService(transferRepo, accountRepo, "stub-provider"))
+		app.Post("/api/v1/transfers/:transferId/cancel", h.CancelTransfer)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/transfers/"+ref+"/cancel", nil)
+		req.Header.Set("X-User-Id", userID.String())
+
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+		var response map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&response))
+		assert.Equal(t, string(entities.TransferStatusCancelled), response["status"])
+	})
+
+	t.Run("conflict when transfer is not scheduled", func(t *testing.T) {
+		app := fiber.New(fiber.Config{ErrorHandler: DomainErrorHandler})
+		app.Use(middleware.UserID())
+
+		userID := uuid.New()
+		ref := "ITN-01K00000000000000000000000"
+
+		transferRepo := testmocks.NewTransferRepository(t)
+		accountRepo := testmocks.NewAccountRepository(t)
+		transferRepo.EXPECT().GetByReferenceForUser(mock.Anything, ref, userID).Return(&entities.Transfer{
+			Reference: ref,
+			Status:    entities.TransferStatusPending,
+		}, nil)
+
+		h := NewTransferHandler(transferservices.NewTransferService(transferRepo, accountRepo, "stub-provider"))
+		app.Post("/api/v1/transfers/:transferId/cancel", h.CancelTransfer)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/transfers/"+ref+"/cancel", nil)
+		req.Header.Set("X-User-Id", userID.String())
+
+		resp, err := app.Test(req)
+
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+	})
+}

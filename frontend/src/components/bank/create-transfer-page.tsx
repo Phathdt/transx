@@ -35,19 +35,43 @@ import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 // amount: positive decimal, max 4 fraction digits, max 16 integer digits.
 const AMOUNT_RE = /^\d{1,16}(\.\d{1,4})?$/
 
-const formSchema = z.object({
-  fromAccountRef: z.string().min(1, 'Select a source account'),
-  amount: z
-    .string()
-    .min(1, 'Amount is required')
-    .regex(AMOUNT_RE, 'Enter a positive amount with up to 4 decimals')
-    .refine((v) => Number(v) > 0, 'Amount must be greater than zero'),
-  currency: z.string().min(1, 'Currency is required'),
-  message: z
-    .string()
-    .min(1, 'Message is required')
-    .max(255, 'Message too long'),
-})
+const formSchema = z
+  .object({
+    fromAccountRef: z.string().min(1, 'Select a source account'),
+    amount: z
+      .string()
+      .min(1, 'Amount is required')
+      .regex(AMOUNT_RE, 'Enter a positive amount with up to 4 decimals')
+      .refine((v) => Number(v) > 0, 'Amount must be greater than zero'),
+    currency: z.string().min(1, 'Currency is required'),
+    message: z
+      .string()
+      .min(1, 'Message is required')
+      .max(255, 'Message too long'),
+    scheduled: z.boolean(),
+    // datetime-local input value (e.g. "2026-08-01T14:30"), local time; converted
+    // to a UTC ISO string at submit. Empty unless `scheduled` is checked.
+    executeAt: z.string(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.scheduled) return
+    if (!data.executeAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Pick a date and time',
+        path: ['executeAt'],
+      })
+      return
+    }
+    const parsed = new Date(data.executeAt)
+    if (Number.isNaN(parsed.getTime()) || parsed <= new Date()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Scheduled time must be in the future',
+        path: ['executeAt'],
+      })
+    }
+  })
 
 type FormValues = z.infer<typeof formSchema>
 
@@ -86,10 +110,13 @@ export function CreateTransferPage() {
       amount: '',
       currency: '',
       message: '',
+      scheduled: false,
+      executeAt: '',
     },
   })
 
   const fromAccountRef = watch('fromAccountRef')
+  const scheduled = watch('scheduled')
   const selectedAccount = useMemo(
     () => accounts.find((a) => a.accountRef === fromAccountRef),
     [accounts, fromAccountRef],
@@ -119,6 +146,18 @@ export function CreateTransferPage() {
       setSubmitError('Source and destination accounts must differ.')
       return
     }
+    if (values.scheduled && !values.executeAt) {
+      setSubmitError('Pick a date and time to schedule this transfer.')
+      return
+    }
+
+    // datetime-local has no timezone; the browser parses it as local time, so
+    // converting to a Date and back to ISO gives the UTC instant the backend
+    // expects.
+    const executeAtIso =
+      values.scheduled && values.executeAt
+        ? new Date(values.executeAt).toISOString()
+        : undefined
 
     const body: CreateTransferBody = {
       fromAccountRef: values.fromAccountRef,
@@ -127,6 +166,7 @@ export function CreateTransferPage() {
       transferType: transferType.toUpperCase(),
       message: values.message,
       ...(toAccountRef ? { toAccountRef } : {}),
+      ...(executeAtIso ? { executeAt: executeAtIso } : {}),
     }
 
     // Fresh idempotency key per new submit attempt.
@@ -291,8 +331,44 @@ export function CreateTransferPage() {
               ) : null}
             </div>
 
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  id="scheduled"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border border-input accent-[var(--sea-ink)]"
+                  {...register('scheduled')}
+                />
+                <Label htmlFor="scheduled" className="cursor-pointer">
+                  Schedule for later
+                </Label>
+              </div>
+              {scheduled ? (
+                <>
+                  <Input
+                    id="executeAt"
+                    type="datetime-local"
+                    aria-invalid={Boolean(errors.executeAt)}
+                    {...register('executeAt')}
+                  />
+                  {errors.executeAt ? (
+                    <p className="text-sm text-destructive">
+                      {errors.executeAt.message}
+                    </p>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">
+                    Must be in the future, up to 90 days out.
+                  </p>
+                </>
+              ) : null}
+            </div>
+
             <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Submitting…' : 'Create transfer'}
+              {isSubmitting
+                ? 'Submitting…'
+                : scheduled
+                  ? 'Schedule transfer'
+                  : 'Create transfer'}
             </Button>
           </form>
         </CardContent>

@@ -9,6 +9,7 @@
 export type CreateTransferBody = {
   amount: string;
   currency: string;
+  executeAt?: string;
   fromAccountRef: string;
   message: string;
   toAccountRef?: string;

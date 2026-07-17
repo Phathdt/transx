@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"transx/internal/modules/auth/domain/entities"
 	"transx/internal/modules/auth/domain/interfaces"
@@ -37,7 +36,7 @@ func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string) 
 }
 
 func (r *PostgresUserRepository) FindByID(ctx context.Context, id uuid.UUID) (*entities.User, error) {
-	row, err := r.q.GetUserByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.q.GetUserByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -49,11 +48,11 @@ func (r *PostgresUserRepository) FindByID(ctx context.Context, id uuid.UUID) (*e
 
 func toEntity(row *gen.User) *entities.User {
 	return &entities.User{
-		ID:           row.ID.Bytes,
+		ID:           row.ID,
 		Email:        row.Email,
 		PasswordHash: row.PasswordHash,
 		Name:         row.Name,
-		CreatedAt:    row.CreatedAt.Time,
-		UpdatedAt:    row.UpdatedAt.Time,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
 	}
 }

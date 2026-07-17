@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -10,7 +11,9 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"github.com/urfave/cli/v2"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	temporallog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/worker"
@@ -68,11 +71,33 @@ func runTransfer(ctx context.Context, configPath string) error {
 	}
 	defer db.Close()
 
+	// Dialing Temporal here (rather than only in the worker/consumer) is what
+	// lets CancelTransfer wake a SCHEDULED transfer's waiting workflow via
+	// SignalWorkflow instead of relying solely on the timer to observe the DB
+	// cancel on its own re-read.
+	temporalLogger := temporallog.NewStructuredLogger(slog.Default())
+	if sl, ok := log.(*logger.SlogLogger); ok {
+		temporalLogger = temporallog.NewStructuredLogger(sl.Slog())
+	}
+	temporalClient, err := client.Dial(client.Options{
+		HostPort:  cfg.Temporal.HostPort,
+		Namespace: cfg.Temporal.Namespace,
+		Logger:    temporalLogger,
+	})
+	if err != nil {
+		return err
+	}
+	defer temporalClient.Close()
+
 	walletQ := walletgen.New(db)
 	accountRepo := walletrepos.NewPostgresAccountRepository(walletQ)
 	q := transfergen.New(db)
 	transferRepo := transferrepos.NewPostgresTransferRepository(q, walletQ, db)
-	transferSvc := transferservices.NewTransferService(transferRepo, accountRepo, cfg.Provider.Name)
+	canceller := newTemporalWorkflowCanceller(temporalClient)
+	transferSvc := transferservices.NewTransferService(
+		transferRepo, accountRepo, cfg.Provider.Name,
+		transferservices.WithWorkflowCanceller(canceller),
+	)
 	transferH := handlers.NewTransferHandler(transferSvc)
 
 	server := httpserver.New(httpserver.Config{
@@ -244,4 +269,27 @@ func runTransferWorker(ctx context.Context, configPath string) error {
 		return err
 	}
 	return nil
+}
+
+// temporalWorkflowCanceller signals a SCHEDULED transfer's TransferWorkflow to
+// cancel. A NotFound (workflow not started yet, or already completed) is not
+// an error here: the DB cancel already committed, so the workflow's own
+// LoadTransfer re-read converges to CANCELLED regardless of whether the
+// signal was delivered.
+type temporalWorkflowCanceller struct {
+	client client.Client
+}
+
+func newTemporalWorkflowCanceller(c client.Client) *temporalWorkflowCanceller {
+	return &temporalWorkflowCanceller{client: c}
+}
+
+func (c *temporalWorkflowCanceller) CancelWorkflow(ctx context.Context, transferID uuid.UUID) error {
+	workflowID := fmt.Sprintf("transfer-%s", transferID.String())
+	err := c.client.SignalWorkflow(ctx, workflowID, "", transferworker.CancelSignalName, nil)
+	var notFound *serviceerror.NotFound
+	if errors.As(err, &notFound) {
+		return nil
+	}
+	return err
 }

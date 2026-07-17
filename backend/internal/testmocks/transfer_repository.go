@@ -28,6 +28,65 @@ func (_m *TransferRepository) EXPECT() *TransferRepository_Expecter {
 	return &TransferRepository_Expecter{mock: &_m.Mock}
 }
 
+// CancelScheduled provides a mock function with given fields: ctx, transferID
+func (_m *TransferRepository) CancelScheduled(ctx context.Context, transferID uuid.UUID) (*entities.Transfer, error) {
+	ret := _m.Called(ctx, transferID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CancelScheduled")
+	}
+
+	var r0 *entities.Transfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (*entities.Transfer, error)); ok {
+		return rf(ctx, transferID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) *entities.Transfer); ok {
+		r0 = rf(ctx, transferID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entities.Transfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, transferID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// TransferRepository_CancelScheduled_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CancelScheduled'
+type TransferRepository_CancelScheduled_Call struct {
+	*mock.Call
+}
+
+// CancelScheduled is a helper method to define mock.On call
+//   - ctx context.Context
+//   - transferID uuid.UUID
+func (_e *TransferRepository_Expecter) CancelScheduled(ctx interface{}, transferID interface{}) *TransferRepository_CancelScheduled_Call {
+	return &TransferRepository_CancelScheduled_Call{Call: _e.mock.On("CancelScheduled", ctx, transferID)}
+}
+
+func (_c *TransferRepository_CancelScheduled_Call) Run(run func(ctx context.Context, transferID uuid.UUID)) *TransferRepository_CancelScheduled_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uuid.UUID))
+	})
+	return _c
+}
+
+func (_c *TransferRepository_CancelScheduled_Call) Return(_a0 *entities.Transfer, _a1 error) *TransferRepository_CancelScheduled_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *TransferRepository_CancelScheduled_Call) RunAndReturn(run func(context.Context, uuid.UUID) (*entities.Transfer, error)) *TransferRepository_CancelScheduled_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CountByUser provides a mock function with given fields: ctx, userID, status, accountRef
 func (_m *TransferRepository) CountByUser(ctx context.Context, userID uuid.UUID, status *string, accountRef *string) (int64, error) {
 	ret := _m.Called(ctx, userID, status, accountRef)

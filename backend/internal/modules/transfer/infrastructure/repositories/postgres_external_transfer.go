@@ -34,7 +34,7 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 		q := r.q.WithTx(tx)
 		wq := r.walletQ.WithTx(tx)
 
-		t, err := q.LockTransferByID(ctx, pgUUID(transferID))
+		t, err := q.LockTransferByID(ctx, transferID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -59,7 +59,7 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
 		from := locked[0]
-		fromID := uuid.UUID(from.ID.Bytes)
+		fromID := from.ID
 		if from.Status != string(walletentities.AccountStatusActive) {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
@@ -73,7 +73,7 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 			DestinationCurrency: "",
 			SourceFxRate:        decimal.NewNullDecimal(decimal.NewFromInt(1)),
 			DestinationFxRate:   decimal.NullDecimal{},
-			ID:                  pgUUID(transferID),
+			ID:                  transferID,
 		}); err != nil {
 			return err
 		}
@@ -82,7 +82,7 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 		// insufficient funds (status already validated as ACTIVE above).
 		reserved, err := wq.ReserveHoldIfSufficient(ctx, walletgen.ReserveHoldIfSufficientParams{
 			Amount: t.TransactionAmount,
-			ID:     pgUUID(fromID),
+			ID:     fromID,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -92,8 +92,8 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 		}
 
 		if _, err := wq.InsertLedgerEntry(ctx, walletgen.InsertLedgerEntryParams{
-			TransferID:   pgUUID(transferID),
-			AccountID:    pgUUID(fromID),
+			TransferID:   transferID,
+			AccountID:    fromID,
 			Direction:    string(walletentities.LedgerHold),
 			Amount:       t.TransactionAmount,
 			Currency:     t.TransactionCurrency,
@@ -104,7 +104,7 @@ func (r *PostgresTransferRepository) ReserveExternalTransfer(
 
 		if err := q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
 			Status: string(entities.TransferStatusReserved),
-			ID:     pgUUID(transferID),
+			ID:     transferID,
 		}); err != nil {
 			return err
 		}
@@ -133,7 +133,7 @@ func (r *PostgresTransferRepository) SettleExternalTransfer(
 		q := r.q.WithTx(tx)
 		wq := r.walletQ.WithTx(tx)
 
-		t, err := q.LockTransferByID(ctx, pgUUID(transferID))
+		t, err := q.LockTransferByID(ctx, transferID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -154,7 +154,7 @@ func (r *PostgresTransferRepository) SettleExternalTransfer(
 		if len(locked) == 0 {
 			return r.failTx(ctx, q, transferID, entities.FailureAccountNotActive)
 		}
-		fromID := uuid.UUID(locked[0].ID.Bytes)
+		fromID := locked[0].ID
 
 		if result.Outcome == entities.ProviderSuccess {
 			return r.settleSucceeded(
@@ -186,14 +186,14 @@ func (r *PostgresTransferRepository) settleSucceeded(
 	// underflow by rolling the tx back rather than committing bad money.
 	debited, err := wq.DebitHold(ctx, walletgen.DebitHoldParams{
 		Amount: amount,
-		ID:     pgUUID(fromID),
+		ID:     fromID,
 	})
 	if err != nil {
 		return err
 	}
 	if _, err := wq.InsertLedgerEntry(ctx, walletgen.InsertLedgerEntryParams{
-		TransferID:   pgUUID(transferID),
-		AccountID:    pgUUID(fromID),
+		TransferID:   transferID,
+		AccountID:    fromID,
 		Direction:    string(walletentities.LedgerDebit),
 		Amount:       amount,
 		Currency:     currency,
@@ -204,14 +204,14 @@ func (r *PostgresTransferRepository) settleSucceeded(
 	if referenceID != "" {
 		if err := q.SetProviderReference(ctx, gen.SetProviderReferenceParams{
 			ProviderReferenceID: referenceID,
-			ID:                  pgUUID(transferID),
+			ID:                  transferID,
 		}); err != nil {
 			return err
 		}
 	}
 	if err := q.UpdateTransferStatus(ctx, gen.UpdateTransferStatusParams{
 		Status: string(entities.TransferStatusSucceeded),
-		ID:     pgUUID(transferID),
+		ID:     transferID,
 	}); err != nil {
 		return err
 	}
@@ -230,14 +230,14 @@ func (r *PostgresTransferRepository) settleFailed(
 ) error {
 	released, err := wq.ReleaseHold(ctx, walletgen.ReleaseHoldParams{
 		Amount: amount,
-		ID:     pgUUID(fromID),
+		ID:     fromID,
 	})
 	if err != nil {
 		return err
 	}
 	if _, err := wq.InsertLedgerEntry(ctx, walletgen.InsertLedgerEntryParams{
-		TransferID:   pgUUID(transferID),
-		AccountID:    pgUUID(fromID),
+		TransferID:   transferID,
+		AccountID:    fromID,
 		Direction:    string(walletentities.LedgerRelease),
 		Amount:       amount,
 		Currency:     currency,

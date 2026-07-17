@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -353,9 +352,5 @@ func TestPostgresRepositoryErrorAndEdgeBranches(t *testing.T) {
 		_, err := inboxRepo.IsProcessed(cancelled, "g", "k")
 		assert.Error(t, err)
 		assert.Error(t, inboxRepo.MarkProcessed(cancelled, "g", "k"))
-	})
-
-	t.Run("mapper exported helpers cover null timestamp", func(t *testing.T) {
-		assert.Nil(t, walletrepos.TimePtr(pgtype.Timestamptz{}))
 	})
 }

@@ -663,3 +663,66 @@ export function useGetTransfer<TData = Awaited<ReturnType<typeof getTransfer>>, 
 
 
 
+/**
+ * Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED
+ * @summary Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED
+ */
+export const cancelTransfer = (
+    transferId: string,
+ options?: SecondParameter<typeof apiClient>,signal?: AbortSignal
+) => {
+
+
+      return apiClient<DtoTransferResponse>(
+      {url: `/transfers/${transferId}/cancel`, method: 'POST', signal
+    },
+      options);
+    }
+
+
+
+
+export const getCancelTransferMutationOptions = <TError = HandlersErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelTransfer>>, TError,{transferId: string}, TContext>, request?: SecondParameter<typeof apiClient>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelTransfer>>, TError,{transferId: string}, TContext> => {
+
+const mutationKey = ['cancelTransfer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelTransfer>>, {transferId: string}> = (props) => {
+          const {transferId} = props ?? {};
+
+          return  cancelTransfer(transferId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelTransferMutationResult = NonNullable<Awaited<ReturnType<typeof cancelTransfer>>>
+
+    export type CancelTransferMutationError = HandlersErrorResponse
+
+    /**
+ * @summary Cancel a SCHEDULED transfer before its execute time; idempotent if already CANCELLED
+ */
+export const useCancelTransfer = <TError = HandlersErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelTransfer>>, TError,{transferId: string}, TContext>, request?: SecondParameter<typeof apiClient>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof cancelTransfer>>,
+        TError,
+        {transferId: string},
+        TContext
+      > => {
+      return useMutation(getCancelTransferMutationOptions(options), queryClient);
+    }

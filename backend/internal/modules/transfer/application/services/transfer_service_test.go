@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -447,7 +448,7 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 	t.Run("replays existing idempotent transfer", func(t *testing.T) {
 		transferRepo, _, service := newService(t)
 		amount := decimal.NewFromInt(10)
-		hash := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "")
+		hash := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "", nil)
 		existing := &entities.Transfer{
 			Reference:           "ITN-01K00000000000000000000000",
 			Status:              entities.TransferStatusPending,
@@ -502,7 +503,7 @@ func TestTransferServiceCreateTransferAdditionalPaths(t *testing.T) {
 	t.Run("replays after unique violation race", func(t *testing.T) {
 		transferRepo, accountRepo, service := newService(t)
 		amount := decimal.NewFromInt(10)
-		hash := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "")
+		hash := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "", nil)
 		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil).Once()
 		accountRepo.EXPECT().
 			GetByRef(ctx, fromRef).
@@ -848,6 +849,165 @@ func TestTransferServiceAdditionalErrorBranches(t *testing.T) {
 		assert.ErrorIs(t, err, wantErr)
 	})
 
+	t.Run("external returns find existing transfer error", func(t *testing.T) {
+		transferRepo, _, service := newService(t)
+		wantErr := errors.New("find failed")
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, wantErr)
+
+		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "EXTERNAL",
+		})
+
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("external replays existing idempotent transfer", func(t *testing.T) {
+		transferRepo, _, service := newService(t)
+		amount := decimal.NewFromInt(10)
+		hash := requestHash(fromRef, "", amount, "USD", transferTypeExternal, "stub-provider", nil)
+		existing := &entities.Transfer{
+			Reference:           "ETN-01K00000000000000000000000",
+			Status:              entities.TransferStatusPending,
+			TransactionAmount:   amount,
+			TransactionCurrency: "USD",
+			FeeAmount:           decimal.Zero,
+			FeeCurrency:         "USD",
+			RequestHash:         hash,
+		}
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(existing, nil)
+
+		result, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "EXTERNAL",
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, existing.Reference, result.TransferID)
+	})
+
+	t.Run("external rejects scheduled create with insufficient balance", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{
+				Ref: fromRef, UserID: userID, Currency: "USD",
+				Status: walletentities.AccountStatusActive, AvailableBalance: decimal.NewFromInt(5),
+			}, nil)
+
+		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "EXTERNAL",
+			ExecuteAt:      time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, 422, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("external creates scheduled transfer with sufficient balance", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{
+				Ref: fromRef, UserID: userID, Currency: "USD",
+				Status: walletentities.AccountStatusActive, AvailableBalance: decimal.NewFromInt(100),
+			}, nil)
+		transferRepo.EXPECT().
+			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
+				return tr.Status == entities.TransferStatusScheduled && tr.ExecuteAt != nil
+			})).
+			RunAndReturn(func(_ context.Context, tr *entities.Transfer) (*entities.Transfer, error) {
+				tr.ID = uuid.New()
+				return tr, nil
+			})
+
+		result, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "EXTERNAL",
+			ExecuteAt:      time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, string(entities.TransferStatusScheduled), result.Status)
+	})
+
+	t.Run("internal returns destination lookup error", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		wantErr := errors.New("lookup failed")
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, toRef).
+			Return(&walletentities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().GetLookupByRef(ctx, toRef).Return(nil, wantErr)
+
+		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+		})
+
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("returns unique violation re-read error", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		wantErr := errors.New("re-read failed")
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, nil).Once()
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{Ref: fromRef, UserID: userID, Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, toRef).
+			Return(&walletentities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&walletentities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
+		transferRepo.EXPECT().Create(ctx, mock.Anything).Return(nil, &pgconn.PgError{Code: pgUniqueViolation})
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, key).Return(nil, wantErr).Once()
+
+		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+		})
+
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("rejects non-numeric amount", func(t *testing.T) {
+		_, _, service := newService(t)
+
+		_, err := service.CreateTransfer(ctx, userID, key, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "not-a-number",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, 400, err.(*apperror.AppError).Status)
+	})
+
 	t.Run("get transfer returns repository error", func(t *testing.T) {
 		transferRepo, accountRepo, service := newService(t)
 		ref := NewTransferReference(transferTypeInternal)
@@ -1009,4 +1169,431 @@ func TestTransferServiceListTransfers(t *testing.T) {
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, assert.AnError)
 	})
+}
+
+func TestTransferServiceCreateScheduledTransfer(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	fromRef := accountref.New()
+	toRef := accountref.New()
+	idempotencyKey := uuid.New().String()
+
+	newService := func(t *testing.T) (*testmocks.TransferRepository, *testmocks.AccountRepository, *TransferService) {
+		t.Helper()
+		transferRepo := testmocks.NewTransferRepository(t)
+		accountRepo := testmocks.NewAccountRepository(t)
+		return transferRepo, accountRepo, NewTransferService(transferRepo, accountRepo, "stub-provider")
+	}
+
+	t.Run("rejects executeAt not RFC3339", func(t *testing.T) {
+		_, _, service := newService(t)
+
+		_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+			ExecuteAt:      "not-a-time",
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, 400, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("rejects executeAt in the past", func(t *testing.T) {
+		_, _, service := newService(t)
+
+		_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+			ExecuteAt:      time.Now().Add(-time.Hour).Format(time.RFC3339),
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, 400, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("rejects executeAt beyond 90 day horizon", func(t *testing.T) {
+		_, _, service := newService(t)
+
+		_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+			ExecuteAt:      time.Now().Add(91 * 24 * time.Hour).Format(time.RFC3339),
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, 400, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("rejects scheduled create with insufficient balance", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{
+				Ref: fromRef, UserID: userID, Currency: "USD",
+				Status: walletentities.AccountStatusActive, AvailableBalance: decimal.NewFromInt(5),
+			}, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, toRef).
+			Return(&walletentities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+
+		_, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+			ExecuteAt:      time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, 422, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("creates scheduled internal transfer with sufficient balance", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		executeAt := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{
+				Ref: fromRef, UserID: userID, Currency: "USD",
+				Status: walletentities.AccountStatusActive, AvailableBalance: decimal.NewFromInt(100),
+			}, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, toRef).
+			Return(&walletentities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&walletentities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
+		transferRepo.EXPECT().
+			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
+				return tr.Status == entities.TransferStatusScheduled &&
+					tr.ExecuteAt != nil && tr.ExecuteAt.Equal(executeAt)
+			})).
+			RunAndReturn(func(_ context.Context, tr *entities.Transfer) (*entities.Transfer, error) {
+				tr.ID = uuid.New()
+				return tr, nil
+			})
+
+		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+			ExecuteAt:      executeAt.Format(time.RFC3339),
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, string(entities.TransferStatusScheduled), result.Status)
+		assert.NotEmpty(t, result.ExecuteAt)
+	})
+
+	t.Run("skips balance check on cross currency scheduled internal transfer", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{
+				Ref: fromRef, UserID: userID, Currency: "EUR",
+				Status: walletentities.AccountStatusActive, AvailableBalance: decimal.Zero,
+			}, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, toRef).
+			Return(&walletentities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&walletentities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
+		transferRepo.EXPECT().
+			Create(ctx, mock.Anything).
+			RunAndReturn(func(_ context.Context, tr *entities.Transfer) (*entities.Transfer, error) {
+				tr.ID = uuid.New()
+				return tr, nil
+			})
+
+		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+			ExecuteAt:      time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+	})
+
+	t.Run("immediate create unaffected by scheduled changes", func(t *testing.T) {
+		transferRepo, accountRepo, service := newService(t)
+		transferRepo.EXPECT().FindByUserAndKey(ctx, userID, idempotencyKey).Return(nil, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, fromRef).
+			Return(&walletentities.Account{
+				Ref: fromRef, UserID: userID, Currency: "USD",
+				Status: walletentities.AccountStatusActive, AvailableBalance: decimal.Zero,
+			}, nil)
+		accountRepo.EXPECT().
+			GetByRef(ctx, toRef).
+			Return(&walletentities.Account{Ref: toRef, UserID: uuid.New(), Currency: "USD", Status: walletentities.AccountStatusActive}, nil)
+		accountRepo.EXPECT().
+			GetLookupByRef(ctx, toRef).
+			Return(&walletentities.AccountLookup{AccountRef: toRef, HolderName: "Bob"}, nil)
+		transferRepo.EXPECT().
+			Create(ctx, mock.MatchedBy(func(tr *entities.Transfer) bool {
+				return tr.Status == entities.TransferStatusPending && tr.ExecuteAt == nil
+			})).
+			RunAndReturn(func(_ context.Context, tr *entities.Transfer) (*entities.Transfer, error) {
+				tr.ID = uuid.New()
+				return tr, nil
+			})
+
+		result, err := service.CreateTransfer(ctx, userID, idempotencyKey, dto.CreateTransferCommand{
+			FromAccountRef: fromRef,
+			ToAccountRef:   toRef,
+			Amount:         "10",
+			Currency:       "USD",
+			TransferType:   "INTERNAL",
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, string(entities.TransferStatusPending), result.Status)
+		assert.Empty(t, result.ExecuteAt)
+	})
+
+	t.Run("hash differs for different executeAt on same request", func(t *testing.T) {
+		amount := decimal.NewFromInt(10)
+		t1 := time.Now().Add(24 * time.Hour)
+		t2 := time.Now().Add(48 * time.Hour)
+		h1 := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "", &t1)
+		h2 := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "", &t2)
+		h0 := requestHash(fromRef, toRef, amount, "USD", transferTypeInternal, "", nil)
+		assert.NotEqual(t, h1, h2)
+		assert.NotEqual(t, h1, h0)
+	})
+}
+
+func TestTransferServiceCancelTransfer(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	ref := "ITN-01K00000000000000000000000"
+
+	newService := func(t *testing.T) (*testmocks.TransferRepository, *TransferService) {
+		t.Helper()
+		transferRepo := testmocks.NewTransferRepository(t)
+		accountRepo := testmocks.NewAccountRepository(t)
+		return transferRepo, NewTransferService(transferRepo, accountRepo, "stub-provider")
+	}
+
+	t.Run("rejects malformed reference", func(t *testing.T) {
+		_, service := newService(t)
+
+		_, err := service.CancelTransfer(ctx, "not-a-reference", userID)
+
+		require.Error(t, err)
+		assert.Equal(t, 400, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("returns not found when transfer does not exist", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(nil, nil)
+
+		_, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.Error(t, err)
+		assert.Equal(t, 404, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("idempotent when already cancelled", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			Reference: ref,
+			Status:    entities.TransferStatusCancelled,
+		}, nil)
+
+		result, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.NoError(t, err)
+		assert.Equal(t, string(entities.TransferStatusCancelled), result.Status)
+	})
+
+	t.Run("conflict when not scheduled", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			Reference: ref,
+			Status:    entities.TransferStatusPending,
+		}, nil)
+
+		_, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.Error(t, err)
+		assert.Equal(t, 409, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("cancels a scheduled transfer", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		id := uuid.New()
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil)
+		transferRepo.EXPECT().CancelScheduled(ctx, id).Return(&entities.Transfer{
+			Reference:     ref,
+			Status:        entities.TransferStatusCancelled,
+			FailureReason: entities.FailureCancelled,
+		}, nil)
+
+		result, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.NoError(t, err)
+		assert.Equal(t, string(entities.TransferStatusCancelled), result.Status)
+		assert.Equal(t, entities.FailureCancelled, result.FailureReason)
+	})
+
+	t.Run("re-reads current state when repo cancel loses the race", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		id := uuid.New()
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil).Once()
+		transferRepo.EXPECT().CancelScheduled(ctx, id).Return(nil, nil)
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			Reference: ref,
+			Status:    entities.TransferStatusCancelled,
+		}, nil).Once()
+
+		result, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.NoError(t, err)
+		assert.Equal(t, string(entities.TransferStatusCancelled), result.Status)
+	})
+
+	t.Run("returns error from repository", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		wantErr := errors.New("db down")
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(nil, wantErr)
+
+		_, err := service.CancelTransfer(ctx, ref, userID)
+
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("returns error from CancelScheduled", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		id := uuid.New()
+		wantErr := errors.New("cancel failed")
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil)
+		transferRepo.EXPECT().CancelScheduled(ctx, id).Return(nil, wantErr)
+
+		_, err := service.CancelTransfer(ctx, ref, userID)
+
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("returns error re-reading after lost race", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		id := uuid.New()
+		wantErr := errors.New("re-read failed")
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil).Once()
+		transferRepo.EXPECT().CancelScheduled(ctx, id).Return(nil, nil)
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(nil, wantErr).Once()
+
+		_, err := service.CancelTransfer(ctx, ref, userID)
+
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("returns not found when re-read after lost race finds nothing", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		id := uuid.New()
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil).Once()
+		transferRepo.EXPECT().CancelScheduled(ctx, id).Return(nil, nil)
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(nil, nil).Once()
+
+		_, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.Error(t, err)
+		assert.Equal(t, 404, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("returns conflict when re-read after lost race is neither scheduled nor cancelled", func(t *testing.T) {
+		transferRepo, service := newService(t)
+		id := uuid.New()
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil).Once()
+		transferRepo.EXPECT().CancelScheduled(ctx, id).Return(nil, nil)
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			Reference: ref,
+			Status:    entities.TransferStatusProcessing,
+		}, nil).Once()
+
+		_, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.Error(t, err)
+		assert.Equal(t, 409, err.(*apperror.AppError).Status)
+	})
+
+	t.Run("signals the workflow canceller on successful cancel", func(t *testing.T) {
+		transferRepo := testmocks.NewTransferRepository(t)
+		accountRepo := testmocks.NewAccountRepository(t)
+		id := uuid.New()
+		var calledWith uuid.UUID
+		canceller := workflowCancellerFunc(func(_ context.Context, transferID uuid.UUID) error {
+			calledWith = transferID
+			return nil
+		})
+		service := NewTransferService(transferRepo, accountRepo, "stub-provider", WithWorkflowCanceller(canceller))
+		transferRepo.EXPECT().GetByReferenceForUser(ctx, ref, userID).Return(&entities.Transfer{
+			ID:        id,
+			Reference: ref,
+			Status:    entities.TransferStatusScheduled,
+		}, nil)
+		transferRepo.EXPECT().CancelScheduled(ctx, id).Return(&entities.Transfer{
+			Reference: ref,
+			Status:    entities.TransferStatusCancelled,
+		}, nil)
+
+		result, err := service.CancelTransfer(ctx, ref, userID)
+
+		require.NoError(t, err)
+		assert.Equal(t, string(entities.TransferStatusCancelled), result.Status)
+		assert.Equal(t, id, calledWith)
+	})
+}
+
+// workflowCancellerFunc adapts a func to the WorkflowCanceller interface for tests.
+type workflowCancellerFunc func(ctx context.Context, transferID uuid.UUID) error
+
+func (f workflowCancellerFunc) CancelWorkflow(ctx context.Context, transferID uuid.UUID) error {
+	return f(ctx, transferID)
 }

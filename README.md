@@ -132,7 +132,8 @@ go run . --config config.yaml transfer
 
 `consumer`, `notification`, and `transfer-worker` need Kafka/Temporal as
 applicable — they fail fast at startup if hard dependencies are missing.
-`wallet`/`transfer` (API only) and `auth` do not start workflows themselves.
+`transfer` also dials Temporal at startup (for `POST /transfers/{id}/cancel`
+signals) and depends on it being healthy. `wallet` and `auth` do not.
 Outbox events are drained to Kafka via the external `iris` CDC service (Postgres
 logical replication, single-instance for FIFO ordering). Local compose uses
 **Redpanda only as a demo Kafka broker**, not as the production messaging product.
@@ -186,7 +187,7 @@ transx [--config|-c config.yaml] <subcommand>
 
   auth             Start the auth service (JSON AT+RT + ForwardAuth /check)
   wallet           Start the wallet HTTP API (API only)
-  transfer         Start the transfer HTTP API (API only)
+  transfer         Start the transfer HTTP API (dials Temporal for cancel signal)
   consumer         Kafka→Temporal bridge for transfer.requested (+ start retries)
   notification     Consume terminal transfer events and dispatch notifications
   fx               Run the FX service (gRPC Quote + QuoteFee)
@@ -279,7 +280,7 @@ flowchart TD
     TR -->|"/inbox* + X-User-Id"| NOTIF
 
     WALLET --> PG
-    TRANSFER -->|"PENDING + outbox"| PG
+    TRANSFER -->|"PENDING|SCHEDULED + outbox"| PG
     IRIS -->|"logical replication"| PG
     IRIS -->|"event_type topic"| KREQ
     IRIS -->|"event_type topic"| KOK
@@ -345,8 +346,9 @@ sequenceDiagram
   and injects `X-User-Id`.
 - **Auth**: issues short-lived access JWTs + opaque refresh tokens (Redis). No
   browser cookies on the auth service itself.
-- **Transfer API**: stages `PENDING` transfer + `transfer.requested` outbox in
-  one transaction; does not move money.
+- **Transfer API**: stages `PENDING` (or `SCHEDULED` when `executeAt` is set) +
+  `transfer.requested` outbox in one transaction; does not move money. Dials
+  Temporal only to signal cancel for scheduled transfers.
 - **iris**: CDC drain of outbox → Kafka topics named by `event_type` (single-instance FIFO). Local demo compose uses Redpanda as a Kafka-compatible broker only.
 - **consumer**: only the Kafka→Temporal bridge (inbox dedup + `ExecuteWorkflow`).
 - **transfer-worker**: runs the Temporal saga (INTERNAL/EXTERNAL activities).
@@ -367,12 +369,23 @@ All routes are under `/api/v1` and gated by ForwardAuth (the gateway injects
 | `POST` | `/transfers`                           | Create a transfer (idempotent)                                     |
 | `GET`  | `/transfers`                           | List the caller's transfers (paginated; status/accountRef filters) |
 | `GET`  | `/transfers/{transferId}`              | Get a transfer (owner-scoped)                                      |
+| `POST` | `/transfers/{transferId}/cancel`       | Cancel a `SCHEDULED` transfer before its execute time (idempotent) |
 
 `POST /transfers` requires an `Idempotency-Key` header — a client-generated UUID
 (uuidv7 recommended). Retrying with the same key replays the original transfer;
 reusing it with a different body returns `409`. The transfer is created
 `PENDING` and settled asynchronously via Temporal, so poll
 `GET /transfers/{id}` for the final `SUCCEEDED`/`FAILED` status.
+
+An optional `executeAt` (RFC3339, strictly in the future and within 90 days)
+schedules the transfer instead of running it immediately: it is created
+`SCHEDULED` and executes automatically at that time. No funds are held at
+schedule time; available balance is soft-checked at create only when source
+currency matches the transaction currency (cross-currency scheduled INTERNAL
+skips that check — intentional gap). Before execution it can be cancelled via
+`POST /transfers/{transferId}/cancel`, which moves it to a terminal
+`CANCELLED` status (idempotent if already cancelled; `409` if it already ran
+or was never scheduled). v1 supports cancel only — no edit or reschedule.
 
 `transferType` selects the flow. `INTERNAL` (default) moves funds to another
 in-ledger account and requires `toAccountRef` (an `ACC-` account ref).

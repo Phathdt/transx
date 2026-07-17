@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -137,13 +138,17 @@ type LoadTransferResult struct {
 	ToAccountRef        string
 	TransactionAmount   decimal.Decimal
 	TransactionCurrency string
-	// AlreadyTerminal is true when status is SUCCEEDED/FAILED so the workflow
-	// can exit without re-running money movement.
+	// ExecuteAt is non-nil only for a SCHEDULED transfer; the workflow waits
+	// until this time (or a cancel signal) before entering the saga.
+	ExecuteAt *time.Time
+	// AlreadyTerminal is true when status is SUCCEEDED/FAILED/CANCELLED so the
+	// workflow can exit without re-running money movement.
 	AlreadyTerminal bool
 }
 
 // LoadTransfer loads the transfer by id. Unknown id returns a business error
-// (nothing to process). Terminal statuses return AlreadyTerminal=true.
+// (nothing to process). Terminal statuses (including CANCELLED) return
+// AlreadyTerminal=true.
 func (a *Activities) LoadTransfer(ctx context.Context, transferID uuid.UUID) (LoadTransferResult, error) {
 	t, err := a.transfer.GetByID(ctx, transferID)
 	if err != nil {
@@ -153,7 +158,8 @@ func (a *Activities) LoadTransfer(ctx context.Context, transferID uuid.UUID) (Lo
 		return LoadTransferResult{}, businessError(transferentities.FailureAccountNotActive)
 	}
 	alreadyTerminal := t.Status == transferentities.TransferStatusSucceeded ||
-		t.Status == transferentities.TransferStatusFailed
+		t.Status == transferentities.TransferStatusFailed ||
+		t.Status == transferentities.TransferStatusCancelled
 	return LoadTransferResult{
 		TransferID:          t.ID,
 		TransferType:        t.TransferType,
@@ -162,8 +168,18 @@ func (a *Activities) LoadTransfer(ctx context.Context, transferID uuid.UUID) (Lo
 		ToAccountRef:        t.ToAccountRef,
 		TransactionAmount:   t.TransactionAmount,
 		TransactionCurrency: t.TransactionCurrency,
+		ExecuteAt:           t.ExecuteAt,
 		AlreadyTerminal:     alreadyTerminal,
 	}, nil
+}
+
+// CancelScheduled cancels a SCHEDULED transfer (DB CAS + transfer.failed
+// outbox with reason CANCELLED). Idempotent: a no-op when the transfer is not
+// SCHEDULED, so it is safe whether the cancel API or the workflow's own
+// cancel-signal path wins the race.
+func (a *Activities) CancelScheduled(ctx context.Context, transferID uuid.UUID) error {
+	_, err := a.transfer.CancelScheduled(ctx, transferID)
+	return err
 }
 
 // PrepareInternalMoveInput identifies the INTERNAL transfer to quote and freeze.
@@ -204,10 +220,10 @@ func (a *Activities) PrepareInternalMove(
 	if t == nil {
 		return PrepareInternalMoveResult{}, businessError(transferentities.FailureAccountNotActive)
 	}
-	// Already past PENDING: either PROCESSING (retry after snapshot) or terminal.
-	// Re-derive quotes from the frozen snapshot when present so Wallet.Move is
-	// still callable on activity retry without rewriting settlement.
-	if t.Status != transferentities.TransferStatusPending {
+	// Already past PENDING/SCHEDULED: either PROCESSING (retry after snapshot) or
+	// terminal. Re-derive quotes from the frozen snapshot when present so
+	// Wallet.Move is still callable on activity retry without rewriting settlement.
+	if t.Status != transferentities.TransferStatusPending && t.Status != transferentities.TransferStatusScheduled {
 		if t.Status == transferentities.TransferStatusProcessing &&
 			t.SourceAmount.Valid && t.DestinationAmount.Valid {
 			return PrepareInternalMoveResult{
@@ -336,7 +352,7 @@ func (a *Activities) PrepareExternalHold(
 		return PrepareExternalHoldResult{AlreadyTerminal: true}, nil
 	}
 	// Retry after snapshot: reuse frozen fields when already PROCESSING/RESERVED.
-	if t.Status != transferentities.TransferStatusPending {
+	if t.Status != transferentities.TransferStatusPending && t.Status != transferentities.TransferStatusScheduled {
 		if t.SourceAmount.Valid && t.SourceCurrency != "" {
 			return PrepareExternalHoldResult{
 				FromAccountRef: t.FromAccountRef,

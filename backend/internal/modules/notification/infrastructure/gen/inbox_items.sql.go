@@ -8,7 +8,7 @@ package gen
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 )
 
 const countInboxByUser = `-- name: CountInboxByUser :one
@@ -20,7 +20,7 @@ WHERE
     user_id = $1
 `
 
-func (q *Queries) CountInboxByUser(ctx context.Context, userID pgtype.UUID) (int64, error) {
+func (q *Queries) CountInboxByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countInboxByUser, userID)
 	var count int64
 	err := row.Scan(&count)
@@ -37,7 +37,7 @@ WHERE
     AND read_at IS NULL
 `
 
-func (q *Queries) CountUnreadByUser(ctx context.Context, userID pgtype.UUID) (int64, error) {
+func (q *Queries) CountUnreadByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countUnreadByUser, userID)
 	var count int64
 	err := row.Scan(&count)
@@ -63,8 +63,8 @@ WHERE
 `
 
 type GetInboxItemByUserAndIDParams struct {
-	ID     pgtype.UUID `db:"id"`
-	UserID pgtype.UUID `db:"user_id"`
+	ID     uuid.UUID `db:"id"`
+	UserID uuid.UUID `db:"user_id"`
 }
 
 func (q *Queries) GetInboxItemByUserAndID(ctx context.Context, arg GetInboxItemByUserAndIDParams) (*UserInboxItem, error) {
@@ -97,12 +97,12 @@ WHERE
 `
 
 type InsertInboxItemParams struct {
-	UserID      pgtype.UUID `db:"user_id"`
-	Type        string      `db:"type"`
-	Title       string      `db:"title"`
-	Body        string      `db:"body"`
-	TransferID  pgtype.UUID `db:"transfer_id"`
-	TransferRef *string     `db:"transfer_ref"`
+	UserID      uuid.UUID  `db:"user_id"`
+	Type        string     `db:"type"`
+	Title       string     `db:"title"`
+	Body        string     `db:"body"`
+	TransferID  *uuid.UUID `db:"transfer_id"`
+	TransferRef *string    `db:"transfer_ref"`
 }
 
 // Inserts a user inbox item. ON CONFLICT updates title (no-op when equal) so
@@ -153,9 +153,9 @@ LIMIT $3 OFFSET $2
 `
 
 type ListInboxByUserParams struct {
-	UserID pgtype.UUID `db:"user_id"`
-	Off    int32       `db:"off"`
-	Lim    int32       `db:"lim"`
+	UserID uuid.UUID `db:"user_id"`
+	Off    int32     `db:"off"`
+	Lim    int32     `db:"lim"`
 }
 
 func (q *Queries) ListInboxByUser(ctx context.Context, arg ListInboxByUserParams) ([]*UserInboxItem, error) {
@@ -198,7 +198,7 @@ WHERE
     AND read_at IS NULL
 `
 
-func (q *Queries) MarkAllInboxRead(ctx context.Context, userID pgtype.UUID) (int64, error) {
+func (q *Queries) MarkAllInboxRead(ctx context.Context, userID uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, markAllInboxRead, userID)
 	if err != nil {
 		return 0, err
@@ -219,8 +219,8 @@ RETURNING
 `
 
 type MarkInboxReadParams struct {
-	ID     pgtype.UUID `db:"id"`
-	UserID pgtype.UUID `db:"user_id"`
+	ID     uuid.UUID `db:"id"`
+	UserID uuid.UUID `db:"user_id"`
 }
 
 // Marks the item read if still unread; preserves the original read_at when the

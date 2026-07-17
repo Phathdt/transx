@@ -13,22 +13,28 @@ type TransferStatus string
 
 const (
 	TransferStatusPending    TransferStatus = "PENDING"
+	TransferStatusScheduled  TransferStatus = "SCHEDULED"
 	TransferStatusReserved   TransferStatus = "RESERVED"
 	TransferStatusProcessing TransferStatus = "PROCESSING"
 	TransferStatusSubmitted  TransferStatus = "SUBMITTED"
 	TransferStatusSucceeded  TransferStatus = "SUCCEEDED"
 	TransferStatusFailed     TransferStatus = "FAILED"
+	TransferStatusCancelled  TransferStatus = "CANCELLED"
 	TransferStatusReversed   TransferStatus = "REVERSED"
 	TransferStatusUnknown    TransferStatus = "UNKNOWN"
 )
 
-// Failure reasons recorded on a FAILED transfer.
+// Failure reasons recorded on a FAILED transfer. FailureCancelled marks a
+// SCHEDULED transfer the owner cancelled before execute_at; it reuses the
+// FAILED status + outbox event so the existing notification path (which only
+// watches transfer.failed) surfaces it without a new event type.
 const (
 	FailureInsufficientFunds = "INSUFFICIENT_FUNDS"
 	FailureAccountNotActive  = "ACCOUNT_NOT_ACTIVE"
 	FailureDestNotActive     = "DEST_NOT_ACTIVE"
 	FailureProviderRejected  = "PROVIDER_REJECTED"
 	FailureFXRateUnavailable = "FX_RATE_UNAVAILABLE"
+	FailureCancelled         = "CANCELLED"
 )
 
 // Transfer is a movement of funds. INTERNAL transfers move funds between two
@@ -64,6 +70,10 @@ type Transfer struct {
 	UserID              uuid.UUID
 	IdempotencyKey      string
 	RequestHash         string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// ExecuteAt is nil for an immediate transfer. When set, the transfer starts
+	// in SCHEDULED and the Temporal workflow waits until this time before
+	// entering the INTERNAL/EXTERNAL saga.
+	ExecuteAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
