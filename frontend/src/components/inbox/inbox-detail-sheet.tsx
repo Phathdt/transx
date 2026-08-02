@@ -72,10 +72,10 @@ export function InboxDetailSheet({
               {data?.body ?? (isLoading ? '…' : '')}
             </p>
           )}
-          {data?.transferId ? (
+          {data?.sourceType === 'transfer' && data.sourceRef ? (
             <Button asChild variant="outline" className="self-start">
               <Link
-                to={`/app/transfers/${data.transferId}`}
+                to={`/app/transfers/${data.sourceRef}`}
                 onClick={() => onOpenChange(false)}
               >
                 View transfer

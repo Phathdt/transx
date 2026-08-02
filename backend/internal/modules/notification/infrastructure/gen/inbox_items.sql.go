@@ -51,8 +51,9 @@ SELECT
     type,
     title,
     body,
-    transfer_id,
-    transfer_ref,
+    source_type,
+    source_id,
+    source_ref,
     read_at,
     created_at
 FROM
@@ -76,8 +77,9 @@ func (q *Queries) GetInboxItemByUserAndID(ctx context.Context, arg GetInboxItemB
 		&i.Type,
 		&i.Title,
 		&i.Body,
-		&i.TransferID,
-		&i.TransferRef,
+		&i.SourceType,
+		&i.SourceID,
+		&i.SourceRef,
 		&i.ReadAt,
 		&i.CreatedAt,
 	)
@@ -85,36 +87,38 @@ func (q *Queries) GetInboxItemByUserAndID(ctx context.Context, arg GetInboxItemB
 }
 
 const insertInboxItem = `-- name: InsertInboxItem :one
-INSERT INTO user_inbox_items (user_id, type, title, body, transfer_id, transfer_ref)
-    VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (user_id, type, transfer_id)
-WHERE
-    transfer_id IS NOT NULL
-        DO UPDATE SET
-            title = EXCLUDED.title
-        RETURNING
-            id, user_id, type, title, body, transfer_id, transfer_ref, read_at, created_at
+INSERT INTO user_inbox_items (user_id, type, title, body, source_type, source_id, source_ref)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (user_id, type, source_type, source_id)
+    DO UPDATE SET
+        title = EXCLUDED.title
+    RETURNING
+        id, user_id, type, title, body, source_type, source_id, source_ref, read_at, created_at
 `
 
 type InsertInboxItemParams struct {
-	UserID      uuid.UUID  `db:"user_id"`
-	Type        string     `db:"type"`
-	Title       string     `db:"title"`
-	Body        string     `db:"body"`
-	TransferID  *uuid.UUID `db:"transfer_id"`
-	TransferRef *string    `db:"transfer_ref"`
+	UserID     uuid.UUID `db:"user_id"`
+	Type       string    `db:"type"`
+	Title      string    `db:"title"`
+	Body       string    `db:"body"`
+	SourceType string    `db:"source_type"`
+	SourceID   string    `db:"source_id"`
+	SourceRef  string    `db:"source_ref"`
 }
 
-// Inserts a user inbox item. ON CONFLICT updates title (no-op when equal) so
-// Kafka redelivery is safe and RETURNING still yields the existing row.
+// Inserts a user inbox item. The conflict target is the full unique index so
+// every source_type dedupes, not just rows that carry a transfer. DO UPDATE on
+// title is a no-op when equal, so Kafka redelivery is safe and RETURNING still
+// yields the existing row.
 func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams) (*UserInboxItem, error) {
 	row := q.db.QueryRow(ctx, insertInboxItem,
 		arg.UserID,
 		arg.Type,
 		arg.Title,
 		arg.Body,
-		arg.TransferID,
-		arg.TransferRef,
+		arg.SourceType,
+		arg.SourceID,
+		arg.SourceRef,
 	)
 	var i UserInboxItem
 	err := row.Scan(
@@ -123,8 +127,9 @@ func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams
 		&i.Type,
 		&i.Title,
 		&i.Body,
-		&i.TransferID,
-		&i.TransferRef,
+		&i.SourceType,
+		&i.SourceID,
+		&i.SourceRef,
 		&i.ReadAt,
 		&i.CreatedAt,
 	)
@@ -138,8 +143,9 @@ SELECT
     type,
     title,
     body,
-    transfer_id,
-    transfer_ref,
+    source_type,
+    source_id,
+    source_ref,
     read_at,
     created_at
 FROM
@@ -173,8 +179,9 @@ func (q *Queries) ListInboxByUser(ctx context.Context, arg ListInboxByUserParams
 			&i.Type,
 			&i.Title,
 			&i.Body,
-			&i.TransferID,
-			&i.TransferRef,
+			&i.SourceType,
+			&i.SourceID,
+			&i.SourceRef,
 			&i.ReadAt,
 			&i.CreatedAt,
 		); err != nil {
@@ -215,7 +222,7 @@ WHERE
     id = $1
     AND user_id = $2
 RETURNING
-    id, user_id, type, title, body, transfer_id, transfer_ref, read_at, created_at
+    id, user_id, type, title, body, source_type, source_id, source_ref, read_at, created_at
 `
 
 type MarkInboxReadParams struct {
@@ -234,8 +241,9 @@ func (q *Queries) MarkInboxRead(ctx context.Context, arg MarkInboxReadParams) (*
 		&i.Type,
 		&i.Title,
 		&i.Body,
-		&i.TransferID,
-		&i.TransferRef,
+		&i.SourceType,
+		&i.SourceID,
+		&i.SourceRef,
 		&i.ReadAt,
 		&i.CreatedAt,
 	)

@@ -1,13 +1,15 @@
 package dto
 
 // InboxItemResponse is one user-facing inbox message returned to clients.
-// transferId is the business reference (ITN-/ETN-…), matching transfer API.
+// sourceRef is the source's business reference (ITN-/ETN-… for transfers) and
+// doubles as the deep-link key; sourceId is internal and not exposed.
 type InboxItemResponse struct {
 	ID         string  `json:"id"`
 	Type       string  `json:"type"`
 	Title      string  `json:"title"`
 	Body       string  `json:"body"`
-	TransferID string  `json:"transferId,omitempty"`
+	SourceType string  `json:"sourceType"`
+	SourceRef  string  `json:"sourceRef,omitempty"`
 	ReadAt     *string `json:"readAt,omitempty"`
 	CreatedAt  string  `json:"createdAt"`
 }

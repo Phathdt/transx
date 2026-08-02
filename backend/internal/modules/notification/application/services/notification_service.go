@@ -97,7 +97,8 @@ func (s *NotificationService) record(
 	errMsg string,
 ) error {
 	return s.repo.InsertNotification(ctx, &entities.Notification{
-		TransferID: transferID,
+		SourceType: entities.SourceTypeTransfer,
+		SourceID:   transferID.String(),
 		EventType:  eventType,
 		Channel:    channel,
 		Recipient:  recipient,
@@ -152,12 +153,13 @@ func (s *NotificationService) CreateInboxItems(ctx context.Context, transferID u
 
 	for _, userID := range recipients {
 		if err := s.userInboxRepo.InsertInboxItem(ctx, &entities.InboxItem{
-			UserID:      userID,
-			Type:        eventType,
-			Title:       title,
-			Body:        body,
-			TransferID:  transferID,
-			TransferRef: transferCtx.Reference,
+			UserID:     userID,
+			Type:       eventType,
+			Title:      title,
+			Body:       body,
+			SourceType: entities.SourceTypeTransfer,
+			SourceID:   transferID.String(),
+			SourceRef:  transferCtx.Reference,
 		}); err != nil {
 			return err
 		}
@@ -263,7 +265,8 @@ func inboxItemToResponse(item *entities.InboxItem) dto.InboxItemResponse {
 		Type:       item.Type,
 		Title:      item.Title,
 		Body:       item.Body,
-		TransferID: item.TransferRef,
+		SourceType: item.SourceType,
+		SourceRef:  item.SourceRef,
 		ReadAt:     readAt,
 		CreatedAt:  item.CreatedAt.UTC().Format(time.RFC3339),
 	}

@@ -54,7 +54,8 @@ func TestPostgresNotificationRepository(t *testing.T) {
 		transferID, _ := seedTransfer(ctx, t, pool, "notif-insert@example.com", "Bob")
 
 		err := repo.InsertNotification(ctx, &notifentities.Notification{
-			TransferID: transferID,
+			SourceType: notifentities.SourceTypeTransfer,
+			SourceID:   transferID.String(),
 			EventType:  "transfer.completed",
 			Channel:    notifentities.ChannelEmail,
 			Recipient:  "notif-insert@example.com",
@@ -64,18 +65,16 @@ func TestPostgresNotificationRepository(t *testing.T) {
 
 		var count int
 		err = pool.QueryRow(ctx,
-			`SELECT count(*) FROM notifications WHERE transfer_id = $1`, transferID,
+			`SELECT count(*) FROM notifications WHERE source_type = 'transfer' AND source_id = $1`,
+			transferID.String(),
 		).Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
 	})
 }
 
-// seedTransfer inserts a user, an account owned by that user, and a SUCCEEDED
-// INTERNAL transfer from that account, returning the transfer id and reference.
-func seedTransfer(
-	ctx context.Context, t *testing.T, pool *pgxpool.Pool, email, name string,
-) (uuid.UUID, string) {
+// seedUser inserts one user and returns its id.
+func seedUser(ctx context.Context, t *testing.T, pool *pgxpool.Pool, email, name string) uuid.UUID {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte("test123"), bcrypt.MinCost)
 	require.NoError(t, err)
@@ -85,9 +84,19 @@ func seedTransfer(
 		`INSERT INTO users (email, password_hash, name) VALUES ($1,$2,$3) RETURNING id`,
 		email, string(hash), name,
 	).Scan(&userID))
+	return userID
+}
+
+// seedTransfer inserts a user, an account owned by that user, and a SUCCEEDED
+// INTERNAL transfer from that account, returning the transfer id and reference.
+func seedTransfer(
+	ctx context.Context, t *testing.T, pool *pgxpool.Pool, email, name string,
+) (uuid.UUID, string) {
+	t.Helper()
+	userID := seedUser(ctx, t, pool, email, name)
 
 	accountRef := "ACC-" + uuid.NewString()
-	_, err = pool.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		`INSERT INTO accounts (user_id, name, currency, status, account_ref)
 		 VALUES ($1,$2,'USD','ACTIVE',$3)`,
 		userID, name+" USD", accountRef)

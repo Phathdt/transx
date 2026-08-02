@@ -12,7 +12,8 @@ export interface DtoInboxItemResponse {
   id?: string;
   /** @nullable */
   readAt?: string | null;
+  sourceRef?: string;
+  sourceType?: string;
   title?: string;
-  transferId?: string;
   type?: string;
 }

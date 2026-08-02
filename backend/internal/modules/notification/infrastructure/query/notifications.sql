@@ -1,6 +1,6 @@
 -- name: InsertNotification :one
-INSERT INTO notifications (transfer_id, event_type, channel, recipient, status, error)
-    VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO notifications (source_type, source_id, event_type, channel, recipient, status, error)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING
     *;
 

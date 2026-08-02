@@ -48,9 +48,11 @@ func (r *fakeUserInboxRepo) InsertInboxItem(_ context.Context, item *entities.In
 	if r.insertErr != nil {
 		return r.insertErr
 	}
-	// Idempotent on (user, type, transfer).
+	// Idempotent on the same composite key as the unique index backing the real
+	// table: (user_id, type, source_type, source_id).
 	for _, existing := range r.items {
-		if existing.UserID == item.UserID && existing.Type == item.Type && existing.TransferID == item.TransferID {
+		if existing.UserID == item.UserID && existing.Type == item.Type &&
+			existing.SourceType == item.SourceType && existing.SourceID == item.SourceID {
 			return nil
 		}
 	}
@@ -279,7 +281,7 @@ func TestCreateInboxItemsInternalTwoRecipients(t *testing.T) {
 	for _, item := range inbox.items {
 		assert.Equal(t, "transfer.completed", item.Type)
 		assert.Contains(t, item.Title, ctx.Reference)
-		assert.Equal(t, ctx.Reference, item.TransferRef)
+		assert.Equal(t, ctx.Reference, item.SourceRef)
 	}
 }
 
@@ -329,29 +331,54 @@ func TestCreateInboxItemsMissingTransferIsPermanent(t *testing.T) {
 	require.ErrorIs(t, err, entities.ErrTransferNotFound)
 }
 
+// The transfer path owns the source identity of the items it writes: the type
+// is the constant and the id is the transfer uuid, so dedup keys off the same
+// pair the unique index does.
+func TestCreateInboxItemsSetsSourceTypeTransfer(t *testing.T) {
+	fromID := uuid.New()
+	transferID := uuid.New()
+	ctx := fullContext()
+	ctx.RecipientUserID = fromID.String()
+	inbox := &fakeUserInboxRepo{}
+	svc := services.NewNotificationService(&fakeRepo{ctxResult: ctx}, &fakeNotifier{}, inbox)
+
+	require.NoError(t, svc.CreateInboxItems(context.Background(), transferID, "transfer.completed"))
+
+	require.Len(t, inbox.items, 1)
+	// Asserted against the literal, not the constant: "transfer" is the stored
+	// and wire value, so changing the constant's value is a contract change.
+	assert.Equal(t, "transfer", inbox.items[0].SourceType)
+	assert.Equal(t, transferID.String(), inbox.items[0].SourceID)
+	assert.Equal(t, ctx.Reference, inbox.items[0].SourceRef)
+}
+
 func TestUnreadCountAndListAndReadPaths(t *testing.T) {
 	userID := uuid.New()
 	otherID := uuid.New()
 	now := time.Now().UTC()
 	inbox := &fakeUserInboxRepo{items: []*entities.InboxItem{
 		{
-			ID:          uuid.New(),
-			UserID:      userID,
-			Type:        "transfer.completed",
-			Title:       "a",
-			Body:        "b",
-			TransferRef: "ITN-1",
-			CreatedAt:   now,
+			ID:         uuid.New(),
+			UserID:     userID,
+			Type:       "transfer.completed",
+			Title:      "a",
+			Body:       "b",
+			SourceType: entities.SourceTypeTransfer,
+			SourceID:   uuid.NewString(),
+			SourceRef:  "ITN-1",
+			CreatedAt:  now,
 		},
 		{
-			ID:          uuid.New(),
-			UserID:      userID,
-			Type:        "transfer.failed",
-			Title:       "c",
-			Body:        "d",
-			TransferRef: "ITN-2",
-			CreatedAt:   now,
-			ReadAt:      &now,
+			ID:         uuid.New(),
+			UserID:     userID,
+			Type:       "transfer.failed",
+			Title:      "c",
+			Body:       "d",
+			SourceType: entities.SourceTypeTransfer,
+			SourceID:   uuid.NewString(),
+			SourceRef:  "ITN-2",
+			CreatedAt:  now,
+			ReadAt:     &now,
 		},
 		{ID: uuid.New(), UserID: otherID, Type: "transfer.completed", Title: "x", Body: "y", CreatedAt: now},
 	}}
@@ -365,7 +392,8 @@ func TestUnreadCountAndListAndReadPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list.Data, 2)
 	assert.EqualValues(t, 2, list.Total)
-	assert.Equal(t, "ITN-1", list.Data[0].TransferID)
+	assert.Equal(t, "ITN-1", list.Data[0].SourceRef)
+	assert.Equal(t, entities.SourceTypeTransfer, list.Data[0].SourceType)
 
 	// Foreign item is not found (ownership).
 	got, err := svc.GetInbox(context.Background(), inbox.items[2].ID, userID)
