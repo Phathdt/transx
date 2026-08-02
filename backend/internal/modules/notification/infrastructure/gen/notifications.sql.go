@@ -77,24 +77,26 @@ func (q *Queries) GetTransferNotificationContext(ctx context.Context, id uuid.UU
 }
 
 const insertNotification = `-- name: InsertNotification :one
-INSERT INTO notifications (transfer_id, event_type, channel, recipient, status, error)
-    VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO notifications (source_type, source_id, event_type, channel, recipient, status, error)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING
-    id, transfer_id, event_type, channel, recipient, status, error, created_at
+    id, event_type, channel, recipient, status, error, created_at, source_type, source_id
 `
 
 type InsertNotificationParams struct {
-	TransferID uuid.UUID `db:"transfer_id"`
-	EventType  string    `db:"event_type"`
-	Channel    string    `db:"channel"`
-	Recipient  string    `db:"recipient"`
-	Status     string    `db:"status"`
-	Error      string    `db:"error"`
+	SourceType string `db:"source_type"`
+	SourceID   string `db:"source_id"`
+	EventType  string `db:"event_type"`
+	Channel    string `db:"channel"`
+	Recipient  string `db:"recipient"`
+	Status     string `db:"status"`
+	Error      string `db:"error"`
 }
 
 func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotificationParams) (*Notification, error) {
 	row := q.db.QueryRow(ctx, insertNotification,
-		arg.TransferID,
+		arg.SourceType,
+		arg.SourceID,
 		arg.EventType,
 		arg.Channel,
 		arg.Recipient,
@@ -104,13 +106,14 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 	var i Notification
 	err := row.Scan(
 		&i.ID,
-		&i.TransferID,
 		&i.EventType,
 		&i.Channel,
 		&i.Recipient,
 		&i.Status,
 		&i.Error,
 		&i.CreatedAt,
+		&i.SourceType,
+		&i.SourceID,
 	)
 	return &i, err
 }

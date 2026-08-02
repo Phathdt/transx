@@ -23,8 +23,9 @@ export const ListInboxResponse = zod.object({
   "createdAt": zod.string().optional(),
   "id": zod.string().optional(),
   "readAt": zod.string().nullish(),
+  "sourceRef": zod.string().optional(),
+  "sourceType": zod.string().optional(),
   "title": zod.string().optional(),
-  "transferId": zod.string().optional(),
   "type": zod.string().optional()
 })).optional(),
   "page": zod.number().optional(),
@@ -61,8 +62,9 @@ export const GetInboxItemResponse = zod.object({
   "createdAt": zod.string().optional(),
   "id": zod.string().optional(),
   "readAt": zod.string().nullish(),
+  "sourceRef": zod.string().optional(),
+  "sourceType": zod.string().optional(),
   "title": zod.string().optional(),
-  "transferId": zod.string().optional(),
   "type": zod.string().optional()
 })
 

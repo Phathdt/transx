@@ -20,8 +20,9 @@ type ProcessedMessageRepository interface {
 
 // UserInboxRepository persists user-facing inbox items (user_inbox_items table).
 type UserInboxRepository interface {
-	// InsertInboxItem inserts one inbox item. ON CONFLICT on the partial unique
-	// (user_id, type, transfer_id) is a no-op upsert so Kafka redelivery is safe.
+	// InsertInboxItem inserts one inbox item. ON CONFLICT on the full unique
+	// (user_id, type, source_type, source_id) is a no-op upsert so Kafka
+	// redelivery is safe for every source type, not just transfers.
 	InsertInboxItem(ctx context.Context, item *entities.InboxItem) error
 
 	// GetInboxItemByUserAndID returns one item, checking ownership.

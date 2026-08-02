@@ -174,9 +174,13 @@ The `notification` process owns two distinct surfaces that must not be confused:
 
 On each terminal Kafka event (`transfer.completed` / `transfer.failed`):
 
-1. `CreateInboxItems` inserts one row per recipient (`user_id, type, transfer_id` unique when `transfer_id` present). Recipients: always the sender; also the destination account owner when that account is in-system (typical INTERNAL). EXTERNAL free-text destinations → sender only.
+1. `CreateInboxItems` inserts one row per recipient (`user_id, type, source_type, source_id` unique for every source type). Recipients: always the sender; also the destination account owner when that account is in-system (typical INTERNAL). EXTERNAL free-text destinations → sender only.
 2. `Notify` still logs EMAIL/PUSH dispatch attempts (unchanged audit path).
 
 Inbox creation is independent of channel send success so users still see the event when a notifier fails. Traefik routes `PathPrefix(/api/v1/inbox)` (priority 90, ForwardAuth) to the notification service HTTP port.
+
+Both tables are generic over source (`source_type`: `transfer` | `system` | `report`) so a non-transfer producer needs no migration. `source_ref` is the source's business reference (`ITN-`/`ETN-…` for transfers) and doubles as the frontend deep-link key; `source_id` stays internal and is not exposed by the API. Neither table carries an FK to `transfers`, so they stay deployable apart from the transfer module.
+
+The notification service reloads transfer context by JOIN (`transfers` + `accounts` + `users`) because the event payload carries only `{transferId}`. That cross-module read is deliberate: a push-model payload would move the recipient JOIN into `MarkTerminal`'s money-writing transaction and put user PII on Kafka. See `plans/reports/deferred-architecture-260801-2342-push-model-notification-payload-report.md` for the analysis and the preferred alternative (a notification-owned recipient table) once a second source entity appears.
 
 Frontend: AppShell bell polls `GET /inbox/unread-count`, lists via `GET /inbox`, opens detail via `GET /inbox/:id` (auto-marks read), and can `POST /inbox/read-all`.

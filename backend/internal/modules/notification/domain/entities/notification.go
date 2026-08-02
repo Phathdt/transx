@@ -34,11 +34,13 @@ var (
 )
 
 // Notification is one append-only audit row: one dispatch attempt on one
-// channel for one transfer event.
+// channel for one source event.
 type Notification struct {
 	ID uuid.UUID
-	// TransferID is the internal transfers.id UUID used for inserts/joins.
-	TransferID uuid.UUID
+	// SourceType and SourceID identify what the notification was about, without
+	// coupling the audit trail to any one producer's id type.
+	SourceType string
+	SourceID   string
 	EventType  string
 	Channel    Channel
 	Recipient  string

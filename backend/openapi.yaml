@@ -777,9 +777,11 @@ components:
           type:
             - string
             - 'null'
-        title:
+        sourceRef:
           type: string
-        transferId:
+        sourceType:
+          type: string
+        title:
           type: string
         type:
           type: string

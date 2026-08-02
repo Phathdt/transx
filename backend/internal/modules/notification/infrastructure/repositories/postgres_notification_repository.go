@@ -30,7 +30,8 @@ func (r *PostgresNotificationRepository) InsertNotification(
 	n *entities.Notification,
 ) error {
 	_, err := r.q.InsertNotification(ctx, gen.InsertNotificationParams{
-		TransferID: n.TransferID,
+		SourceType: n.SourceType,
+		SourceID:   n.SourceID,
 		EventType:  n.EventType,
 		Channel:    string(n.Channel),
 		Recipient:  n.Recipient,

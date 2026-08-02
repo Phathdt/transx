@@ -152,6 +152,9 @@ All money movement belongs to one consistency boundary.
 
 - Push notifications
 - Email notifications
+- In-app inbox (`GET/POST /api/v1/inbox/*`) — user-facing read/unread messages,
+  generic over source (`transfer` | `system` | `report`) so a new producer needs
+  no schema change
 
 **Consumes:**
 

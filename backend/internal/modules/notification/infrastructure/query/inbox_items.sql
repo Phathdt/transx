@@ -1,15 +1,15 @@
 -- name: InsertInboxItem :one
--- Inserts a user inbox item. ON CONFLICT updates title (no-op when equal) so
--- Kafka redelivery is safe and RETURNING still yields the existing row.
-INSERT INTO user_inbox_items (user_id, type, title, body, transfer_id, transfer_ref)
-    VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (user_id, type, transfer_id)
-WHERE
-    transfer_id IS NOT NULL
-        DO UPDATE SET
-            title = EXCLUDED.title
-        RETURNING
-            *;
+-- Inserts a user inbox item. The conflict target is the full unique index so
+-- every source_type dedupes, not just rows that carry a transfer. DO UPDATE on
+-- title is a no-op when equal, so Kafka redelivery is safe and RETURNING still
+-- yields the existing row.
+INSERT INTO user_inbox_items (user_id, type, title, body, source_type, source_id, source_ref)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (user_id, type, source_type, source_id)
+    DO UPDATE SET
+        title = EXCLUDED.title
+    RETURNING
+        *;
 
 -- name: GetInboxItemByUserAndID :one
 SELECT
@@ -18,8 +18,9 @@ SELECT
     type,
     title,
     body,
-    transfer_id,
-    transfer_ref,
+    source_type,
+    source_id,
+    source_ref,
     read_at,
     created_at
 FROM
@@ -35,8 +36,9 @@ SELECT
     type,
     title,
     body,
-    transfer_id,
-    transfer_ref,
+    source_type,
+    source_id,
+    source_ref,
     read_at,
     created_at
 FROM

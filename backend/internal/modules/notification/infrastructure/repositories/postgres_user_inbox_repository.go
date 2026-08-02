@@ -25,22 +25,14 @@ func NewPostgresUserInboxRepository(q *gen.Queries) *PostgresUserInboxRepository
 var _ interfaces.UserInboxRepository = (*PostgresUserInboxRepository)(nil)
 
 func (r *PostgresUserInboxRepository) InsertInboxItem(ctx context.Context, item *entities.InboxItem) error {
-	var transferID *uuid.UUID
-	if item.TransferID != uuid.Nil {
-		id := item.TransferID
-		transferID = &id
-	}
-	var transferRef *string
-	if item.TransferRef != "" {
-		transferRef = &item.TransferRef
-	}
 	_, err := r.q.InsertInboxItem(ctx, gen.InsertInboxItemParams{
-		UserID:      item.UserID,
-		Type:        item.Type,
-		Title:       item.Title,
-		Body:        item.Body,
-		TransferID:  transferID,
-		TransferRef: transferRef,
+		UserID:     item.UserID,
+		Type:       item.Type,
+		Title:      item.Title,
+		Body:       item.Body,
+		SourceType: item.SourceType,
+		SourceID:   item.SourceID,
+		SourceRef:  item.SourceRef,
 	})
 	return err
 }
@@ -112,22 +104,15 @@ func (r *PostgresUserInboxRepository) MarkAllInboxRead(ctx context.Context, user
 }
 
 func inboxRowToEntity(row *gen.UserInboxItem) *entities.InboxItem {
-	var transferRef string
-	if row.TransferRef != nil {
-		transferRef = *row.TransferRef
-	}
-	var transferID uuid.UUID
-	if row.TransferID != nil {
-		transferID = *row.TransferID
-	}
 	return &entities.InboxItem{
-		ID:          row.ID,
-		UserID:      row.UserID,
-		Type:        row.Type,
-		Title:       row.Title,
-		Body:        row.Body,
-		TransferID:  transferID,
-		TransferRef: transferRef,
+		ID:         row.ID,
+		UserID:     row.UserID,
+		Type:       row.Type,
+		Title:      row.Title,
+		Body:       row.Body,
+		SourceType: row.SourceType,
+		SourceID:   row.SourceID,
+		SourceRef:  row.SourceRef,
 		// ReadAt is already *time.Time from sqlc (nullable timestamptz).
 		ReadAt:    row.ReadAt,
 		CreatedAt: row.CreatedAt,
